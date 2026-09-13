@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stats Client — mockup</title>
+<!--
+  THROWAWAY MOCKUP — not shipped, not imported by the app.
+
+  What this answers: what every screen/sheet/banner of the CoachIQ Stats Client (the iPhone
+  companion app) looks like, in every state that matters for review. Each state is a fixed
+  390-pt-wide phone frame, laid down the page as its own numbered section, so a reviewer can
+  scroll through all of them (or load this file and use the browser's device toolbar at
+  390x844). Portrait only, light theme only — no theme toggle, no jersey numbers.
+
+  Tokens are copied from reference/stats-mockup.html's light `:root` (the planner's own mockup),
+  and `.btn`, `.seg`, `.banner`, `.payload`, `.gchip` are copied from the same file so the two
+  apps read as a family. New classes below (`.screen`, `.topbar`, `.setbar`, `.row`, `.name`,
+  `.cnt.in`, `.cnt.out`, `.bottombar`, `.sheet`, `.banner.err`, `.btn.primary`, `.btn.danger`)
+  are the ones named in the Task 1 brief's Interfaces line — the real `ui.js` will reuse them.
+-->
+<style>
+:root {
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fb98a; --warn:#e8963c; --err:#e0524a;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(16,32,48,.07), 0 6px 20px rgba(16,32,48,.07);
+  --backdrop:rgba(16,32,48,.35);
+  --warn-bg:rgba(232,150,60,.1); --warn-border:rgba(232,150,60,.35);
+  --err-bg:rgba(224,82,74,.1); --err-border:rgba(224,82,74,.4);
+  --info-bg:rgba(47,125,225,.14); --ok-bg:rgba(63,185,138,.16);
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif; }
+button { font:inherit; color:inherit; cursor:pointer; }
+[hidden] { display:none !important; }
+
+/* ---------- mockup page chrome ---------- */
+.page { max-width:460px; margin:0 auto; padding:22px 16px 70px; }
+.mock-banner { background:var(--bg-4); border:1px dashed var(--line-2); border-radius:8px; padding:9px 14px; font-size:12px; color:var(--fg-3); margin-bottom:22px; }
+h1 { font-size:19px; margin:0 0 4px; }
+.lede { color:var(--fg-3); font-size:12.5px; margin:0 0 28px; }
+section { margin-bottom:38px; }
+section > h2 { font-size:13px; color:var(--fg); border-bottom:1px solid var(--line); padding-bottom:8px; margin:0 0 12px; font-weight:700; }
+section > .sub-h { font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--fg-3); margin:18px 0 8px; font-weight:700; }
+section > .sub-h:first-of-type { margin-top:14px; }
+
+/* ---------- shipped pieces copied from reference/stats-mockup.html ---------- */
+.seg { display:inline-flex; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
+.seg button { background:none; border:0; padding:6px 10px; min-height:44px; font-size:12px; color:var(--fg-2); }
+.seg button.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.seg button .score { font-size:10px; opacity:.85; margin-left:4px; }
+.banner { margin:10px 12px 0; padding:10px 12px; border-radius:var(--radius); background:var(--warn-bg); border:1px solid var(--warn-border); font-size:12.5px; line-height:1.5; display:flex; align-items:center; gap:10px; }
+.banner.err { background:var(--err-bg); border-color:var(--err-border); }
+.banner b { color:var(--warn); }
+.banner.err b { color:var(--err); }
+.banner span { flex:1; }
+.gchip { font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); background:var(--info-bg); border-radius:4px; padding:1px 5px; flex:none; }
+.payload { width:100%; margin-top:10px; resize:none; background:var(--bg-3); border:1px solid var(--line); border-radius:8px; padding:8px 10px; color:var(--fg-2); font:11.5px/1.5 ui-monospace,Consolas,"Cascadia Mono",monospace; word-break:break-all; }
+.btn { background:var(--bg-4); border:1px solid var(--line-2); border-radius:8px; padding:8px 14px; display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; font-size:13px; }
+.btn:hover { background:var(--bg-3); border-color:var(--fg-3); }
+.btn.icon { padding:8px 11px; min-width:44px; }
+.btn.sm { padding:6px 12px; min-height:44px; font-size:12.5px; }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+.btn.danger { background:var(--err-bg); border-color:var(--err-border); color:var(--err); font-weight:600; }
+.btn.block { width:100%; }
+
+/* ---------- phone frame ---------- */
+.phone { width:390px; max-width:100%; margin:0 auto; border:1px solid var(--line-2); border-radius:26px; background:var(--bg-2); box-shadow:var(--shadow); overflow:hidden; }
+.screen { position:relative; min-height:200px; background:var(--bg); display:flex; flex-direction:column; }
+.screen-pad { padding:16px 12px; }
+
+/* topbar / setbar (recording screen) */
+.topbar { display:flex; align-items:center; gap:6px; padding:0 10px; height:48px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.topbar .title { font-weight:650; font-size:13.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.setbar { padding:8px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead { display:grid; grid-template-columns:96px repeat(4,64px); gap:4px; padding:6px 10px 4px; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead span:first-child { text-align:left; }
+
+/* rows */
+.rows { flex:1; overflow-y:auto; }
+.row { display:grid; grid-template-columns:96px repeat(4,64px); gap:4px; align-items:center; height:52px; padding:0 10px; border-bottom:1px solid var(--line); }
+.row:nth-child(even) { background:var(--bg-3); }
+.name { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:4px; }
+.name .gchip { font-size:8px; padding:1px 4px; }
+.cnt { width:64px; height:48px; border-radius:8px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; font-size:19px; font-weight:700; }
+.cnt.in { background:var(--ok-bg); border-color:var(--ok); color:#237a5a; }
+.cnt.out { background:var(--warn-bg); border-color:var(--warn); color:#a15b13; }
+/* "-" (subtract one) mode: every count button turns red-outlined, ready to take one subtraction */
+.screen.minus-mode .cnt { background:var(--bg-2); border:2px solid var(--err); color:var(--err); }
+
+/* bottom bar */
+.bottombar { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bg-2); border-top:1px solid var(--line); flex:none; }
+.bottombar .undo { flex:1; justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bottombar .minus { width:44px; flex:none; font-size:18px; font-weight:800; }
+
+/* bottom sheets */
+.screen.sheet-host { background:var(--backdrop); justify-content:flex-end; padding:0; min-height:420px; }
+.sheet { background:var(--bg-2); border-radius:16px 16px 0 0; padding:16px 14px 20px; }
+.sheet h3 { margin:0 0 4px; font-size:15px; }
+.sheet .helper { font-size:12px; color:var(--fg-3); margin:2px 0 14px; line-height:1.5; }
+.sheet label { display:block; font-size:11.5px; color:var(--fg-3); margin:0 0 4px; }
+.sheet input[type="text"], .sheet input[type="number"] { width:100%; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; padding:9px 10px; font:inherit; color:var(--fg); margin-bottom:12px; }
+.sheet input[inputmode="numeric"] { text-align:center; font-size:20px; font-weight:700; }
+.sheet .score-row { display:flex; align-items:flex-end; gap:12px; margin-bottom:6px; }
+.sheet .score-row > div { flex:1; }
+.sheet .actions { display:flex; gap:8px; margin-top:6px; }
+.sheet .actions .btn { flex:1; }
+.sheet ul.menu { list-style:none; margin:0 0 4px; padding:0; }
+.sheet ul.menu li { border-bottom:1px solid var(--line); }
+.sheet ul.menu li:last-child { border-bottom:0; }
+.sheet ul.menu button { width:100%; text-align:left; background:none; border:0; padding:12px 4px; font-size:13.5px; justify-content:flex-start; min-height:44px; }
+.sheet ul.menu button:hover { background:var(--bg-3); }
+.sheet ul.menu .muted-line { padding:10px 4px; font-size:11.5px; color:var(--fg-3); display:flex; justify-content:space-between; }
+
+/* game switcher list */
+.glist { list-style:none; margin:0; padding:0; }
+.glist li { display:flex; align-items:center; gap:8px; padding:12px 4px; border-bottom:1px solid var(--line); }
+.glist li:last-child { border-bottom:0; }
+.glist .gmeta { flex:1; font-size:12.5px; }
+.glist .gmeta .gtitle { font-weight:650; font-size:13.5px; display:block; }
+.glist .gmeta .gsub { color:var(--fg-3); font-size:11.5px; }
+.glist .newgame button { width:100%; justify-content:flex-start; color:var(--accent); font-weight:600; background:none; border:1px dashed var(--line-2); }
+
+/* paste roster screen */
+.paste-box { width:100%; min-height:120px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; color:var(--fg); font:13px/1.5 inherit; resize:vertical; }
+.paste-box::placeholder { color:var(--fg-3); }
+.helper { font-size:11.5px; color:var(--fg-3); margin:8px 0 0; line-height:1.5; }
+.summary-line { font-size:12.5px; color:var(--fg-2); margin:0 0 4px; }
+</style>
+
+<body>
+<div class="page">
+
+  <div class="mock-banner">
+    Static HTML mockup of the CoachIQ Stats Client — preview only, not the running app. Inline CSS,
+    no external resources, no build step. Portrait only, light theme only. One numbered section per
+    state; view at 390x844 in the browser's device toolbar to check each frame at real size.
+  </div>
+
+  <h1>CoachIQ Stats Client — screen states</h1>
+  <p class="lede">Fixture: Tigers vs Lions, Sat 19 Sep — 12-player roster (one sub), Set 1 in progress.</p>
+
+  <!-- ============ 1. Paste roster ============ -->
+  <section>
+    <h2>1. Paste roster screen</h2>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box" placeholder="Paste the roster payload here"></textarea>
+      <p class="helper">Paste the roster copied from CoachIQ Rotation Planner</p>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+  </section>
+
+  <!-- ============ 2. Recording screen ============ -->
+  <section>
+    <h2>2. Recording screen — Set 1, 12 players</h2>
+    <div class="phone"><div class="screen">
+      <div class="topbar">
+        <button type="button" class="btn icon sm">Games ▾</button>
+        <span class="title">vs Lions · 19 Sep</span>
+        <button type="button" class="btn icon sm">⋯</button>
+      </div>
+      <div class="setbar">
+        <div class="seg" role="group" aria-label="Which set">
+          <button type="button" class="on">Set 1<span class="score">25–21</span></button>
+          <button type="button">Set 2</button>
+          <button type="button">Set 3</button>
+        </div>
+      </div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><div class="name">Lily Okafor</div><button type="button" class="cnt in">14</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Sofia Reyes</div><button type="button" class="cnt in">11</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">6</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Harper Lin</div><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button><button type="button" class="cnt in">12</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Emma Novak</div><button type="button" class="cnt in">7</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">4</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Grace Kim</div><button type="button" class="cnt in">8</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">15</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Chloe Brandt</div><button type="button" class="cnt in">8</button><button type="button" class="cnt out">4</button><button type="button" class="cnt in">3</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Isla Fraser</div><button type="button" class="cnt in">5</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">0</button><button type="button" class="cnt out">0</button></div>
+        <div class="row"><div class="name">Ruby Adeyemi</div><button type="button" class="cnt in">6</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">7</button><button type="button" class="cnt out">4</button></div>
+        <div class="row"><div class="name">Maya Torres</div><button type="button" class="cnt in">10</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">5</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Nora Haddad</div><button type="button" class="cnt in">4</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">8</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Zoe Marsh</div><button type="button" class="cnt in">3</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">5</button><button type="button" class="cnt out">0</button></div>
+        <div class="row"><div class="name">Ava Patel <span class="gchip">Sub</span></div><button type="button" class="cnt in">2</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">1</button><button type="button" class="cnt out">0</button></div>
+      </div>
+      <div class="bottombar">
+        <button type="button" class="btn sm undo">↶ Undo Grace S in</button>
+        <button type="button" class="btn icon sm minus">−</button>
+        <button type="button" class="btn sm primary">Export</button>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 3. Recording screen in "-" mode ============ -->
+  <section>
+    <h2>3. Recording screen — "−" (subtract one) mode</h2>
+    <div class="phone"><div class="screen minus-mode">
+      <div class="topbar">
+        <button type="button" class="btn icon sm">Games ▾</button>
+        <span class="title">vs Lions · 19 Sep</span>
+        <button type="button" class="btn icon sm">⋯</button>
+      </div>
+      <div class="setbar">
+        <div class="seg" role="group" aria-label="Which set">
+          <button type="button" class="on">Set 1<span class="score">25–21</span></button>
+          <button type="button">Set 2</button>
+          <button type="button">Set 3</button>
+        </div>
+      </div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><div class="name">Lily Okafor</div><button type="button" class="cnt in">14</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Sofia Reyes</div><button type="button" class="cnt in">11</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">6</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Harper Lin</div><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button><button type="button" class="cnt in">12</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Emma Novak</div><button type="button" class="cnt in">7</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">4</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Grace Kim</div><button type="button" class="cnt in">8</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">15</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Chloe Brandt</div><button type="button" class="cnt in">8</button><button type="button" class="cnt out">4</button><button type="button" class="cnt in">3</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Isla Fraser</div><button type="button" class="cnt in">5</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">0</button><button type="button" class="cnt out">0</button></div>
+        <div class="row"><div class="name">Ruby Adeyemi</div><button type="button" class="cnt in">6</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">7</button><button type="button" class="cnt out">4</button></div>
+        <div class="row"><div class="name">Maya Torres</div><button type="button" class="cnt in">10</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">5</button><button type="button" class="cnt out">1</button></div>
+        <div class="row"><div class="name">Nora Haddad</div><button type="button" class="cnt in">4</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">8</button><button type="button" class="cnt out">2</button></div>
+        <div class="row"><div class="name">Zoe Marsh</div><button type="button" class="cnt in">3</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">5</button><button type="button" class="cnt out">0</button></div>
+        <div class="row"><div class="name">Ava Patel <span class="gchip">Sub</span></div><button type="button" class="cnt in">2</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">1</button><button type="button" class="cnt out">0</button></div>
+      </div>
+      <div class="bottombar">
+        <button type="button" class="btn sm undo">↶ Undo Grace S in</button>
+        <button type="button" class="btn icon sm minus primary">−</button>
+        <button type="button" class="btn sm primary">Export</button>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 4. Score sheet ============ -->
+  <section>
+    <h2>4. Score sheet</h2>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Set 1 score</h3>
+        <p class="helper" style="margin-bottom:14px;">Enter the final score once the set is over.</p>
+        <div class="score-row">
+          <div><label for="us">Us</label><input id="us" type="text" inputmode="numeric" value="25"></div>
+          <div><label for="them">Them</label><input id="them" type="text" inputmode="numeric" value="21"></div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn danger">Clear score</button>
+          <button type="button" class="btn primary">Done</button>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 5. Add-a-sub sheet ============ -->
+  <section>
+    <h2>5. Add-a-sub sheet</h2>
+
+    <p class="sub-h">5a. Default</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Add a sub</h3>
+        <label for="subname">Name</label>
+        <input id="subname" type="text" placeholder="Player name">
+        <div class="actions">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn primary">Add</button>
+        </div>
+      </div>
+    </div></div>
+
+    <p class="sub-h">5b. Error — empty name</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Add a sub</h3>
+        <label for="subname2">Name</label>
+        <input id="subname2" type="text" value="">
+        <div class="banner err" role="alert" style="margin:-4px 0 12px;">
+          <span>Enter a name.</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn primary" disabled>Add</button>
+        </div>
+      </div>
+    </div></div>
+
+    <p class="sub-h">5c. Error — name too long</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Add a sub</h3>
+        <label for="subname2b">Name</label>
+        <input id="subname2b" type="text" value="Alexandrina Featherstonehaugh-Montgomery Jr">
+        <div class="banner err" role="alert" style="margin:-4px 0 12px;">
+          <span>That name is 65 characters; the limit is 64.</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn primary" disabled>Add</button>
+        </div>
+      </div>
+    </div></div>
+
+    <p class="sub-h">5d. Error — roster already at the limit</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Add a sub</h3>
+        <label for="subname3">Name</label>
+        <input id="subname3" type="text" value="Priya Nair">
+        <div class="banner err" role="alert" style="margin:-4px 0 12px;">
+          <span>This game already has 12 players; the stats app limit is 12.</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn primary" disabled>Add</button>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 6. Export screen ============ -->
+  <section>
+    <h2>6. Export screen</h2>
+
+    <p class="sub-h">6a. After Copy</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="font-weight:650;font-size:15px;">Export stats</p>
+      <p class="summary-line">vs Lions · 19 Sep · 1 set recorded · 12 players</p>
+      <textarea class="payload" rows="5" readonly aria-label="Stats payload">CIQS1.eyJ2IjoxLCJraW5kIjoic3RhdHMiLCJnYW1lSWQiOiJnMDE5IiwicmVjb3JkZWRBdCI6IjIwMjYtMDktMTlUMTk0MjEyWiIsInBsYXllcnMiOlt7ImlkIjoibGlseSIsIm5hbWUiOiJMaWx5IE9rYWZvciJ9LHsiaWQiOiJzb2ZpYSIsIm5hbWUiOiJTb2ZpYSBSZXllcyJ9LHsiaWQiOiJoYXJwZXIiLCJuYW1lIjoiSGFycGVyIExpbiJ9LHsiaWQiOiJlbW1hIiwibmFtZSI6IkVtbWEgTm92YWsifSx7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UgS2ltIn0seyJpZCI6ImNobG9lIiwibmFtZSI6IkNobG9lIEJyYW5kdCJ9LHsiaWQiOiJpc2xhIiwibmFtZSI6IklzbGEgRnJhc2VyIn0seyJpZCI6InJ1YnkiLCJuYW1lIjoiUnVieSBBZGV5ZW1pIn0seyJpZCI6Im1heWEiLCJuYW1lIjoiTWF5YSBUb3JyZXMifSx7ImlkIjoibm9yYSIsIm5hbWUiOiJOb3JhIEhhZGRhZCJ9LHsiaWQiOiJ6b2UiLCJuYW1lIjoiWm9lIE1hcnNoIn0seyJpZCI6ImN4LTd0cTNtayIsIm5hbWUiOiJBdmEgUGF0ZWwifV0sInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMjFdLCJwbGF5ZXJzIjpbeyJpZCI6ImxpbHkiLCJzZXJ2ZSI6eyJpbiI6MTQsIm91dCI6Mn0sInJldHVybiI6eyJpbiI6OSwib3V0IjozfX1dfV19.4f2ac8d1</textarea>
+      <div class="actions" style="display:flex;gap:8px;margin-top:12px;">
+        <button type="button" class="btn sm">Copy</button>
+        <button type="button" class="btn sm">Share…</button>
+        <button type="button" class="btn sm" style="margin-left:auto;">Back</button>
+      </div>
+      <div class="banner" role="status" style="margin:12px 0 0;">
+        <span>Copied — paste it into the planner's Stats dialog.</span>
+      </div>
+    </div></div>
+
+    <p class="sub-h">6b. Clipboard unavailable (fallback)</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="font-weight:650;font-size:15px;">Export stats</p>
+      <p class="summary-line">vs Lions · 19 Sep · 1 set recorded · 12 players</p>
+      <textarea class="payload" rows="5" readonly aria-label="Stats payload">CIQS1.eyJ2IjoxLCJraW5kIjoic3RhdHMiLCJnYW1lSWQiOiJnMDE5IiwicmVjb3JkZWRBdCI6IjIwMjYtMDktMTlUMTk0MjEyWiIsInBsYXllcnMiOlt7ImlkIjoibGlseSIsIm5hbWUiOiJMaWx5IE9rYWZvciJ9LHsiaWQiOiJzb2ZpYSIsIm5hbWUiOiJTb2ZpYSBSZXllcyJ9LHsiaWQiOiJoYXJwZXIiLCJuYW1lIjoiSGFycGVyIExpbiJ9LHsiaWQiOiJlbW1hIiwibmFtZSI6IkVtbWEgTm92YWsifSx7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UgS2ltIn0seyJpZCI6ImNobG9lIiwibmFtZSI6IkNobG9lIEJyYW5kdCJ9LHsiaWQiOiJpc2xhIiwibmFtZSI6IklzbGEgRnJhc2VyIn0seyJpZCI6InJ1YnkiLCJuYW1lIjoiUnVieSBBZGV5ZW1pIn0seyJpZCI6Im1heWEiLCJuYW1lIjoiTWF5YSBUb3JyZXMifSx7ImlkIjoibm9yYSIsIm5hbWUiOiJOb3JhIEhhZGRhZCJ9LHsiaWQiOiJ6b2UiLCJuYW1lIjoiWm9lIE1hcnNoIn0seyJpZCI6ImN4LTd0cTNtayIsIm5hbWUiOiJBdmEgUGF0ZWwifV0sInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMjFdLCJwbGF5ZXJzIjpbeyJpZCI6ImxpbHkiLCJzZXJ2ZSI6eyJpbiI6MTQsIm91dCI6Mn0sInJldHVybiI6eyJpbiI6OSwib3V0IjozfX1dfV19.4f2ac8d1</textarea>
+      <div class="actions" style="display:flex;gap:8px;margin-top:12px;">
+        <button type="button" class="btn sm">Copy</button>
+        <button type="button" class="btn sm">Share…</button>
+        <button type="button" class="btn sm" style="margin-left:auto;">Back</button>
+      </div>
+      <div class="banner err" role="alert" style="margin:12px 0 0;">
+        <span>The clipboard is not available here — select the text and copy it.</span>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 7. Game switcher sheet ============ -->
+  <section>
+    <h2>7. Game switcher sheet</h2>
+
+    <p class="sub-h">7a. List</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Games</h3>
+        <ul class="glist">
+          <li>
+            <div class="gmeta"><span class="gtitle">vs Lions</span><span class="gsub">19 Sep · 2 sets · exported 14:02</span></div>
+            <button type="button" class="btn danger sm">Delete</button>
+          </li>
+          <li>
+            <div class="gmeta"><span class="gtitle">vs Bears</span><span class="gsub">19 Sep · 1 set</span></div>
+            <button type="button" class="btn danger sm">Delete</button>
+          </li>
+          <li class="newgame" style="padding-top:14px;">
+            <button type="button" class="btn block">+ New game (paste roster)</button>
+          </li>
+        </ul>
+      </div>
+    </div></div>
+
+    <p class="sub-h">7b. Delete confirmation</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Delete this game?</h3>
+        <p class="helper" style="margin-bottom:16px;">Delete vs Bears and its stats? This cannot be undone.</p>
+        <div class="actions">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn danger">Delete</button>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 8. Menu sheet ============ -->
+  <section>
+    <h2>8. Menu sheet (⋯)</h2>
+
+    <p class="sub-h">8a. Menu</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Menu</h3>
+        <ul class="menu">
+          <li><button type="button">Add a sub</button></li>
+          <li><button type="button">Clear Set 1…</button></li>
+          <li><button type="button">Delete game…</button></li>
+          <li class="muted-line"><span>Codec self-check: OK</span></li>
+          <li class="muted-line"><span>v1.0.0</span></li>
+        </ul>
+      </div>
+    </div></div>
+
+    <p class="sub-h">8b. Clear-set confirmation</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Clear every count and the score for Set 1?</h3>
+        <div class="actions" style="margin-top:16px;">
+          <button type="button" class="btn">Cancel</button>
+          <button type="button" class="btn danger">Clear</button>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 9. Paste-screen errors ============ -->
+  <section>
+    <h2>9. Error states on the paste screen</h2>
+
+    <p class="sub-h">9a. Not a CoachIQ payload</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box">Hey, here's the roster for Saturday — Lily, Sofia, Harper...</textarea>
+      <div class="banner err" role="alert">
+        <span>This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.</span>
+      </div>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+
+    <p class="sub-h">9b. Wrong kind (stats payload, not roster)</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box">CIQS1.eyJ2IjoxLCJraW5kIjoic3RhdHMiLCJnYW1lSWQiOiJnMDE5In0.27119bc0</textarea>
+      <div class="banner err" role="alert">
+        <span>This is a stats payload, not a roster payload.</span>
+      </div>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+
+    <p class="sub-h">9c. Newer contract version</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box">CIQR2.eyJ2IjoyLCJraW5kIjoicm9zdGVyIiwiZ2FtZUlkIjoiZzAxOSJ9.7a4e10f2</textarea>
+      <div class="banner err" role="alert">
+        <span>This payload was made by a newer version of the stats app (contract 2); this app understands 1.</span>
+      </div>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+
+    <p class="sub-h">9d. Corrupted payload</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box">CIQR1.eyJ2IjoxLCJraW5kIjoicm9zdGVyIiwiZ2FtZUlkIjoiZzAxOSIsInRlYW0</textarea>
+      <div class="banner err" role="alert">
+        <span>This payload is corrupted or incomplete — copy it again from the stats app.</span>
+      </div>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+
+    <p class="sub-h">9e. Malformed roster — too many players</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <textarea class="paste-box">CIQR1.eyJ2IjoxLCJraW5kIjoicm9zdGVyIiwiZ2FtZUlkIjoiZzAxOSIsInBsYXllcnMiOlsuLi4xMyBwbGF5ZXJzXX0.9c31af02</textarea>
+      <div class="banner err" role="alert">
+        <span>The roster payload is malformed: it names 13 players; the limit is 12.</span>
+      </div>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+  </section>
+
+  <!-- ============ 10. "Game already open" choice ============ -->
+  <section>
+    <h2>10. "Game already open" choice</h2>
+
+    <p class="sub-h">10a. Choice</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>This game is already open</h3>
+        <p class="helper" style="margin-bottom:16px;">vs Lions is already open with 2 sets recorded.</p>
+        <div class="actions" style="flex-direction:column;">
+          <button type="button" class="btn primary block">Open it</button>
+          <button type="button" class="btn block" style="margin-top:8px;">Update roster</button>
+          <button type="button" class="btn block" style="margin-top:8px;">Cancel</button>
+        </div>
+      </div>
+    </div></div>
+
+    <p class="sub-h">10b. Merge refusal — over the limit</p>
+    <div class="phone"><div class="screen sheet-host">
+      <div class="sheet">
+        <h3>Can't update this roster</h3>
+        <div class="banner err" role="alert" style="margin:0 0 16px;">
+          <span>Updating would make 14 players; the stats app limit is 12.</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn primary block">OK</button>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ 11. Storage banners ============ -->
+  <section>
+    <h2>11. Storage banners</h2>
+
+    <p class="sub-h">11a. Could not save (red, persistent)</p>
+    <div class="phone"><div class="screen">
+      <div class="topbar">
+        <button type="button" class="btn icon sm">Games ▾</button>
+        <span class="title">vs Lions · 19 Sep</span>
+        <button type="button" class="btn icon sm">⋯</button>
+      </div>
+      <div class="banner err" role="alert">
+        <span>Could not save — export your stats now.</span>
+      </div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><div class="name">Lily Okafor</div><button type="button" class="cnt in">14</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Sofia Reyes</div><button type="button" class="cnt in">11</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">6</button><button type="button" class="cnt out">1</button></div>
+      </div>
+      <div class="bottombar">
+        <button type="button" class="btn sm undo">↶ Undo Sofia R in</button>
+        <button type="button" class="btn icon sm minus">−</button>
+        <button type="button" class="btn sm primary">Export</button>
+      </div>
+    </div></div>
+
+    <p class="sub-h">11b. Saved session unreadable, set aside (amber)</p>
+    <div class="phone"><div class="screen screen-pad">
+      <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open a game</p>
+      <div class="banner" role="status">
+        <span>The saved session could not be read and was set aside; starting fresh.</span>
+      </div>
+      <textarea class="paste-box" placeholder="Paste the roster payload here" style="margin-top:12px;"></textarea>
+      <p class="helper">Paste the roster copied from CoachIQ Rotation Planner</p>
+      <button type="button" class="btn primary block" style="margin-top:14px;" disabled>Open game</button>
+    </div></div>
+  </section>
+
+  <!-- ============ 12. Codec self-check failure ============ -->
+  <section>
+    <h2>12. Codec self-check failure banner</h2>
+    <div class="phone"><div class="screen">
+      <div class="topbar">
+        <button type="button" class="btn icon sm">Games ▾</button>
+        <span class="title">vs Lions · 19 Sep</span>
+        <button type="button" class="btn icon sm">⋯</button>
+      </div>
+      <div class="banner err" role="alert">
+        <span>Codec self-check failed — do not export until this build is fixed.</span>
+      </div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><div class="name">Lily Okafor</div><button type="button" class="cnt in">14</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">9</button><button type="button" class="cnt out">3</button></div>
+        <div class="row"><div class="name">Sofia Reyes</div><button type="button" class="cnt in">11</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">6</button><button type="button" class="cnt out">1</button></div>
+      </div>
+      <div class="bottombar">
+        <button type="button" class="btn sm undo">↶ Undo Sofia R in</button>
+        <button type="button" class="btn icon sm minus">−</button>
+        <button type="button" class="btn sm primary" disabled>Export</button>
+      </div>
+    </div></div>
+  </section>
+
+</div>
+
+<script>
+  // State toggles only, for show — no theme (light only) and no real app logic.
+  // Segmented controls: clicking a set button switches which one carries `.on`.
+  for (const seg of document.querySelectorAll('.seg')) {
+    for (const b of seg.querySelectorAll('button')) {
+      b.onclick = () => {
+        for (const o of seg.querySelectorAll('button')) o.classList.remove('on');
+        b.classList.add('on');
+      };
+    }
+  }
+  // The bottom bar's "-" toggle flips its own screen into minus-mode (red-outlined counts)
+  // and fills the "-" button itself, matching frame 3.
+  for (const btn of document.querySelectorAll('.bottombar .minus')) {
+    btn.onclick = () => {
+      const screen = btn.closest('.screen');
+      screen.classList.toggle('minus-mode');
+      btn.classList.toggle('primary');
+    };
+  }
+  // Recording-screen count buttons: tap = +1 (visual only, for feel).
+  for (const cnt of document.querySelectorAll('.cnt')) {
+    cnt.onclick = () => {
+      const screen = cnt.closest('.screen');
+      const delta = screen && screen.classList.contains('minus-mode') ? -1 : 1;
+      const n = Math.max(0, parseInt(cnt.textContent, 10) + delta);
+      cnt.textContent = String(n);
+    };
+  }
+</script>
+</body>
+</html>

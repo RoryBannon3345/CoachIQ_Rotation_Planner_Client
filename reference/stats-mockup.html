@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stats dialog — mockup</title>
+<!--
+  THROWAWAY MOCKUP — not shipped, not imported by the app.
+
+  The question this answers: what the game Stats dialog looks like, in all its states, in both
+  themes. The header is the shipped one plus the new 📊 Stats button between Export and ◐. The
+  dialog is the About dialog's modal card widened to ~760px, holding three stacked sections:
+  send the roster to the stats app, import the stats app's payload, and the statistics table.
+  Every state is laid out down the page as its own numbered section (the dialog is rendered in
+  the page flow, not fixed, so everything scrolls). Tokens are copied from src/styles/tokens.css;
+  the shipped rules are copied from src/styles/app.css. Press either ◐ button (the header's, or
+  the floating one bottom-right) to flip themes; the segmented control toggles for show.
+-->
+<style>
+:root {
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fb98a; --warn:#e8963c; --err:#e0524a;
+  --radius:10px;
+  --s-orange:#e8963c; --ball-accent:#f5c26b; --ball-ring:rgba(0,0,0,.25);
+  --shadow:0 1px 2px rgba(16,32,48,.07), 0 6px 20px rgba(16,32,48,.07);
+  --backdrop:rgba(16,32,48,.35);
+  /* Tinted surfaces — fixed in both themes, exactly as tokens.css declares them. */
+  --warn-bg:rgba(232,150,60,.1); --warn-border:rgba(232,150,60,.35);
+  --err-bg:rgba(224,82,74,.1); --err-border:rgba(224,82,74,.4);
+  --info-bg:rgba(47,125,225,.14); --ok-bg:rgba(63,185,138,.16);
+}
+html[data-theme="dark"] {
+  --bg:#0f1216; --bg-2:#161b22; --bg-3:#1c232c; --bg-4:#232c37;
+  --line:#2a3441; --line-2:#3a4757;
+  --fg:#e8edf3; --fg-2:#9aa8b8; --fg-3:#6b7a8c;
+  --accent:#4c9aff;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
+  --backdrop:rgba(0,0,0,.55);
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif; min-height:100vh; }
+button { font:inherit; color:inherit; cursor:pointer; }
+[hidden] { display:none !important; }
+
+/* ---------- mockup page chrome (as docs/five-one-mockup.html) ---------- */
+.page { max-width:1440px; margin:0 auto; padding:22px 28px 70px; }
+.mock-banner { background:var(--bg-4); border:1px dashed var(--line-2); border-radius:8px; padding:9px 14px; font-size:12px; color:var(--fg-3); margin-bottom:22px; }
+h1 { font-size:21px; margin:0 0 4px; }
+.lede { color:var(--fg-3); font-size:13px; margin:0 0 32px; }
+section { margin-bottom:44px; }
+section > h2 { font-size:12.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--fg-3); border-bottom:1px solid var(--line); padding-bottom:9px; margin:0 0 18px; font-weight:700; }
+/* The header's own ◐ is at the top of a long page; this second toggle stays reachable while
+   checking the lower sections in the other theme. Mockup-only. */
+.mock-theme { position:fixed; right:18px; bottom:18px; z-index:10; box-shadow:var(--shadow); }
+
+/* ---------- shell (as shipped) ---------- */
+/* The mockup's shell frame rounds the header's corners so it reads as a card on the page. */
+.shell { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--bg); }
+header.top { display:flex; align-items:center; gap:14px; padding:0 18px; height:56px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.brand { display:flex; align-items:center; gap:10px; font-weight:650; letter-spacing:-.01em; flex:none; white-space:nowrap; }
+.brand .ball { width:22px; height:22px; border-radius:50%; background:conic-gradient(from 20deg,var(--s-orange),var(--ball-accent),var(--s-orange)); box-shadow:inset 0 0 0 2px var(--ball-ring); flex:none; }
+.top .spacer { flex:1; }
+.gamebtn-wrap { position:relative; }
+.gamebtn { display:flex; align-items:center; gap:10px; margin-left:8px; background:var(--bg-4); border:1px solid var(--line-2); border-radius:9px; padding:5px 12px; }
+.gamebtn:hover { border-color:var(--fg-3); }
+.gamebtn .gname { font-weight:650; }
+.gamebtn .gmeta { font-size:11.5px; color:var(--fg-3); }
+.gamebtn .caret { color:var(--fg-3); font-size:11px; }
+.gamebtn.team { margin-left:0; }
+.pill { font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; padding:2px 7px; border-radius:20px; }
+.pill.n { background:var(--bg-4); color:var(--fg-3); }
+.pill.w { background:var(--ok-bg); color:var(--ok); }
+.data-controls { position:relative; display:flex; align-items:center; gap:8px; }
+.btn { background:var(--bg-4); border:1px solid var(--line-2); border-radius:8px; padding:6px 12px; display:inline-flex; align-items:center; gap:6px; }
+.btn:hover { background:var(--bg-3); border-color:var(--fg-3); }
+.btn.icon { padding:6px 9px; }
+.btn.sm { padding:4px 10px; font-size:12.5px; }
+.btn:disabled { opacity:.45; cursor:not-allowed; background:var(--bg-4); border-color:var(--line-2); }
+.btn:disabled:hover { background:var(--bg-4); border-color:var(--line-2); }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+.page-pane { padding:24px 18px; color:var(--fg-3); }
+.page-pane .pane { height:120px; border:1px dashed var(--line-2); border-radius:10px; display:grid; place-items:center; }
+
+/* ---------- shipped pieces the dialog reuses ---------- */
+.seg { display:inline-flex; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
+.seg button { background:none; border:0; padding:5px 12px; font-size:12.5px; color:var(--fg-2); }
+.seg button.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.banner { margin:12px 18px 0; padding:10px 12px; border-radius:var(--radius); background:var(--warn-bg); border:1px solid var(--warn-border); font-size:12.5px; line-height:1.5; display:flex; align-items:center; gap:12px; }
+.banner.err { background:var(--err-bg); border-color:var(--err-border); }
+.banner b { color:var(--warn); }
+.banner.err b { color:var(--err); }
+/* The banner's text takes the free width so the Dismiss button sits at the right edge. */
+.banner span { flex:1; }
+.game-form { position:absolute; top:calc(100% + 6px); left:0; z-index:50; width:240px; max-width:calc(100vw - 24px); background:var(--bg-2); border:1px solid var(--line-2); border-radius:9px; box-shadow:var(--shadow); padding:14px; }
+.game-form h4 { margin:0 0 4px; font-size:13px; }
+.game-form label { display:block; font-size:11.5px; color:var(--fg-3); margin-top:10px; margin-bottom:3px; }
+.game-form .checkbox-row { display:flex; align-items:center; gap:6px; margin-top:10px; font-size:12.5px; }
+.game-form .helper { font-size:11px; color:var(--fg-3); margin:10px 0 0; line-height:1.5; }
+.game-form .form-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.gchip { font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); background:var(--info-bg); border-radius:4px; padding:1px 5px; flex:none; }
+
+/* ---------- modal dialog (as shipped, About) ---------- */
+.modal-backdrop { position:fixed; inset:0; z-index:300; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--backdrop); }
+.modal { width:380px; max-width:100%; max-height:calc(100vh - 32px); overflow-y:auto; background:var(--bg-2); border:1px solid var(--line-2); border-radius:12px; box-shadow:var(--shadow); padding:18px 20px; }
+/* Mockup-only: the backdrop sits in the page flow under the header, so every state below it
+   still scrolls into view; the shipped one is fixed and covers the page. */
+.modal-backdrop.inline { position:static; padding:28px 16px 40px; }
+
+/* ---------- the Stats dialog (new) ---------- */
+/* Wider than About: the statistics table needs nine columns. The shipped card would still cap
+   at the viewport and scroll inside; uncapped here so the page shows the whole thing at once. */
+.modal.stats { width:760px; max-height:none; }
+.stats-head { display:flex; align-items:flex-start; gap:10px; }
+.stats-head h2 { margin:0; flex:1; font-size:17px; font-weight:650; letter-spacing:-.01em; line-height:1.2; }
+/* `·` separators in the title carry less weight than the words around them. */
+.stats-head h2 .sep { color:var(--fg-3); font-weight:400; margin:0 4px; }
+.stats-x { font-size:16px; line-height:1; }
+.stats-section { margin-top:18px; }
+.stats-section + .stats-section { margin-top:22px; padding-top:18px; border-top:1px solid var(--line); }
+.stats-section h3 { margin:0 0 10px; font-size:13.5px; font-weight:650; }
+/* The dialog's own helper line matches `.game-form .helper` but is not inside a form. */
+.helper { font-size:11px; color:var(--fg-3); margin:10px 0 0; line-height:1.5; }
+.muted { color:var(--fg-3); font-size:12.5px; margin:10px 0 0; }
+
+/* -- roster tick-list -- */
+/* Three columns at the dialog's full width; auto-fill collapses to fewer on a narrow screen. */
+.tick-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:2px 12px; margin:0; padding:0; list-style:none; }
+.tick { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; font-size:13px; }
+.tick:hover { background:var(--bg-3); }
+.tick input { margin:0; accent-color:var(--accent); }
+.roster-bar { display:flex; align-items:center; gap:10px; margin-top:12px; }
+.roster-bar .grow { flex:1; }
+/* The counter chip is the header pill's shape, but at body-ish size so the numbers read. */
+.count-chip { font-size:11.5px; font-weight:700; letter-spacing:.02em; padding:2px 9px; border-radius:20px; background:var(--bg-4); color:var(--fg-2); border:1px solid transparent; }
+.count-chip.over { background:var(--err-bg); border-color:var(--err-border); color:var(--err); }
+/* The payload is opaque text the coach only copies, so it's read-only, monospace and short. */
+.payload { width:100%; margin-top:10px; resize:none; background:var(--bg-3); border:1px solid var(--line); border-radius:8px; padding:8px 10px; color:var(--fg-2); font:12px/1.5 ui-monospace,Consolas,"Cascadia Mono",monospace; word-break:break-all; }
+.payload:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+/* Banners inside the card lose the shipped page-gutter margin; the card's padding is the gutter. */
+.modal .banner { margin:12px 0 0; }
+
+/* -- import -- */
+.import-row { display:flex; align-items:flex-start; gap:10px; }
+.import-row textarea { flex:1; min-height:60px; resize:vertical; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; color:var(--fg); font:inherit; }
+.import-row textarea:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.import-row textarea::placeholder { color:var(--fg-3); }
+/* The preview keeps the shipped `.game-form` card look but sits in the flow under the textarea,
+   full width, rather than floating off an anchor like the header's confirmations do. */
+.game-form.preview { position:static; width:100%; max-width:none; margin-top:12px; }
+.preview p { margin:6px 0 0; font-size:12.5px; }
+/* The "(already recorded 23–25)" aside is a fact, not an alarm: muted, not tinted. */
+.preview .was { color:var(--fg-3); }
+.preview .warn-line { color:var(--warn); font-weight:600; }
+.preview select { width:100%; background:var(--bg-3); border:1px solid var(--line-2); border-radius:6px; padding:6px 8px; color:var(--fg); font:inherit; }
+
+/* -- statistics table -- */
+.stats-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+/* Nine columns can outgrow a phone; the wrap scrolls sideways so the card never does. */
+.table-wrap { overflow-x:auto; }
+.stats-table { width:100%; border-collapse:collapse; font-size:13px; }
+.stats-table th, .stats-table td { padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+.stats-table thead th { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--fg-3); text-align:left; }
+/* Group headers centre over their four columns and rule under them; the Player cell spans both
+   header rows so it has no rule of its own until the column heads do. */
+.stats-table thead .group { text-align:center; border-bottom:1px solid var(--line-2); padding-bottom:3px; }
+.stats-table thead .groups th:first-child { border-bottom:0; }
+/* Numbers right-align on tabular figures so the columns line up digit for digit. */
+.stats-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+/* A hairline separates the two four-column groups from each other and from the name column. */
+.stats-table .grp { border-left:1px solid var(--line); }
+.stats-table tbody tr:nth-child(even) td { background:var(--bg-3); }
+.stats-table .gchip { margin-left:6px; vertical-align:1px; }
+/* `—` is "nothing to divide", not a zero: muted so it recedes behind the real figures. */
+.stats-table .dash { color:var(--fg-3); }
+.stats-table tfoot td { font-weight:700; border-top:2px solid var(--line-2); border-bottom:0; }
+.empty { padding:22px 0 8px; color:var(--fg-3); font-size:13px; text-align:center; }
+</style>
+
+<body>
+<div class="page">
+
+  <div class="mock-banner">
+    Static HTML mockup — preview only, not the running app. Inline CSS, no external resources; the only script
+    flips the theme and toggles the segmented control. One numbered section per state.
+  </div>
+
+  <h1>Game Stats dialog</h1>
+  <p class="lede">Fixture: Tigers vs Lions, Sat 19 Sep — 12 on the roster, one guest, three sets recorded.</p>
+
+  <!-- ============ 1. Header with the new button ============ -->
+  <section>
+    <h2>1. Header — the new 📊 Stats button</h2>
+    <div class="shell">
+      <header class="top">
+        <div class="brand"><span class="ball"></span> CoachIQ Rotation Planner</div>
+        <div class="gamebtn-wrap">
+          <button type="button" class="gamebtn team"><span class="gname">Tigers</span><span class="gmeta">2026</span><span class="pill n">12 players</span><span class="caret">▾</span></button>
+        </div>
+        <div class="gamebtn-wrap">
+          <button type="button" class="gamebtn"><span class="gname">vs Lions</span><span class="gmeta">Sat 19 Sep</span><span class="pill w">2–1</span><span class="caret">▾</span></button>
+        </div>
+        <div class="spacer"></div>
+        <div class="data-controls">
+          <button type="button" class="btn">Import</button>
+          <button type="button" class="btn">Export</button>
+        </div>
+        <button type="button" class="btn" title="Game statistics" aria-label="Game statistics" aria-haspopup="dialog" aria-expanded="false">📊 Stats</button>
+        <button type="button" class="btn icon theme-toggle" title="Light / dark">◐</button>
+        <button type="button" class="btn icon" title="About CoachIQ Rotation Planner" aria-label="About CoachIQ Rotation Planner" aria-haspopup="dialog" aria-expanded="false">ⓘ</button>
+      </header>
+      <div class="page-pane"><div class="pane">(set page)</div></div>
+    </div>
+  </section>
+
+  <!-- ============ 2. The dialog, full and populated ============ -->
+  <section>
+    <h2>2. The dialog — full and populated, over the header</h2>
+    <div class="shell">
+      <header class="top">
+        <div class="brand"><span class="ball"></span> CoachIQ Rotation Planner</div>
+        <div class="gamebtn-wrap">
+          <button type="button" class="gamebtn team"><span class="gname">Tigers</span><span class="gmeta">2026</span><span class="pill n">12 players</span><span class="caret">▾</span></button>
+        </div>
+        <div class="gamebtn-wrap">
+          <button type="button" class="gamebtn"><span class="gname">vs Lions</span><span class="gmeta">Sat 19 Sep</span><span class="pill w">2–1</span><span class="caret">▾</span></button>
+        </div>
+        <div class="spacer"></div>
+        <div class="data-controls">
+          <button type="button" class="btn">Import</button>
+          <button type="button" class="btn">Export</button>
+        </div>
+        <button type="button" class="btn" title="Game statistics" aria-label="Game statistics" aria-haspopup="dialog" aria-expanded="true">📊 Stats</button>
+        <button type="button" class="btn icon theme-toggle" title="Light / dark">◐</button>
+        <button type="button" class="btn icon" title="About CoachIQ Rotation Planner" aria-label="About CoachIQ Rotation Planner" aria-haspopup="dialog" aria-expanded="false">ⓘ</button>
+      </header>
+
+      <div class="modal-backdrop inline">
+        <div class="modal stats" role="dialog" aria-modal="true" aria-labelledby="stats-title" tabindex="-1">
+          <div class="stats-head">
+            <h2 id="stats-title">Stats<span class="sep">·</span>vs Lions<span class="sep">·</span>Sat 19 Sep</h2>
+            <button type="button" class="btn icon stats-x" aria-label="Close Stats">×</button>
+          </div>
+
+          <!-- 2a. roster -->
+          <div class="stats-section">
+            <h3>Send roster to the stats app</h3>
+            <ul class="tick-list">
+              <li><label class="tick"><input type="checkbox" checked> Lily Okafor</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Sofia Reyes</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Harper Lin</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Emma Novak</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Grace Kim</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Chloe Brandt</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Isla Fraser</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Ruby Adeyemi</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Maya Torres</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Nora Haddad</label></li>
+              <li><label class="tick"><input type="checkbox" checked> Zoe Marsh <span class="gchip">Guest</span></label></li>
+              <li><label class="tick"><input type="checkbox"> Ella Whitfield</label></li>
+            </ul>
+            <div class="roster-bar">
+              <span class="count-chip">11 of 12</span>
+              <span class="grow"></span>
+              <button type="button" class="btn sm">Copy roster</button>
+            </div>
+            <textarea class="payload" rows="3" readonly aria-label="Roster payload">CIQR1.eyJnIjoiZzAxOSIsInQiOiJUaWdlcnMiLCJvIjoiTGlvbnMiLCJkIjoiMjAyNi0wOS0xOSIsInAiOlsiTGlseSBPa2Fmb3IiLCJTb2ZpYSBSZXllcyIsIkhhcnBlciBMaW4iLCJFbW1hIE5vdmFrIiwiR3JhY2UgS2ltIiwiQ2hsb2UgQnJhbmR0IiwiSXNsYSBGcmFzZXIiLCJSdWJ5IEFkZXllbWkiLCJNYXlhIFRvcnJlcyIsIk5vcmEgSGFkZGFkIiwiWm9lIE1hcnNoKiJdfQ.a3f91c02</textarea>
+            <div class="banner" role="status">
+              <span>Copied — paste it into the stats app.</span>
+              <button type="button" class="btn sm">Dismiss</button>
+            </div>
+          </div>
+
+          <!-- 2b. import -->
+          <div class="stats-section">
+            <h3>Import stats from the stats app</h3>
+            <div class="import-row">
+              <textarea placeholder="Paste the stats payload here" aria-label="Stats payload"></textarea>
+              <button type="button" class="btn">Import…</button>
+            </div>
+            <div class="game-form preview" role="dialog" aria-label="Import these stats?">
+              <h4>Import these stats?</h4>
+              <p>3 sets · 11 players matched · 2 new guests: Ava, Mia</p>
+              <p>Set 1 25–21 · Set 2 23–25 <span class="was">(already recorded 23–25)</span> · Set 3 15–11</p>
+              <p class="warn-line">This replaces the stats already stored for this game.</p>
+              <label class="checkbox-row" for="repl-scores"><input type="checkbox" id="repl-scores"> Also replace set scores that differ</label>
+              <div class="form-actions">
+                <button type="button" class="btn sm">Cancel</button>
+                <button type="button" class="btn sm primary">Import</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2c. statistics -->
+          <div class="stats-section">
+            <h3>Statistics</h3>
+            <div class="stats-toolbar">
+              <div class="seg" role="group" aria-label="Which sets">
+                <button type="button" class="on" aria-pressed="true">All sets</button>
+                <button type="button" aria-pressed="false">Set 1</button>
+                <button type="button" aria-pressed="false">Set 2</button>
+                <button type="button" aria-pressed="false">Set 3</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="stats-table">
+                <thead>
+                  <tr class="groups">
+                    <th rowspan="2">Player</th>
+                    <th colspan="4" class="group grp">Serve</th>
+                    <th colspan="4" class="group grp">Return</th>
+                  </tr>
+                  <tr>
+                    <th class="num grp">In</th><th class="num">Out</th><th class="num">Total</th><th class="num">%</th>
+                    <th class="num grp">In</th><th class="num">Out</th><th class="num">Total</th><th class="num">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Lily Okafor</td>   <td class="num grp">14</td><td class="num">2</td><td class="num">16</td><td class="num">88%</td> <td class="num grp">9</td><td class="num">3</td><td class="num">12</td><td class="num">75%</td></tr>
+                  <tr><td>Sofia Reyes</td>   <td class="num grp">11</td><td class="num">1</td><td class="num">12</td><td class="num">92%</td> <td class="num grp">6</td><td class="num">1</td><td class="num">7</td><td class="num">86%</td></tr>
+                  <tr><td>Harper Lin</td>    <td class="num grp">9</td><td class="num">3</td><td class="num">12</td><td class="num">75%</td>  <td class="num grp">12</td><td class="num">2</td><td class="num">14</td><td class="num">86%</td></tr>
+                  <tr><td>Emma Novak</td>    <td class="num grp">7</td><td class="num">0</td><td class="num">7</td><td class="num">100%</td>  <td class="num grp">4</td><td class="num">2</td><td class="num">6</td><td class="num">67%</td></tr>
+                  <tr><td>Grace Kim</td>     <td class="num grp">0</td><td class="num">0</td><td class="num dash">—</td><td class="num dash">—</td> <td class="num grp">15</td><td class="num">3</td><td class="num">18</td><td class="num">83%</td></tr>
+                  <tr><td>Chloe Brandt</td>  <td class="num grp">8</td><td class="num">4</td><td class="num">12</td><td class="num">67%</td>  <td class="num grp">3</td><td class="num">1</td><td class="num">4</td><td class="num">75%</td></tr>
+                  <tr><td>Isla Fraser</td>   <td class="num grp">5</td><td class="num">1</td><td class="num">6</td><td class="num">83%</td>   <td class="num grp">0</td><td class="num">0</td><td class="num dash">—</td><td class="num dash">—</td></tr>
+                  <tr><td>Ruby Adeyemi</td>  <td class="num grp">6</td><td class="num">2</td><td class="num">8</td><td class="num">75%</td>   <td class="num grp">7</td><td class="num">4</td><td class="num">11</td><td class="num">64%</td></tr>
+                  <tr><td>Zoe Marsh<span class="gchip">Guest</span></td> <td class="num grp">3</td><td class="num">1</td><td class="num">4</td><td class="num">75%</td> <td class="num grp">5</td><td class="num">0</td><td class="num">5</td><td class="num">100%</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr><td>Total</td> <td class="num grp">63</td><td class="num">14</td><td class="num">77</td><td class="num">82%</td> <td class="num grp">61</td><td class="num">16</td><td class="num">77</td><td class="num">79%</td></tr>
+                </tfoot>
+              </table>
+            </div>
+            <p class="muted">Set 3 was not played.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3. Roster over the limit ============ -->
+  <section>
+    <h2>3. Roster section — over the 12-player limit</h2>
+    <div class="modal stats">
+      <div class="stats-section" style="margin-top:0">
+        <h3>Send roster to the stats app</h3>
+        <ul class="tick-list">
+          <li><label class="tick"><input type="checkbox" checked> Lily Okafor</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Sofia Reyes</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Harper Lin</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Emma Novak</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Grace Kim</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Chloe Brandt</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Isla Fraser</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Ruby Adeyemi</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Maya Torres</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Nora Haddad</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Zoe Marsh <span class="gchip">Guest</span></label></li>
+          <li><label class="tick"><input type="checkbox" checked> Ella Whitfield</label></li>
+          <li><label class="tick"><input type="checkbox" checked> Ivy Sato</label></li>
+        </ul>
+        <div class="roster-bar">
+          <span class="count-chip over">13 of 12</span>
+          <span class="grow"></span>
+          <button type="button" class="btn sm" disabled>Copy roster</button>
+        </div>
+        <p class="helper">The stats app takes 12 players; untick some.</p>
+        <textarea class="payload" rows="3" readonly aria-label="Roster payload" disabled>CIQR1.eyJnIjoiZzAxOSIsInQiOiJUaWdlcnMiLCJvIjoiTGlvbnMiLCJkIjoiMjAyNi0wOS0xOSIsInAiOlsiTGlseSBPa2Fmb3IiLCJTb2ZpYSBSZXllcyIsIkhhcnBlciBMaW4iLCJFbW1hIE5vdmFrIiwiR3JhY2UgS2ltIiwiQ2hsb2UgQnJhbmR0IiwiSXNsYSBGcmFzZXIiLCJSdWJ5IEFkZXllbWkiLCJNYXlhIFRvcnJlcyIsIk5vcmEgSGFkZGFkIiwiWm9lIE1hcnNoKiIsIkVsbGEgV2hpdGZpZWxkIiwiSXZ5IFNhdG8iXX0.b71e0c4d</textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4. Import preview for an unmatched game + error ============ -->
+  <section>
+    <h2>4. Import — payload for a game this app doesn't have, and the corrupt-payload error</h2>
+    <div class="modal stats">
+      <div class="stats-section" style="margin-top:0">
+        <h3>Import stats from the stats app</h3>
+        <div class="import-row">
+          <textarea aria-label="Stats payload">CIQS1.eyJnIjoiZzk5OSIsInMiOlt7Im4iOjEsInMiOlsyNSwyMV0sInIiOnsiTGlseSBPa2Fmb3IiOls...</textarea>
+          <button type="button" class="btn">Import…</button>
+        </div>
+        <div class="game-form preview" role="dialog" aria-label="Import these stats?">
+          <h4>Import these stats?</h4>
+          <p>This payload was made for a game this app does not have.</p>
+          <label for="import-into">Import into</label>
+          <select id="import-into">
+            <option>vs Lions · Sat 19 Sep</option>
+            <option>vs Bears · Sat 26 Sep</option>
+          </select>
+          <p>3 sets · 11 players matched · 2 new guests: Ava, Mia</p>
+          <p class="warn-line">This replaces the stats already stored for this game.</p>
+          <label class="checkbox-row" for="repl-scores-2"><input type="checkbox" id="repl-scores-2"> Also replace set scores that differ</label>
+          <div class="form-actions">
+            <button type="button" class="btn sm">Cancel</button>
+            <button type="button" class="btn sm primary">Import</button>
+          </div>
+        </div>
+        <div class="banner err" role="alert">
+          <span>This payload is corrupted or incomplete — copy it again from the stats app.</span>
+          <button type="button" class="btn sm">Dismiss</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5. Empty statistics ============ -->
+  <section>
+    <h2>5. Statistics — nothing imported yet</h2>
+    <div class="modal stats">
+      <div class="stats-section" style="margin-top:0">
+        <h3>Statistics</h3>
+        <div class="stats-toolbar">
+          <div class="seg" role="group" aria-label="Which sets">
+            <button type="button" class="on" aria-pressed="true" disabled>All sets</button>
+            <button type="button" aria-pressed="false" disabled>Set 1</button>
+            <button type="button" aria-pressed="false" disabled>Set 2</button>
+            <button type="button" aria-pressed="false" disabled>Set 3</button>
+          </div>
+        </div>
+        <p class="empty">No stats imported for this game yet.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<button type="button" class="btn icon mock-theme theme-toggle" title="Light / dark">◐</button>
+
+<script>
+  const html = document.documentElement;
+  for (const b of document.querySelectorAll('.theme-toggle')) {
+    b.onclick = () => { html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark'; };
+  }
+  // Segmented controls: one `.on` per group, for show only — the table doesn't change.
+  for (const seg of document.querySelectorAll('.seg')) {
+    for (const b of seg.querySelectorAll('button:not([disabled])')) {
+      b.onclick = () => {
+        for (const o of seg.querySelectorAll('button')) { o.classList.remove('on'); o.setAttribute('aria-pressed', 'false'); }
+        b.classList.add('on'); b.setAttribute('aria-pressed', 'true');
+      };
+    }
+  }
+</script>
+</body>
+</html>
