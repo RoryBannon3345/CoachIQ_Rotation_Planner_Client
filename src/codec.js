@@ -3,7 +3,7 @@
 // reference/statsContract.ts (constants, validators, v2 functions), with TypeScript type syntax stripped.
 // Do not edit; re-copy from those sources if the contract changes.
 
-export const CONTRACT_VERSION = 2;
+export const CONTRACT_VERSION = 3;
 export const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 export function fnv1a32(bytes) {
@@ -13,6 +13,54 @@ export function fnv1a32(bytes) {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * Set-membership bitmasks: how `games[].sets` says who is in a set.
+ *
+ * Bit `i` of a mask means "the player at `players[i]` is in this set". One integer replaces one
+ * index array per set, which is what makes per-set membership affordable in a `mailto:` body.
+ *
+ * **These use arithmetic, never bitwise operators, and that is load-bearing.** JavaScript's `|`,
+ * `&` and `<<` coerce to *signed* 32-bit, so `2 ** 31 | 0` is `-2147483648`. At `MAX_DAY_PLAYERS`
+ * of 24 the highest bit is `2 ** 23` and either form would work today — but the arithmetic form
+ * keeps working to 2^53, so raising that cap later cannot silently corrupt rosters. Anyone
+ * "simplifying" these back to bitwise operators reintroduces a bug that only appears once the
+ * directory passes 31 players, and appears as wrong girls on a tick-list, not as an error.
+ */
+export function maskHas(mask, index) {
+  return Math.floor(mask / 2 ** index) % 2 === 1;
+}
+
+/** The mask naming exactly `indices`. A repeated index is ignored rather than added twice, which
+ *  would set a different, higher bit and name a player nobody chose. */
+export function maskOf(indices) {
+  let mask = 0;
+  for (const index of indices) if (!maskHas(mask, index)) mask += 2 ** index;
+  return mask;
+}
+
+/** The indices `mask` names, ascending, considering only bits below `size`. */
+export function maskMembers(mask, size) {
+  const members = [];
+  for (let i = 0; i < size; i += 1) if (maskHas(mask, i)) members.push(i);
+  return members;
+}
+
+/** How many players `mask` names, considering only bits below `size`. */
+export function maskCount(mask, size) {
+  let count = 0;
+  for (let i = 0; i < size; i += 1) if (maskHas(mask, i)) count += 1;
+  return count;
+}
+
+/** Every player named by either mask. `a` is carried through unfiltered; only `b`'s contribution
+ *  is bounded to bits below `size` — safe because every mask reaching this helper has already
+ *  been range-checked against the same directory. */
+export function maskUnion(a, b, size) {
+  let union = a;
+  for (let i = 0; i < size; i += 1) if (maskHas(b, i) && !maskHas(union, i)) union += 2 ** i;
+  return union;
 }
 
 export function toBase64Url(bytes) {
@@ -338,9 +386,13 @@ export function encodeDayRoster(payload) {
   return encodePayload('roster', payload);
 }
 
-/** Encodes a day stats sheet at the current contract version. See `encodeDayRoster`. */
+/** Encodes a day stats sheet. Pinned to `2`, unlike `encodeDayRoster`: the stats payload shape is
+ * unchanged at contract v3, and the Planner accepts a `v: 2` stats body indefinitely, so there is
+ * nothing for a v3 stats payload to mean yet. Without this pin, bumping `CONTRACT_VERSION` to 3
+ * would silently start stamping stats sheets `CIQS3.` too — the exact "both halves move together"
+ * mistake this contract's version split exists to avoid. */
 export function encodeDayStats(payload) {
-  return encodePayload('stats', payload);
+  return encodePayload('stats', payload, 2);
 }
 
 export function decodeRoster(text) {
@@ -361,10 +413,10 @@ export function decodeStats(text) {
 // a whole tournament day rather than a single game.
 // ---------------------------------------------------------------------------------------------
 
-/** The one version detail both v2 validators and both day decoders report. Deliberately names
- * *both* versions this app reads rather than only the one being validated: a coach who pasted the
- * wrong thing needs to know what is acceptable, not which branch refused her. */
-const NOT_A_KNOWN_VERSION = 'its version is not 1 or 2';
+/** The one version detail every day validator and both day decoders report. Deliberately names
+ * *all three* versions this app reads rather than only the one being validated: a coach who pasted
+ * the wrong thing needs to know what is acceptable, not which branch refused her. */
+const NOT_A_KNOWN_VERSION = 'its version is not 1, 2 or 3';
 
 /**
  * The day directory shared by both v2 payloads: 1..`MAX_DAY_PLAYERS` entries, unique legal ids,
@@ -404,7 +456,7 @@ function parseDayPlayerList(kind, value, withJersey) {
   return { ok: true, value: players };
 }
 
-export function validateDayRosterPayload(value) {
+function validateDayRosterPayloadV2(value) {
   if (!isRecord(value)) return malformed('roster', 'it is not an object');
   if (value.v !== 2) return malformed('roster', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'roster') return malformed('roster', 'its kind is not "roster"');
@@ -460,6 +512,77 @@ export function validateDayRosterPayload(value) {
   }
 
   return { ok: true, value: { v: 2, kind: 'roster', date: value.date, team: value.team, players, games } };
+}
+
+/**
+ * The v3 roster validator. `games[].roster` (one index array per game) is gone; `games[].sets` is
+ * one bitmask per set, positional, and `sets.length` is how many sets the game has.
+ *
+ * The per-game cap is checked on the **union** across the game's sets, which is the same rule v2
+ * enforced — in v2 `roster` *was* that union.
+ */
+export function validateDayRosterPayload(value) {
+  if (!isRecord(value)) return malformed('roster', 'it is not an object');
+  if (value.v !== 3) return malformed('roster', NOT_A_KNOWN_VERSION);
+  if (value.kind !== 'roster') return malformed('roster', 'its kind is not "roster"');
+  if (!isNonEmptyString(value.date)) return malformed('roster', 'it has no date');
+  // `team` may be empty: `createTeam` does not trim, so a coach who never named her team has one.
+  if (typeof value.team !== 'string') return malformed('roster', 'it has no team name');
+
+  const directory = parseDayPlayerList('roster', value.players, true);
+  if (!directory.ok) return directory;
+  const players = directory.value;
+
+  if (!Array.isArray(value.games)) return malformed('roster', 'it has no game list');
+  if (value.games.length === 0) return malformed('roster', 'it names no games');
+  if (value.games.length > MAX_GAMES_PER_DAY) {
+    return malformed('roster', `it names ${value.games.length} games; the limit is ${MAX_GAMES_PER_DAY}`);
+  }
+
+  const games = [];
+  const seenGameIds = new Set();
+  for (const rawGame of value.games) {
+    if (!isRecord(rawGame)) return malformed('roster', 'one of its games is malformed');
+    const gameId = rawGame.gameId;
+    if (typeof gameId !== 'string' || gameId.length === 0) return malformed('roster', 'one of its games has no id');
+    if (seenGameIds.has(gameId)) return malformed('roster', `game id "${gameId}" appears twice`);
+    seenGameIds.add(gameId);
+    // `opponent` may be empty, the same way `team` may.
+    if (typeof rawGame.opponent !== 'string') return malformed('roster', `game "${gameId}" has no opponent name`);
+
+    if (!Array.isArray(rawGame.sets)) return malformed('roster', `game "${gameId}" has no set list`);
+    if (rawGame.sets.length === 0) return malformed('roster', `game "${gameId}" records no sets`);
+    if (rawGame.sets.length > MAX_SETS) {
+      return malformed('roster', `game "${gameId}" records more than ${MAX_SETS} sets`);
+    }
+
+    const sets = [];
+    let union = 0;
+    const ceiling = 2 ** players.length;
+    for (let i = 0; i < rawGame.sets.length; i += 1) {
+      const rawMask = rawGame.sets[i];
+      const n = i + 1;
+      // Anything that is not a whole number at or above zero is not a mask at all, so it is a
+      // malformed value rather than an out-of-range one — the same distinction v2 drew for indices.
+      if (typeof rawMask !== 'number' || !Number.isSafeInteger(rawMask) || rawMask < 0) {
+        return malformed('roster', `game "${gameId}" set ${n} is not a legal roster mask`);
+      }
+      if (rawMask >= ceiling) {
+        return malformed('roster', `game "${gameId}" set ${n} names a player outside the directory`);
+      }
+      sets.push(rawMask);
+      union = maskUnion(union, rawMask, players.length);
+    }
+
+    const named = maskCount(union, players.length);
+    if (named > MAX_ROSTER_PLAYERS) {
+      return malformed('roster', `game "${gameId}" names ${named} players; the limit is ${MAX_ROSTER_PLAYERS}`);
+    }
+
+    games.push({ gameId, opponent: rawGame.opponent, sets });
+  }
+
+  return { ok: true, value: { v: 3, kind: 'roster', date: value.date, team: value.team, players, games } };
 }
 
 export function validateDayStatsPayload(value) {
@@ -552,21 +675,41 @@ export function normaliseStatsV1(p) {
 }
 
 /**
- * The roster equivalent of `normaliseStatsV1`, and total for the same reason: a v1 roster is a
- * one-game day whose directory is that game's players, so every index `0..n-1` is on its
- * tick-list, and `date`/`team` lift to the top. v1's own 12-player cap lands exactly on
- * `MAX_ROSTER_PLAYERS` as the v2 per-game cap, so even a full v1 roster normalises to a legal
- * game.
+ * A v2 roster lifted into the v3 shape.
+ *
+ * A v2 payload carried no set structure at all, so there is nothing to recover: each game
+ * normalises to **one set** holding that game's whole roster. This is lossy and deliberately so —
+ * inventing three sets because three is the usual number would put a fabricated set count in front
+ * of a coach and call it data. A coach who wants real per-set membership re-sends from the Planner.
+ */
+function normaliseRosterV2(p) {
+  return {
+    v: 3,
+    kind: 'roster',
+    date: p.date,
+    team: p.team,
+    players: p.players,
+    games: p.games.map((g) => ({ gameId: g.gameId, opponent: g.opponent, sets: [maskOf(g.roster)] })),
+  };
+}
+
+/**
+ * A v1 roster lifted into the v3 shape, via v2 so that "what a legacy payload's single set means"
+ * has exactly one definition.
+ *
+ * A v1 roster is a one-game day whose directory is that game's players, so every index `0..n-1` is
+ * on its tick-list, and `date`/`team` lift to the top. v1's own 12-player cap lands exactly on
+ * `MAX_ROSTER_PLAYERS`, so even a full v1 roster normalises to a legal game.
  */
 export function normaliseRosterV1(p) {
-  return {
+  return normaliseRosterV2({
     v: 2,
     kind: 'roster',
     date: p.date,
     team: p.team,
     players: p.players,
     games: [{ gameId: p.gameId, opponent: p.opponent, roster: p.players.map((_, i) => i) }],
-  };
+  });
 }
 
 /** The decoded body's own `v`, which `decodePayload` has already proved equals the prefix version. */
@@ -591,7 +734,12 @@ export function decodeDayRoster(text) {
     if (!v1.ok) return v1;
     return { ok: true, value: normaliseRosterV1(v1.value) };
   }
-  if (version === 2) return validateDayRosterPayload(decoded.value);
+  if (version === 2) {
+    const v2 = validateDayRosterPayloadV2(decoded.value);
+    if (!v2.ok) return v2;
+    return { ok: true, value: normaliseRosterV2(v2.value) };
+  }
+  if (version === 3) return validateDayRosterPayload(decoded.value);
   return malformed('roster', NOT_A_KNOWN_VERSION);
 }
 
