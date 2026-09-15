@@ -142,6 +142,22 @@ test('export refuses a day with nothing recorded', () => {
   assert.equal(S.buildDayStatsPayload(s, 'now').error, 'Nothing recorded yet — tap a count or enter a score first.');
 });
 
+test('a score-only day (no counts anywhere) falls back to the whole directory, not an empty player list', () => {
+  let s = openV2();
+  // Score set, no taps at all — isSetPlayed() is true via the score alone, but usedIds stays empty.
+  s = S.setScore(s, 'game-1', 1, [25, 21]);
+  const out = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z');
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.value.payload.players.map((p) => p.id), s.players.map((p) => p.id));
+  assert.ok(out.value.payload.players.length > 0);
+  const game1 = out.value.payload.games.find((g) => g.gameId === 'game-1');
+  assert.deepEqual(game1.sets, [{ n: 1, score: [25, 21], players: [] }]);
+  // Must survive the validator (payload key order, non-empty players) and round-trip.
+  const decoded = decodeDayStats(out.value.text);
+  assert.equal(decoded.ok, true);
+  assert.deepEqual(decoded.value, out.value.payload);
+});
+
 test('setPlayerTicked adds, caps at 12, refuses to untick a counted player, and leaves the directory whole', () => {
   let s = openV2();
   for (let i = 0; i < 10; i++) s = S.addSub(s, 'game-1', `Sub ${i}`).session;
