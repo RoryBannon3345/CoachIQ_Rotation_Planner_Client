@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roster density — fitting 12 players</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:1000px;margin:0 0 14px;line-height:1.6}
+code{background:var(--bg-4);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:12px ui-monospace,Consolas,"Cascadia Mono",monospace}
+.note{max-width:1000px;margin:0 0 26px;padding:11px 13px;border-radius:10px;background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+.note b{color:#143a6e}
+.strip{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.col{width:375px;flex:none}
+.cap{font-size:11.5px;color:var(--fg-2);margin:0 0 8px;line-height:1.55;min-height:76px}
+.cap b{color:var(--fg)}
+.badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px}
+.badge.old{background:var(--err-bg);color:#b03636;border:1px solid var(--err-border)}
+.badge.mid{background:var(--warn-bg);color:#a15b13;border:1px solid #e8c89a}
+.badge.new{background:var(--ok-bg);color:#237a5a;border:1px solid #b6e0cd}
+
+/* A true-to-life iPhone X-class viewport: 375x812 CSS px. */
+.phone{width:375px;height:812px;border:1px solid var(--line-2);border-radius:16px;overflow:hidden;background:#000;display:flex;flex-direction:column;box-shadow:0 2px 16px rgba(20,32,45,.14)}
+.chrome-top,.chrome-bot{background:#f6f6f7;color:#3c4653;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;border-color:var(--line-2)}
+.chrome-top{border-bottom:1px solid var(--line-2)}
+.chrome-bot{border-top:1px solid var(--line-2)}
+/* Browser tab: 93px of status bar + URL bar, 67px of bottom toolbar. */
+.browser .chrome-top{height:93px}
+.browser .chrome-bot{height:67px;letter-spacing:10px}
+/* Home screen (standalone): only the status bar and the home indicator remain. */
+.standalone .chrome-top{height:44px;background:#fff;border-bottom:0}
+.standalone .chrome-bot{height:34px;background:var(--bg);border-top:0}
+.app{flex:1;min-height:0;background:var(--bg);display:flex;flex-direction:column}
+
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3)}
+.title{font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:1;min-width:0;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg button{flex:1;min-width:0;background:none;border:0;padding:6px 2px;min-height:44px;font-size:13px;color:var(--fg-2)}
+.seg button.on{background:var(--accent);color:var(--accent-fg);font-weight:600}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.colhead span:first-child{text-align:left}
+.rows{flex:1;min-height:0;overflow-y:auto}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:52px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+.name{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cnt{min-height:48px;font-size:20px;font-weight:700;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 14px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:13px;color:var(--fg)}
+.btn.sm{padding:6px 12px;font-size:12.5px}
+.btn.icon{padding:8px 11px;min-width:44px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.setbar .btn.sm{flex:none;max-width:96px}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px 10px;background:var(--bg);flex:none}
+
+/* ---- The proposal ---------------------------------------------------------
+   Rows become a grid that distributes the leftover height across however many
+   players there are, with a floor. Eight players get roomy rows; twelve
+   compress to fit; thirteen would scroll rather than shrink past the floor.
+   The chrome gives back ~17px on top of that.                               */
+.compact .topbar{min-height:44px;padding:5px 10px}
+.compact .setbar{padding:6px 10px}
+.compact .seg button{min-height:38px}
+.compact .setbar .btn.sm{min-height:38px}
+.compact .colhead{padding:4px 10px 3px}
+.compact .bottombar{padding:6px 10px}
+.compact .rows{display:grid;grid-auto-rows:minmax(38px,1fr)}
+.compact .row{height:auto;min-height:0}
+/* Fill the row rather than floating inside it: the 6px of dead margin the old
+   fixed-height rows could afford is, at this density, the difference between a
+   38px target and a 43px one. */
+.compact .cnt{min-height:0;height:calc(100% - 2px);font-size:17px;border-radius:8px}
+
+ul.list{max-width:1000px;color:var(--fg-2);font-size:13px;line-height:1.75;padding-left:20px}
+ul.list b{color:var(--fg)}
+table{border-collapse:collapse;font-size:12.5px;margin:6px 0 18px}
+th,td{border:1px solid var(--line-2);padding:5px 10px;text-align:left}
+th{background:var(--bg-4);font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-2)}
+td.good{color:#237a5a;font-weight:600}
+td.bad{color:#b03636;font-weight:600}
+td.mid{color:#a15b13;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>Roster density — fitting 12 players without scrolling</h1>
+<p class="lede">
+All three phones below are drawn at a true <b>375 &times; 812</b> CSS viewport (iPhone X / 11&nbsp;Pro / 13&nbsp;mini class,
+which is what the screenshot shows), with the same 12-player roster in each. The only differences are the
+browser chrome and the row density.
+</p>
+<div class="note">
+<b>The constraint is the tap target, not the row.</b> Apple's minimum touch target is 44&times;44pt. Squeezing 12 rows
+into a browser tab forces ~36px targets &mdash; and a mis-tap here writes a wrong stat into a coach's only copy.
+Reclaiming the browser's own chrome is worth 82px, which is most of what is needed, and costs no target size at all.
+</div>
+
+<table>
+  <tr><th>Mode</th><th>Viewport</th><th>Rows area</th><th>Row height for 12</th><th>Tap target</th><th>Verdict</th></tr>
+  <tr><td>Today, browser tab</td><td>652px</td><td>447px</td><td>52px (fixed)</td><td>48px</td><td class="bad">8.6 of 12 visible</td></tr>
+  <tr><td>Compact, browser tab</td><td>652px</td><td>466px</td><td>38.8px</td><td>35.8px</td><td class="mid">12 fit, targets under spec</td></tr>
+  <tr><td>Compact, home screen</td><td>734px</td><td>548px</td><td>45.6px</td><td>42.6px</td><td class="good">12 fit, targets at spec</td></tr>
+</table>
+
+<div class="strip">
+
+  <div class="col">
+    <span class="badge old">Today &middot; browser tab</span>
+    <p class="cap"><b>8 and a half rows.</b> 52px rows, 48px targets. Three and a half of the twelve are below the fold, so the
+    coach scrolls mid-rally to reach them &mdash; which is when a mis-tap costs the most.</p>
+    <div class="phone browser">
+      <div class="chrome-top">rorybannon3345.github.io</div>
+      <div class="app" id="app-now"></div>
+      <div class="chrome-bot">&#8249; &#8250; + &#9633; &#9776;</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <span class="badge mid">Compact &middot; browser tab</span>
+    <p class="cap"><b>All 12 fit</b>, at 38.8px rows and 35.8px targets. Works, but the targets are meaningfully under
+    Apple's 44px minimum. Acceptable as the fallback for anyone who has not added it to the home screen.</p>
+    <div class="phone browser">
+      <div class="chrome-top">rorybannon3345.github.io</div>
+      <div class="app compact" id="app-compact-browser"></div>
+      <div class="chrome-bot">&#8249; &#8250; + &#9633; &#9776;</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <span class="badge new">Compact &middot; home screen</span>
+    <p class="cap"><b>All 12 fit at 45.6px rows, 42.6px targets</b> &mdash; within a rounding error of Apple&rsquo;s 44px minimum. No URL bar,
+    no browser toolbar. This is the mode the README already tells coaches to use, and it is the one worth
+    recommending for the gym.</p>
+    <div class="phone standalone">
+      <div class="chrome-top" style="color:var(--fg);font-weight:600">9:41</div>
+      <div class="app compact" id="app-standalone"></div>
+      <div class="chrome-bot"></div>
+    </div>
+  </div>
+
+</div>
+
+<h2 style="font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)">How the compact mode works</h2>
+<ul class="list">
+  <li><b>Rows stop being a fixed height and become a grid that fills the space:</b>
+    <code>grid-auto-rows: minmax(38px, 1fr)</code>. Eight players get roomy 68px rows; twelve compress to fit;
+    a thirteenth would scroll rather than shrink past the 38px floor. Nothing is hardcoded to a player count.</li>
+  <li><b>The chrome gives back ~17px</b> — topbar 48&rarr;44, set tabs 44&rarr;38, column header and bottom bar
+    padding trimmed. The Undo / &minus; / Export buttons keep their full 44px, since those are the ones hit under pressure.</li>
+  <li><b>Nothing below 38px.</b> That floor is deliberate: past it the target stops being reliably hittable, and I would
+    rather the coach scroll than mis-record.</li>
+</ul>
+
+<script>
+const PLAYERS = ['Addison','Brooklyn','Brynn','Emily','Grace','Hailey','Lexi','Lily','Melanie','Maya','Nora','Zoie'];
+const row = (n) => `<div class="row"><span class="name">${n}</span>`
+  + `<span class="cnt in">0</span><span class="cnt out">0</span><span class="cnt in">0</span><span class="cnt out">0</span></div>`;
+const screen = () => `
+  <div class="topbar">
+    <button class="btn icon sm">Games &#9662;</button>
+    <span class="title-group"><span class="title-team">Blizzard</span><span class="title">vs Practice_9_18 &middot; 18 Sep</span></span>
+    <button class="btn icon sm">&ctdot;</button>
+  </div>
+  <div class="setbar"><div class="seg"><button class="on">1</button><button>2</button></div><button class="btn sm">score</button></div>
+  <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+  <div class="rows">${PLAYERS.map(row).join('')}</div>
+  <div class="bottombar"><button class="btn sm">&#8630; Undo</button><button class="btn icon sm">&minus;</button><button class="btn sm primary">Export</button></div>`;
+for (const id of ['app-now','app-compact-browser','app-standalone']) document.getElementById(id).innerHTML = screen();
+
+// Report what actually fits, measured from the rendered DOM rather than asserted in prose.
+addEventListener('load', () => {
+  for (const [id, label] of [['app-now','today / browser'],['app-compact-browser','compact / browser'],['app-standalone','compact / home screen']]) {
+    const rows = document.getElementById(id).querySelector('.rows');
+    const first = rows.querySelector('.row');
+    const visible = rows.clientHeight / first.getBoundingClientRect().height;
+    console.log(label.padEnd(22), 'row', first.getBoundingClientRect().height.toFixed(1) + 'px', '->', visible.toFixed(1), 'of 12 visible');
+  }
+});
+</script>
+
+</body>
+</html>

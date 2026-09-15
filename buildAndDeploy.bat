@@ -23,8 +23,9 @@ REM   3. npm run build                                     (hardened dist\)
 REM   4. refuses if the rebuild left dist\ uncommitted     (see below -- this is
 REM      the check that matters most)
 REM   5. npm run verify                                    (headless-browser
-REM      parity of the obfuscated bundle, plus the CIQR3 golden vector decoded
-REM      and rendered in the shipped file)
+REM      parity of the obfuscated bundle, the CIQR3 golden vector decoded and
+REM      rendered in the shipped file, and a full 12-player roster fitting on
+REM      one screen at real iPhone viewports)
 REM   6. git subtree push --prefix dist origin gh-pages
 REM   7. polls the live URL until it serves the bytes just verified
 REM

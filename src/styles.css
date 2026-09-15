@@ -38,8 +38,8 @@ textarea, input { -webkit-user-select:text; user-select:text; }
    `min-width:44px` per-tab rule — five 44px tabs plus the gap and score button overflow 320px). */
 .setbar { gap:6px; }
 .setbar .seg { flex:1; min-width:0; display:flex; }
-.seg button { flex:1; min-width:0; padding:6px 2px; font-size:13px; font-variant-numeric:tabular-nums; min-height:44px; }
-.setbar .btn.sm { flex:none; max-width:96px; padding:6px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.seg button { flex:1; min-width:0; padding:6px 2px; font-size:13px; font-variant-numeric:tabular-nums; min-height:38px; }
+.setbar .btn.sm { flex:none; min-height:38px; max-width:96px; padding:6px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .banner { margin:10px 12px 0; padding:10px 12px; border-radius:var(--radius); background:var(--warn-bg); border:1px solid var(--warn-border); font-size:12.5px; line-height:1.5; display:flex; align-items:center; gap:10px; }
 .banner.err { background:var(--err-bg); border-color:var(--err-border); }
 .banner b { color:var(--warn); }
@@ -61,28 +61,46 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 .screen-pad { padding:16px 12px; }
 
 /* topbar / setbar (recording screen) */
-.topbar { display:flex; align-items:center; gap:6px; padding:6px 10px; min-height:48px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.topbar { display:flex; align-items:center; gap:6px; padding:5px 10px; min-height:44px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.topbar .btn.sm, .topbar .btn.icon { min-height:38px; }
 .topbar .title-group { flex:1; min-width:0; overflow:hidden; display:flex; flex-direction:column; justify-content:center; }
 .topbar .title { font-weight:650; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .topbar .title-team { font-size:10px; line-height:1.3; color:var(--fg-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.setbar { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
-.colhead { display:grid; grid-template-columns:96px repeat(4,1fr); gap:4px; padding:6px 10px 4px; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.setbar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead { display:grid; grid-template-columns:96px repeat(4,1fr); gap:4px; padding:4px 10px 3px; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:0; white-space:nowrap; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
 .colhead span:first-child { text-align:left; }
 
-/* rows */
-.rows { flex:1; overflow-y:auto; }
-.row { display:grid; grid-template-columns: 96px repeat(4, 1fr); gap:4px; height:52px; align-items:center; padding:0 10px; border-bottom:1px solid var(--line); }
+/* rows
+   Rows share out whatever height is left rather than each taking a fixed 52px, so a
+   full 12-player game fits on one screen instead of hiding four players below the fold
+   — a coach who has to scroll mid-rally to reach a girl is the one most likely to tap
+   the wrong row. Six players simply get roomier rows; the count is never hardcoded.
+
+   `minmax(38px, 1fr)` is the whole rule: 1fr divides the free space, and the 38px floor
+   stops the division ever producing a target too small to hit reliably. Past that floor
+   (a 13th player, or a very short viewport) the list scrolls, which is the right
+   trade — scrolling costs a moment, a mis-tap costs a wrong stat in the coach's only copy.
+
+   `.rows.empty-state` below re-declares `display:flex` and outranks this on specificity,
+   so a set with nobody ticked still centres its message rather than gridding it. */
+.rows { flex:1; min-height:0; overflow-y:auto; display:grid; grid-auto-rows:minmax(38px, 1fr); align-content:start; }
+.row { display:grid; grid-template-columns: 96px repeat(4, 1fr); gap:4px; min-height:0; align-items:center; padding:0 10px; border-bottom:1px solid var(--line); }
 .row:nth-child(even) { background:var(--bg-3); }
 .name { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:4px; }
 .name .gchip { font-size:8px; padding:1px 4px; }
-.cnt { min-height:48px; font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
+/* Fill the row instead of floating inside it. The old fixed 52px row could afford 4px of
+   dead margin around a 48px button; at 12-player density that margin is the difference
+   between a 38px tap target and a 43px one, so the button takes the whole row less its
+   1px rule. `min-height:0` clears the old 48px floor, which would otherwise force the
+   grid past the viewport and reintroduce the scrolling this change removes. */
+.cnt { min-height:0; height:calc(100% - 2px); font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; border-radius:8px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
 .cnt.in { background:var(--ok-bg); border-color:var(--ok); color:#237a5a; }
 .cnt.out { background:var(--warn-bg); border-color:var(--warn); color:#a15b13; }
 /* "-" (subtract one) mode: every count button turns red-outlined, ready to take one subtraction */
 .minus .cnt { border-color:var(--err); }
 
 /* bottom bar */
-.bottombar { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; padding:8px 0 calc(8px + env(safe-area-inset-bottom)); background:var(--bg); flex:none; }
+.bottombar { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; padding:6px 0 calc(6px + env(safe-area-inset-bottom)); background:var(--bg); flex:none; }
 .bottombar .undo { justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bottombar .minus { font-size:18px; font-weight:800; }
 

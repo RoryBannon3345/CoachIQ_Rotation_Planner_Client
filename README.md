@@ -17,19 +17,26 @@ npm install        # once -- the build has devDependencies
 npm run build      # hardened -> dist/CoachIQ_Rotation_Planner_Client.html + dist/sw.js  (what you ship)
 npm run build:dev  # readable -> dist-dev/CoachIQ_Rotation_Planner_Client.html           (for debugging)
 npm test           # unit tests
-npm run verify     # boots both builds in headless Edge, diffs what they render, then checks the shipped dist/ bundle against the cross-app golden vector
+npm run verify     # boots both builds in headless Edge, diffs what they render, then checks the shipped dist/ bundle against the cross-app golden vector and the roster-density budget
 npm run deploy     # test + build + verify + publish to GitHub Pages  (or double-click buildAndDeploy.bat)
 ```
 
 `npm run build` only refreshes `dist/` on this machine and `git push` only publishes the source —
 neither puts a change on a coach's phone. `npm run deploy` is what does; see "Update the app".
 
-`npm run verify` runs two checks in sequence, both against headless Edge (or Chrome, if Edge is
+`npm run verify` runs three checks in sequence, all against headless Edge (or Chrome, if Edge is
 not found): `scripts/verify-build.mjs` (readable vs. hardened bundle parity, plus a `dist/` smoke
 test when it exists) and `scripts/verify-golden-vector.mjs` (pastes the contract's fixed
 cross-app golden vector into the shipped `dist/` bundle and asserts it renders the right
 sets/tabs/tick-lists). Run them individually with `npm run verify:build` or
 `npm run verify:golden-vector`.
+
+`scripts/verify-density.mjs` is the third check: it opens the shipped bundle at real iPhone viewports
+and asserts a full 12-player game fits on one screen without scrolling, with tap targets that stay
+hittable. The failure it guards is invisible — a roster that overflows by a few pixels looks exactly
+like one that fits until a coach reaches for the twelfth girl mid-rally. Anything that grows above
+the rows (`.topbar`, `.setbar`, `.colhead`) spends that budget, including a column header quietly
+wrapping to a second line. Run it alone with `npm run verify:density`.
 
 `npm run build` is the production build. It concatenates `src/*.js` in dependency
 order, inlines them with `styles.css` into `src/index.html`, and then hardens the
@@ -156,7 +163,7 @@ build.
 Two constants must be bumped for every release, and both are easy to forget:
 
 1. `APP_VERSION` in `src/session.js` — what the ⋯ menu reports, so you can tell which build a phone is running.
-2. `CACHE` in `src/sw.js` (e.g. `ciq-stats-v3` → `ciq-stats-v4`) — the only cache-busting mechanism this app has. Nothing is content-hashed (see "Asset filenames"), so a phone that already cached the old build keeps serving it until the cache name changes.
+2. `CACHE` in `src/sw.js` (e.g. `ciq-stats-v4` → `ciq-stats-v5`) — the only cache-busting mechanism this app has. Nothing is content-hashed (see "Asset filenames"), so a phone that already cached the old build keeps serving it until the cache name changes.
 
 ## Verify on the phone
 

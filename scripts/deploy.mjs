@@ -132,6 +132,7 @@ assertDistCommitted();
 
 run('npm run verify (build parity)', process.execPath, ['scripts/verify-build.mjs']);
 run('npm run verify (golden vector)', process.execPath, ['scripts/verify-golden-vector.mjs']);
+run('npm run verify (roster density)', process.execPath, ['scripts/verify-density.mjs']);
 
 if (DRY_RUN) {
   console.log(`\n--dry-run: every check passed. Re-run without --dry-run to publish ${PREFIX}/ to ${BRANCH}.`);

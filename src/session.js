@@ -6,7 +6,7 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 3;
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.1.0';
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 200;
 
