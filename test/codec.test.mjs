@@ -7,7 +7,7 @@ import {
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
   normaliseRosterV1, normaliseStatsV1,
 } from '../src/codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY } from '../src/vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY } from '../src/vectors.js';
 
 test('fnv1a32 reference values', () => {
   assert.equal(fnv1a32(new Uint8Array()), '811c9dc5');
@@ -24,6 +24,10 @@ test('golden stats vector round-trips byte-exact', () => {
 test('golden v2 roster vector round-trips byte-exact', () => {
   assert.equal(encodeDayRoster(ROSTER_V2_VECTOR.payload), ROSTER_V2_VECTOR.encoded);
   assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_VECTOR.payload });
+});
+test('golden v3 roster vector round-trips byte-exact', () => {
+  assert.equal(encodeDayRoster(ROSTER_V3_VECTOR.payload), ROSTER_V3_VECTOR.encoded);
+  assert.deepEqual(decodeDayRoster(ROSTER_V3_VECTOR.encoded), { ok: true, value: ROSTER_V3_VECTOR.payload });
 });
 test('golden v2 stats vector round-trips byte-exact', () => {
   assert.equal(encodeDayStats(STATS_V2_VECTOR.payload), STATS_V2_VECTOR.encoded);
