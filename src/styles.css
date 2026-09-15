@@ -34,6 +34,12 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 .seg { display:inline-flex; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
 .seg button { background:none; border:0; padding:6px 10px; min-height:44px; font-size:12px; color:var(--fg-2); }
 .seg button.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+/* Five set tabs at 320px: shrinkable, not arithmetic-perfect (deliberately NOT the mockup's fixed
+   `min-width:44px` per-tab rule — five 44px tabs plus the gap and score button overflow 320px). */
+.setbar { gap:6px; }
+.setbar .seg { flex:1; min-width:0; display:flex; }
+.seg button { flex:1; min-width:0; padding:6px 2px; font-size:13px; font-variant-numeric:tabular-nums; min-height:44px; }
+.setbar .btn.sm { flex:none; max-width:96px; padding:6px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .banner { margin:10px 12px 0; padding:10px 12px; border-radius:var(--radius); background:var(--warn-bg); border:1px solid var(--warn-border); font-size:12.5px; line-height:1.5; display:flex; align-items:center; gap:10px; }
 .banner.err { background:var(--err-bg); border-color:var(--err-border); }
 .banner b { color:var(--warn); }
@@ -83,6 +89,10 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 /* bottom sheets */
 .screen.sheet-host { position:fixed; inset:0; z-index:50; background:var(--backdrop); display:flex; align-items:flex-end; justify-content:center; padding:0; }
 .sheet { width:100%; max-width:460px; background:var(--bg-2); border-radius:16px 16px 0 0; padding:16px 14px calc(20px + env(safe-area-inset-bottom)); box-shadow:var(--shadow); }
+/* Load-bearing, not decorative: a 24-row day directory overflows the sheet, and render() only
+   preserves .sheet's scrollTop across a re-render (every tick re-renders the whole DOM) if the
+   sheet is actually scrollable — the two only work together. */
+.sheet { max-height:calc(100vh - 40px); overflow-y:auto; }
 .sheet h3 { margin:0 0 4px; font-size:15px; }
 .sheet .helper { font-size:12px; color:var(--fg-3); margin:2px 0 14px; line-height:1.5; }
 .sheet label { display:block; font-size:11.5px; color:var(--fg-3); margin:0 0 4px; }
@@ -113,3 +123,19 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 .paste-box::placeholder { color:var(--fg-3); }
 .helper { font-size:11.5px; color:var(--fg-3); margin:8px 0 0; line-height:1.5; }
 .summary-line { font-size:12.5px; color:var(--fg-2); margin:0 0 4px; }
+
+/* empty tick-list state on the record screen — "No players ticked for this game yet." */
+.rows.empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; padding:32px 24px; color:var(--fg-3); font-size:13px; }
+
+/* players tick-list sheet (guide §5 rule 1) */
+.ticklist { list-style:none; margin:0; padding:0; max-height:300px; overflow-y:auto; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.tick { display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+.tick:last-child { border-bottom:0; }
+.tick input[type="checkbox"] { width:22px; height:22px; flex:none; accent-color:var(--accent); pointer-events:none; }
+.tick .tname { flex:1; font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tick .thint { font-size:11px; color:var(--fg-3); flex:none; }
+.tick.locked .tname { color:var(--fg-2); }
+.tick.locked .thint { color:var(--accent); }
+.tick.addsub { cursor:default; }
+.tick.addsub button { width:100%; justify-content:flex-start; color:var(--accent); font-weight:600; background:none; border:1px dashed var(--line-2); }
+.tickfoot { display:flex; align-items:center; justify-content:space-between; padding-top:12px; font-size:12px; color:var(--fg-3); }
