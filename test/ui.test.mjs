@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -53,12 +53,12 @@ async function bootUi() {
 }
 
 const ROSTER_TEXT = encodeDayRoster({
-  v: 2,
+  v: 3,
   kind: 'roster',
   date: '2026-09-19',
   team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace' }],
-  games: [{ gameId: 'g1', opponent: 'Lions', roster: [0] }],
+  games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }], // mask 1 = index 0 = grace, one set
 });
 
 function click(document, selector) {
@@ -66,6 +66,44 @@ function click(document, selector) {
   assert.ok(el, `expected an element matching ${selector}`);
   el.click();
   return el;
+}
+
+/** Boots a fresh ui.js instance pre-loaded with `session` (already the internal day/session shape —
+ * e.g. straight from `newDayFromRoster`, not an encoded payload) written into fake localStorage
+ * under STORAGE_KEY, so boot()'s own load() reads it back exactly as given. */
+async function bootWithSession(session) {
+  const env = freshEnv();
+  env.store.set(STORAGE_KEY, serialiseSession(session));
+  await bootUi();
+  return env;
+}
+
+/** Switches to `gameId` and, if given, selects set `n`, entirely through the same clicks a coach
+ * would use — ui.js has no exports to reach into, and none are being added for this. */
+function switchToGameAndSet(document, gameId, n) {
+  click(document, '[data-action="open-switcher"]');
+  click(document, `[data-action="switch-game"][data-gid="${gameId}"]`);
+  if (n !== undefined) click(document, `[data-action="select-set"][data-n="${n}"]`);
+}
+
+/** Drives the record screen for one game (and, optionally, one of its sets) of a pre-built day and
+ * returns the rendered HTML. Used by the setCount/tick-list tests, which build `day` directly via
+ * `newDayFromRoster` rather than round-tripping through an encoded payload. */
+async function renderWith(day, gameId, n) {
+  const { document } = await bootWithSession(day);
+  switchToGameAndSet(document, gameId, n);
+  return document.getElementById('app').innerHTML;
+}
+
+/** Same, but also opens the players sheet — via the menu, which (unlike the empty-state's own
+ * "Tick players…" button) is reachable whether or not the target set's tick list is empty — and
+ * returns the combined record-screen-plus-sheet HTML. */
+async function renderPlayersSheetWith(day, gameId, n) {
+  const { document } = await bootWithSession(day);
+  switchToGameAndSet(document, gameId, n);
+  click(document, '[data-action="open-menu"]');
+  click(document, '[data-action="open-players"]');
+  return document.getElementById('app').innerHTML;
 }
 
 /** Pastes ROSTER_TEXT, opens the day, and taps one count so the day has a played (unexported) set. */
@@ -162,4 +200,59 @@ test('the export screen shows the save-failed banner (finding 6)', async () => {
     document.getElementById('app').innerHTML.includes('Could not save — export your stats now.'),
     'the save-failed banner reaches the export screen'
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Contract v3 — setCount tabs and per-set tick lists (Task 5)
+// ---------------------------------------------------------------------------------------------
+
+test('the set bar shows exactly sets.length tabs, per game', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [
+      { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] },
+      { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] },
+    ],
+  }, '2026-09-19T09:00:00Z');
+
+  const html1 = await renderWith(day, 'game-1');
+  assert.equal((html1.match(/data-action="select-set"/g) || []).length, 3);
+  assert.match(html1, /data-n="3"/);
+  assert.doesNotMatch(html1, /data-n="4"/, 'no phantom fourth tab');
+
+  const html2 = await renderWith(day, 'game-2');
+  assert.equal((html2.match(/data-action="select-set"/g) || []).length, 2, 'same day, different count');
+});
+
+test('each set shows its own rows, and mask 0 offers the sheet rather than an error', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [{ gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] }],
+  }, '2026-09-19T09:00:00Z');
+
+  const set1 = await renderWith(day, 'game-2', 1);
+  assert.match(set1, /Zoë/);
+  assert.doesNotMatch(set1, /Grace/);
+
+  const set2 = await renderWith(day, 'game-2', 2);
+  assert.match(set2, /No players ticked for this set yet/);
+  assert.doesNotMatch(set2, /malformed|error|Error/);
+});
+
+test('the players sheet shows the whole directory, pre-ticked from that set only', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] }],
+  }, '2026-09-19T09:00:00Z');
+
+  const sheet = await renderPlayersSheetWith(day, 'game-1', 2);
+  // Pre-selection, not a whitelist: Zoë is absent from set 2's mask but must still be tickable.
+  assert.match(sheet, /Grace/);
+  assert.match(sheet, /Zoë/);
+  assert.equal((sheet.match(/data-action="toggle-tick"/g) || []).length, 2);
+  assert.equal((sheet.match(/checkbox" tabindex="-1" checked/g) || []).length, 1, 'only Grace pre-ticked');
+  assert.match(sheet, /Set 2 · tick who is playing this set/);
 });

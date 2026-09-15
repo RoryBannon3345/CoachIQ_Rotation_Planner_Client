@@ -371,7 +371,7 @@ export function deleteGame(s, gameId) {
 }
 
 export function setActiveSet(s, gameId, n) {
-  return withGame(s, gameId, (g) => ({ ...g, activeSet: n }));
+  return withGame(s, gameId, (g) => (n < 1 || n > g.setCount ? g : { ...g, activeSet: n }));
 }
 
 // Applies a clamped count delta to `game` with no history side effect; returns `game` unchanged

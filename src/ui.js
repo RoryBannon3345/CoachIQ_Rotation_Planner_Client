@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, APP_VERSION, MAX_SCORE } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -44,17 +44,19 @@ function statLetter(stat) {
   return stat === 'serve' ? 'S' : 'R';
 }
 
-// Sum of every recorded count for `playerId` across every set of `game`, used to decide whether a
-// player's row in the players sheet gets the "N counts" hint and a locked style.
-function totalCounts(game, playerId) {
-  let total = 0;
-  for (const set of game.sets) {
-    if (!set) continue;
-    const c = set.counts[playerId];
-    if (!c) continue;
-    total += c.serve.in + c.serve.out + c.return.in + c.return.out;
-  }
-  return total;
+/** This player's counts in one set — used to decide whether a row in the (now per-set) players
+ * sheet gets the "N counts" hint and a locked style. A whole-game total would mark a row "locked"
+ * in a set she has nothing recorded in, when setPlayerTicked would in fact let her off it. */
+function setCounts(game, n, playerId) {
+  const c = getCount(game, n, playerId);
+  return c.serve.in + c.serve.out + c.return.in + c.return.out;
+}
+
+// A merge can reduce a game's set count under a coach sitting on a later tab — setActiveSet's own
+// clamp only ever stops activeSet climbing higher, it does not retroactively fix one already
+// parked past a newly-shrunk setCount. Every read of activeSet for display/action must clamp here.
+function clampedActiveSet(game) {
+  return Math.min(game.activeSet, game.setCount);
 }
 
 // Phone-local 24h clock, e.g. "09:07" — used for the switcher's "exported HH:MM".
@@ -313,13 +315,14 @@ function renderPlayersSheet(sheet) {
   const game = day.games.find((g) => g.gameId === sheet.gameId);
   if (!game) return '';
   const i = day.games.indexOf(game);
-  const ticked = new Set(game.playerIds);
+  const n = sheet.n;
+  const ticked = new Set(game.setPlayerIds[n - 1]);
   const errHtml = sheet.error
     ? `<div class="banner err" role="alert" style="margin:-4px 0 12px;"><span>${esc(sheet.error)}</span></div>`
     : '';
   const rows = day.players.map((p) => {
     const isTicked = ticked.has(p.id);
-    const count = totalCounts(game, p.id);
+    const count = setCounts(game, n, p.id);
     const hintHtml = count > 0 ? `<span class="thint">${count} count${count === 1 ? '' : 's'}</span>` : '';
     const subChip = p.sub ? ' <span class="gchip">Sub</span>' : '';
     return `
@@ -333,14 +336,14 @@ function renderPlayersSheet(sheet) {
 <div class="screen sheet-host">
   <div class="sheet">
     <h3>Players</h3>
-    <p class="helper">${esc(gameLabel(game, i))} · tick who is playing this game</p>
+    <p class="helper">${esc(gameLabel(game, i))} · Set ${n} · tick who is playing this set</p>
     ${errHtml}
     <ul class="ticklist">
       ${rows}
       <li class="tick addsub"><button type="button" class="btn block" data-action="open-add-sub-from-players">+ Add a sub…</button></li>
     </ul>
     <div class="tickfoot">
-      <span>${ticked.size} of ${day.players.length}</span>
+      <span>${ticked.size} of ${day.players.length} in Set ${n}</span>
       <button type="button" class="btn primary sm" data-action="close-sheet">Done</button>
     </div>
   </div>
@@ -350,7 +353,7 @@ function renderPlayersSheet(sheet) {
 function onOpenPlayers() {
   const game = currentGame();
   if (!game) return;
-  state.sheet = { kind: 'players', gameId: game.gameId, error: null };
+  state.sheet = { kind: 'players', gameId: game.gameId, n: clampedActiveSet(game), error: null };
   render();
 }
 
@@ -361,8 +364,8 @@ function onToggleTick(pid) {
   if (!sheet || sheet.kind !== 'players') return;
   const game = state.session.games.find((g) => g.gameId === sheet.gameId);
   if (!game) return;
-  const ticked = game.playerIds.includes(pid);
-  const result = setPlayerTicked(state.session, sheet.gameId, pid, !ticked);
+  const ticked = game.setPlayerIds[sheet.n - 1].includes(pid);
+  const result = setPlayerTicked(state.session, sheet.gameId, sheet.n, pid, !ticked);
   if (!result.ok) {
     // Surface as an inline banner in the sheet — never silently revert.
     state.sheet = { ...sheet, error: result.error };
@@ -376,7 +379,7 @@ function onToggleTick(pid) {
 function onOpenAddSubFromPlayers() {
   const sheet = state.sheet;
   if (!sheet || sheet.kind !== 'players') return;
-  state.sheet = { kind: 'addSub', name: '', error: null, gameId: sheet.gameId, returnTo: 'players' };
+  state.sheet = { kind: 'addSub', name: '', error: null, gameId: sheet.gameId, n: sheet.n, returnTo: 'players' };
   render();
 }
 
@@ -390,7 +393,9 @@ function renderSwitcherSheet() {
   const exportedPart = day.lastExportedAt ? ` · exported ${formatTime(day.lastExportedAt)}` : '';
   const rows = day.games.map((g, i) => {
     const played = g.sets.filter(isSetPlayed).length;
-    const subtitle = `${played} set${played === 1 ? '' : 's'} · ${g.playerIds.length} player${g.playerIds.length === 1 ? '' : 's'}`;
+    const named = gamePlayerIdsUnion(g).length;
+    // "of N sets" because N is real data now — the roster said so, per game.
+    const subtitle = `${played} of ${g.setCount} set${g.setCount === 1 ? '' : 's'} · ${named} player${named === 1 ? '' : 's'}`;
     return `
     <li>
       <div class="gmeta" role="button" tabindex="0" data-action="switch-game" data-gid="${esc(g.gameId)}"><span class="gtitle">${esc(gameLabel(g, i))}</span><span class="gsub">${esc(subtitle)}</span></div>
@@ -424,7 +429,7 @@ function onSwitcherPasteNewDay() {
 
 function renderMenuSheet() {
   const game = currentGame();
-  const n = game ? game.activeSet : 1;
+  const n = game ? clampedActiveSet(game) : 1;
   // Same backdrop-closes convention as the switcher sheet — see note above.
   return `
 <div class="screen sheet-host" data-action="close-sheet">
@@ -539,16 +544,21 @@ function renderRecord() {
     return renderPaste();
   }
   const i = day.games.indexOf(game);
-  const n = game.activeSet;
-  const ticked = new Set(game.playerIds);
-  // Directory order, stable — never derived from `game.playerIds`' own order.
+  const n = clampedActiveSet(game);
+  const ticked = new Set(game.setPlayerIds[n - 1]);
+  // Directory order, stable — never derived from the set's own list order.
   const players = day.players.filter((p) => ticked.has(p.id));
-  // `roster: []` (and so an empty tick list) is legal (guide §5 rule 2) — never auto-tick
-  // everybody and never treat it as an error; offer the players sheet instead.
+  // A mask of 0 (and so an empty list) is legal — never auto-tick everybody and never treat it as
+  // an error; offer the players sheet instead.
   const rowsHtml = players.length === 0
-    ? `<div class="rows empty-state"><p>No players ticked for this game yet.</p><button type="button" class="btn primary" data-action="open-players">Tick players…</button></div>`
+    ? `<div class="rows empty-state"><p>No players ticked for this set yet.</p><button type="button" class="btn primary" data-action="open-players">Tick players…</button></div>`
     : `<div class="rows">${players.map((p) => renderRow(game, n, p)).join('')}</div>`;
-  const seg = [1, 2, 3, 4, 5].map((setN) => `<button type="button" class="${setN === n ? 'on' : ''}" aria-label="Set ${setN}" data-action="select-set" data-n="${setN}">${setN}</button>`).join('');
+  // sets.length, per game, is the one source of truth for how many sets a game has. Hardcoding
+  // five showed a coach two tabs the planner never asked for; hardcoding three would hide the
+  // later sets of a four- or five-set game.
+  const seg = Array.from({ length: game.setCount }, (_, i2) => i2 + 1)
+    .map((setN) => `<button type="button" class="${setN === n ? 'on' : ''}" aria-label="Set ${setN}" data-action="select-set" data-n="${setN}">${setN}</button>`)
+    .join('');
   const setRecord = game.sets[n - 1];
   const scoreLabel = setRecord && setRecord.score ? `${setRecord.score[0]}–${setRecord.score[1]}` : 'score';
   const top = game.history.length ? game.history[game.history.length - 1] : null;
@@ -620,7 +630,7 @@ function onSelectSet(n) {
 function onOpenScore() {
   const game = currentGame();
   if (!game) return;
-  const n = game.activeSet;
+  const n = clampedActiveSet(game);
   const setRecord = game.sets[n - 1];
   const score = setRecord && setRecord.score;
   state.sheet = { kind: 'score', n, us: score ? String(score[0]) : '', them: score ? String(score[1]) : '', error: null };
@@ -670,7 +680,7 @@ function onSubAdd() {
   if (!sheet || sheet.kind !== 'addSub') return;
   const game = state.session.games.find((g) => g.gameId === sheet.gameId);
   if (!game) return;
-  const result = addSub(state.session, game.gameId, sheet.name || '');
+  const result = addSub(state.session, game.gameId, sheet.n, sheet.name || '');
   if (!result.ok) {
     state.sheet = { ...sheet, error: result.error };
     render();
@@ -679,7 +689,7 @@ function onSubAdd() {
   if (sheet.returnTo === 'players') {
     // She has just proved she is picking players — return to the players sheet rather than
     // closing, so the sub she just added is right there to tick.
-    state.sheet = { kind: 'players', gameId: game.gameId, error: null };
+    state.sheet = { kind: 'players', gameId: game.gameId, n: sheet.n, error: null };
     commit(result.session);
     return;
   }
@@ -715,7 +725,7 @@ function onConfirmDeleteGame() {
 function onMenuClearSet() {
   const game = currentGame();
   if (!game) return;
-  state.sheet = { kind: 'confirmClearSet', gameId: game.gameId, n: game.activeSet };
+  state.sheet = { kind: 'confirmClearSet', gameId: game.gameId, n: clampedActiveSet(game) };
   render();
 }
 
