@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contract v3 — per-set tick lists &amp; variable set tabs</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+  --radius:10px; --shadow:0 -8px 30px rgba(20,32,45,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+code{background:var(--bg-4);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:12px ui-monospace,Consolas,"Cascadia Mono",monospace}
+.note{max-width:960px;margin:14px 0 26px;padding:11px 13px;border-radius:var(--radius);background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+.note b{color:#143a6e}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none}
+.cap{font-size:11.5px;color:var(--fg-2);margin:0 0 7px;line-height:1.55;min-height:52px}
+.cap b{color:var(--fg)}
+.frame{height:534px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.frame.before{border-color:#e0b4b4}
+
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:1;min-width:0;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg button{flex:1;min-width:0;background:none;border:0;padding:6px 2px;min-height:44px;font-size:13px;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.seg button.on{background:var(--accent);color:var(--accent-fg);font-weight:600}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.colhead span:first-child{text-align:left}
+.rows{flex:1;overflow-y:auto}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:52px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+.name{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.cnt{min-height:48px;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:13px;color:var(--fg)}
+.btn.sm{padding:6px 12px;font-size:12.5px}
+.btn.icon{padding:8px 11px;min-width:44px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.btn.danger{color:#b03636}
+.setbar .btn.sm{flex:none;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px 20px;text-align:center;color:var(--fg-2);font-size:12.5px}
+.empty-state p{margin:0}
+
+.sheet-host{flex:1;display:flex;align-items:flex-end;background:rgba(20,32,45,.34)}
+.sheet{width:100%;background:var(--bg-2);border-radius:16px 16px 0 0;padding:16px 14px 20px;box-shadow:var(--shadow)}
+.sheet h3{margin:0;font-size:15px}
+.sheet .helper{font-size:12px;color:var(--fg-3);margin:2px 0 14px;line-height:1.5}
+.ticklist{list-style:none;margin:0;padding:0;max-height:236px;overflow-y:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tick{display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 4px;border-bottom:1px solid var(--line)}
+.tick:last-child{border-bottom:0}
+.tick input{width:22px;height:22px;flex:none;accent-color:var(--accent);pointer-events:none}
+.tick .tname{flex:1;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+.tick .thint{font-size:11px;color:var(--fg-3);flex:none}
+.tick.locked .thint{color:var(--accent)}
+.tick.addsub button{width:100%;justify-content:flex-start;color:var(--accent);font-weight:600;background:none;border:1px dashed var(--line-2);border-radius:8px;padding:8px 12px;min-height:44px;font-size:13px}
+.tickfoot{display:flex;align-items:center;justify-content:space-between;padding-top:12px;font-size:12px;color:var(--fg-3)}
+.gchip{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);background:var(--info-bg);border-radius:4px;padding:1px 5px;flex:none}
+.gstack{flex-direction:column;align-items:flex-start;gap:2px}
+.gsub{font-size:11px;font-weight:400;color:var(--fg-3)}
+ul.list{max-width:960px;color:var(--fg-2);font-size:13px;line-height:1.75;padding-left:20px}
+ul.list b{color:var(--fg)}
+.badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px}
+.badge.old{background:var(--err-bg);color:#b03636;border:1px solid var(--err-border)}
+.badge.new{background:var(--ok-bg);color:#237a5a;border:1px solid #b6e0cd}
+</style>
+</head>
+<body>
+
+<h1>Contract v3 — per-set tick lists &amp; variable set tabs</h1>
+<p class="lede">
+Preview of the UI changes for <code>games[].sets</code> (one bitmask per set). The day shown is the guide's golden
+vector: <b>Thunder &middot; 19 Sep</b>, a two-player directory (Grace, Zo&euml;), with
+<code>game-1 sets:[3,1,2]</code> and <code>game-2 sets:[2,0]</code>.
+</p>
+<div class="note">
+<b>Correction to the brief.</b> This app does <i>not</i> currently show three set tabs &mdash; it hardcodes
+<b>five</b> (<code>ui.js:551</code>) and allocates five set slots (<code>session.js:104</code>). No stats are being
+silently lost today. Moving to <code>sets.length</code> makes the count <i>correct per game</i>, which in practice
+usually <b>removes</b> phantom tabs rather than adding missing ones.
+</div>
+
+<h2>1 &middot; Set tabs <span class="sub">count comes from <code>sets.length</code>, per game</span></h2>
+<div class="strip">
+
+  <div class="phone">
+    <span class="badge old">Today</span>
+    <p class="cap"><b>Always five tabs</b>, every game. Sets 4 and 5 are phantoms for a 3-set game &mdash; a coach can tap them and record into a set the Planner never asked for.</p>
+    <div class="frame before">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="setbar"><div class="seg"><button class="on">1</button><button>2</button><button>3</button><button>4</button><button>5</button></div><button class="btn sm">score</button></div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><span class="name">Grace</span><span class="cnt in">8</span><span class="cnt out">2</span><span class="cnt in">5</span><span class="cnt out">1</span></div>
+        <div class="row"><span class="name">Zo&euml;</span><span class="cnt in">0</span><span class="cnt out">0</span><span class="cnt in">3</span><span class="cnt out">0</span></div>
+      </div>
+      <div class="bottombar"><button class="btn sm">&#8630; Undo</button><button class="btn icon sm">&minus;</button><button class="btn sm primary">Export</button></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>game-1 &rarr; three tabs.</b> <code>sets:[3,1,2]</code> has length 3. Set 1's mask <code>3</code> pre-ticks both girls, so both rows show.</p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="setbar"><div class="seg"><button class="on">1</button><button>2</button><button>3</button></div><button class="btn sm">25&ndash;21</button></div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><span class="name">Grace</span><span class="cnt in">8</span><span class="cnt out">2</span><span class="cnt in">5</span><span class="cnt out">1</span></div>
+        <div class="row"><span class="name">Zo&euml;</span><span class="cnt in">0</span><span class="cnt out">0</span><span class="cnt in">3</span><span class="cnt out">0</span></div>
+      </div>
+      <div class="bottombar"><button class="btn sm">&#8630; Undo Grace S in</button><button class="btn icon sm">&minus;</button><button class="btn sm primary">Export</button></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>Same game, Set 2.</b> Mask <code>1</code> is bit 0 only &rarr; Grace alone. The rows follow the tab; Zo&euml; is not on this set's list.</p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="setbar"><div class="seg"><button>1</button><button class="on">2</button><button>3</button></div><button class="btn sm">score</button></div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows">
+        <div class="row"><span class="name">Grace</span><span class="cnt in">4</span><span class="cnt out">1</span><span class="cnt in">2</span><span class="cnt out">2</span></div>
+      </div>
+      <div class="bottombar"><button class="btn sm">&#8630; Undo Grace R out</button><button class="btn icon sm">&minus;</button><button class="btn sm primary">Export</button></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>game-2 &rarr; two tabs</b>, in the same day. Set 2's mask is <code>0</code>: the set exists, nobody is pre-ticked. Not an error &mdash; offer the sheet.</p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Falcons &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="setbar"><div class="seg"><button>1</button><button class="on">2</button></div><button class="btn sm">score</button></div>
+      <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+      <div class="rows"><div class="empty-state"><p>No players ticked for this set yet.</p><button class="btn primary">Tick players&hellip;</button></div></div>
+      <div class="bottombar"><button class="btn sm">&#8630; Undo</button><button class="btn icon sm">&minus;</button><button class="btn sm primary">Export</button></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>2 &middot; The tick list <span class="sub">one per set &mdash; whole directory every time, pre-ticked from that set's own mask</span></h2>
+<div class="strip">
+
+  <div class="phone">
+    <span class="badge old">Today</span>
+    <p class="cap"><b>One list per game.</b> The header says "tick who is playing <i>this game</i>". There is nowhere to say Zo&euml; sat out set 2.</p>
+    <div class="frame before">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="sheet-host"><div class="sheet">
+        <h3>Players</h3>
+        <p class="helper">vs Lions &middot; tick who is playing this game</p>
+        <ul class="ticklist">
+          <li class="tick"><input type="checkbox" checked><span class="tname">Grace</span></li>
+          <li class="tick"><input type="checkbox" checked><span class="tname">Zo&euml;</span></li>
+          <li class="tick addsub"><button>+ Add a sub&hellip;</button></li>
+        </ul>
+        <div class="tickfoot"><span>2 of 2</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>Set 2's own list.</b> The header names the set. The whole directory still shows &mdash; Zo&euml; is visible and tickable even though mask <code>1</code> left her out. <b>Pre-selection, not a whitelist.</b></p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="sheet-host"><div class="sheet">
+        <h3>Players</h3>
+        <p class="helper">vs Lions &middot; Set 2 &middot; tick who is playing this set</p>
+        <ul class="ticklist">
+          <li class="tick locked"><input type="checkbox" checked><span class="tname">Grace</span><span class="thint">9 counts</span></li>
+          <li class="tick"><input type="checkbox"><span class="tname">Zo&euml;</span></li>
+          <li class="tick addsub"><button>+ Add a sub&hellip;</button></li>
+        </ul>
+        <div class="tickfoot"><span>1 of 2 in Set 2</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>Mask 0 reads as "nothing pre-ticked"</b> &mdash; game-2's Set 2. Full directory, nothing checked, and no error anywhere.</p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Falcons &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="sheet-host"><div class="sheet">
+        <h3>Players</h3>
+        <p class="helper">vs Falcons &middot; Set 2 &middot; tick who is playing this set</p>
+        <ul class="ticklist">
+          <li class="tick"><input type="checkbox"><span class="tname">Grace</span></li>
+          <li class="tick"><input type="checkbox"><span class="tname">Zo&euml;</span></li>
+          <li class="tick addsub"><button>+ Add a sub&hellip;</button></li>
+        </ul>
+        <div class="tickfoot"><span>0 of 2 in Set 2</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>A sub added mid-game</b> joins only the set she was added to &mdash; she is not assumed into every set. She stays in the day directory, so later sets can tick her too.</p>
+    <div class="frame">
+      <div class="topbar"><button class="btn icon sm">Games &#9662;</button><span class="title-group"><span class="title-team">Thunder</span><span class="title">vs Lions &middot; 19 Sep</span></span><button class="btn icon sm">&ctdot;</button></div>
+      <div class="sheet-host"><div class="sheet">
+        <h3>Players</h3>
+        <p class="helper">vs Lions &middot; Set 3 &middot; tick who is playing this set</p>
+        <ul class="ticklist">
+          <li class="tick"><input type="checkbox"><span class="tname">Grace</span></li>
+          <li class="tick"><input type="checkbox" checked><span class="tname">Zo&euml;</span></li>
+          <li class="tick"><input type="checkbox" checked><span class="tname">Ava <span class="gchip">Sub</span></span></li>
+          <li class="tick addsub"><button>+ Add a sub&hellip;</button></li>
+        </ul>
+        <div class="tickfoot"><span>2 of 3 in Set 3</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>3 &middot; Game switcher <span class="sub">the set count is real data now, so it is worth showing</span></h2>
+<div class="strip">
+  <div class="phone">
+    <span class="badge old">Today</span>
+    <p class="cap">"N sets" counts sets <i>played</i>, against an unstated ceiling of five. "M players" is the single per-game list.</p>
+    <div class="frame before">
+      <div class="sheet-host" style="flex:1"><div class="sheet">
+        <h3>Games</h3>
+        <p class="helper">Thunder &middot; 19 Sep</p>
+        <ul class="ticklist">
+          <li class="tick"><span class="tname gstack"><span>vs Lions</span><span class="gsub">2 sets &middot; 2 players</span></span><button class="btn sm danger">Delete</button></li>
+          <li class="tick"><span class="tname gstack"><span>vs Falcons</span><span class="gsub">1 set &middot; 1 player</span></span><button class="btn sm danger">Delete</button></li>
+        </ul>
+        <div class="tickfoot"><span>exported 21:04</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="phone">
+    <span class="badge new">v3</span>
+    <p class="cap"><b>"2 of 3 sets"</b> &mdash; played out of the count the roster actually specified. Players is the <b>union across sets</b>, which is the number the 12-player cap is measured against.</p>
+    <div class="frame">
+      <div class="sheet-host" style="flex:1"><div class="sheet">
+        <h3>Games</h3>
+        <p class="helper">Thunder &middot; 19 Sep</p>
+        <ul class="ticklist">
+          <li class="tick"><span class="tname gstack"><span>vs Lions</span><span class="gsub">2 of 3 sets &middot; 2 players</span></span><button class="btn sm danger">Delete</button></li>
+          <li class="tick"><span class="tname gstack"><span>vs Falcons</span><span class="gsub">1 of 2 sets &middot; 1 player</span></span><button class="btn sm danger">Delete</button></li>
+        </ul>
+        <div class="tickfoot"><span>exported 21:04</span><button class="btn primary sm">Done</button></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<h2>4 &middot; Decisions this mockup is asking you to confirm</h2>
+<ul class="list">
+  <li><b>Tick lists become per-set.</b> The game's single <code>playerIds</code> becomes one list per set. That is a state-model change, and it bumps the saved-session schema (2 &rarr; 3).</li>
+  <li><b>The 12-player cap is measured as the union across a game's sets</b>, matching <code>statsContract.ts</code>'s <code>maskCount(union, &hellip;)</code>. What gets refused is ticking a 13th <i>distinct</i> girl into any set &mdash; not 13 in one set. The guide does not mention this; it follows the reference implementation.</li>
+  <li><b>Un-ticking is guarded per set.</b> Today a girl with counts anywhere in the game cannot be un-ticked at all. Now she can be un-ticked from a set she has no counts <i>in</i>, and the refusal message names the set.</li>
+  <li><b>A merge never shrinks a set count below recorded data.</b> If a re-sent roster says 2 sets but she has already recorded into set 4, the game keeps 4 tabs. <code>mergeDayRoster</code> is documented as non-destructive by construction; this keeps that true.</li>
+  <li><b>Existing saved days keep five tabs.</b> A schema-2 save carries no set count, so migration gives it <code>MAX_SETS</code> and copies the old per-game list into every set. An in-progress day already on a phone looks and behaves exactly as it did.</li>
+  <li><b>Legacy <code>CIQR1.</code>/<code>CIQR2.</code> emails normalise to one set</b> holding that game's whole roster, via <code>maskOf</code>, exactly as the Planner's <code>normaliseRosterV2</code> does. One tab &mdash; not three, not five.</li>
+</ul>
+
+</body>
+</html>
