@@ -1,12 +1,12 @@
-// session.js — pure, DOM-free session/game state model, storage envelope and stats payload builder.
+// session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
-import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, ID_PATTERN, fnv1a32, encodePayload, encodeRoster, encodeStats, validateStatsPayload, decodeRoster, decodeStats } from './codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR } from './vectors.js';
+import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats } from './codec.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
-export const SESSION_SCHEMA = 1;
-export const APP_VERSION = '1.0.0';
+export const SESSION_SCHEMA = 2;
+export const APP_VERSION = '2.0.0';
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 200;
 
@@ -21,8 +21,19 @@ function clampCount(n) {
   return Math.max(0, Math.min(MAX_COUNT, n));
 }
 
+// The session IS the day: one roster paste in the morning, one stats payload back at night.
+// `date` is the identity of the day — null only for the empty, pre-paste state.
 export function newSession() {
-  return { activeGameId: null, games: [] };
+  return {
+    date: null,
+    team: '',
+    players: [],
+    games: [],
+    activeGameId: null,
+    importedAt: null,
+    lastExportedAt: null,
+    lastChangedAt: null,
+  };
 }
 
 export function newClientId() {
@@ -41,8 +52,13 @@ export function formatDate(text) {
   return `${day} ${month}`;
 }
 
-export function gameLabel(game) {
-  return `vs ${game.opponent} · ${formatDate(game.date)}`;
+// Both `opponent` and `team` may legally be empty, so this must never print `vs  · 19 Sep`.
+export function gameLabel(game, i) {
+  return game.opponent ? `vs ${game.opponent}` : `Game ${i + 1}`;
+}
+
+export function dayLabel(day) {
+  return `${formatDate(day.date)}${day.team ? ' · ' + day.team : ''}`;
 }
 
 function findGame(s, gameId) {
@@ -62,28 +78,6 @@ function withGame(s, gameId, fn) {
   return changed ? { ...s, games } : s;
 }
 
-export function newGameFromRoster(roster, nowIso) {
-  return {
-    gameId: roster.gameId,
-    team: roster.team,
-    opponent: roster.opponent,
-    date: roster.date,
-    importedAt: nowIso,
-    players: roster.players.map((p) => ({ id: p.id, name: p.name, sub: false })),
-    sets: [null, null, null],
-    activeSet: 1,
-    history: [],
-    lastExportedAt: null,
-  };
-}
-
-export function openRoster(s, roster, nowIso) {
-  const existing = findGame(s, roster.gameId);
-  if (existing) return { kind: 'exists', game: existing };
-  const game = newGameFromRoster(roster, nowIso);
-  return { kind: 'opened', session: { activeGameId: game.gameId, games: [...s.games, game] } };
-}
-
 function hasAnyCount(game, playerId) {
   return game.sets.some((set) => {
     if (!set) return false;
@@ -93,23 +87,187 @@ function hasAnyCount(game, playerId) {
   });
 }
 
-export function updateRoster(s, gameId, roster) {
+// ---------------------------------------------------------------------------------------------
+// Step 1 — ingest
+// ---------------------------------------------------------------------------------------------
+
+/** `roster` is always a v2 day roster payload — `decodeDayRoster` normalises v1 before it ever
+ * reaches here, so nothing below branches on a version. */
+export function newDayFromRoster(roster, nowIso) {
+  const directory = roster.players.map((p) => ({ id: p.id, name: p.name, sub: false }));
+  const games = roster.games.map((g) => ({
+    gameId: g.gameId,
+    opponent: g.opponent,
+    // index -> id, resolved exactly once, here at ingest. validateDayRosterPayload has already
+    // proved every index is a whole number in [0, players.length), so this cannot miss.
+    playerIds: g.roster.map((i) => directory[i].id),
+    sets: Array(MAX_SETS).fill(null),
+    activeSet: 1,
+    history: [],
+  }));
+  return {
+    date: roster.date,
+    team: roster.team,
+    players: directory,
+    games,
+    activeGameId: games[0] ? games[0].gameId : null,
+    importedAt: nowIso,
+    lastExportedAt: null,
+    lastChangedAt: null,
+  };
+}
+
+// === newDayFromRoster, named for the call site (`openDayRoster`'s `otherDay` confirmation).
+export function replaceDay(s, roster, nowIso) {
+  return newDayFromRoster(roster, nowIso);
+}
+
+export function hasUnexportedStats(day) {
+  return (
+    day.games.some((g) => g.sets.some(isSetPlayed)) &&
+    (day.lastExportedAt === null || day.lastChangedAt > day.lastExportedAt)
+  );
+}
+
+/**
+ * Same-date merge, non-destructive by construction: never removes a directory player or a game,
+ * only refreshes/adds. Returns `{ ok: false, error }` when a cap the merge would break is hit.
+ */
+function mergeDayRoster(s, roster) {
+  // Directory: refresh name on an existing id (the planner owns names), append ids that are new.
+  // Never remove anyone — a local cx- sub, or a girl the planner has since dropped, stays.
+  const directory = s.players.map((p) => ({ ...p }));
+  const indexById = new Map(directory.map((p, i) => [p.id, i]));
+  let addedPlayers = 0;
+  for (const rp of roster.players) {
+    const idx = indexById.get(rp.id);
+    if (idx === undefined) {
+      indexById.set(rp.id, directory.length);
+      directory.push({ id: rp.id, name: rp.name, sub: false });
+      addedPlayers++;
+    } else {
+      directory[idx] = { ...directory[idx], name: rp.name };
+    }
+  }
+  if (directory.length > MAX_DAY_PLAYERS) {
+    return { ok: false, error: `Updating would make ${directory.length} players; the day limit is ${MAX_DAY_PLAYERS}.` };
+  }
+  const subLookup = new Map(directory.map((p) => [p.id, p.sub]));
+
+  // Games already present (matched on gameId): keep sets/history/activeSet, take the new opponent;
+  // new tick list = the incoming ids, plus any already-ticked player who has counts or is a sub.
+  const matchedGames = s.games.map((g) => {
+    const rg = roster.games.find((x) => x.gameId === g.gameId);
+    if (!rg) return g; // a local game the roster no longer names: keep it, untouched.
+    const incomingIds = rg.roster.map((i) => roster.players[i].id);
+    const keepIds = g.playerIds.filter((id) => !incomingIds.includes(id) && (hasAnyCount(g, id) || subLookup.get(id)));
+    return { ...g, opponent: rg.opponent, playerIds: [...incomingIds, ...keepIds] };
+  });
+  for (const g of matchedGames) {
+    if (g.playerIds.length > MAX_ROSTER_PLAYERS) {
+      return {
+        ok: false,
+        error: `Updating "${g.opponent || g.gameId}" would make ${g.playerIds.length} players; the game limit is ${MAX_ROSTER_PLAYERS}.`,
+      };
+    }
+  }
+
+  // A new game: appended.
+  const newRosterGames = roster.games.filter((rg) => !s.games.some((g) => g.gameId === rg.gameId));
+  const appendedGames = newRosterGames.map((rg) => ({
+    gameId: rg.gameId,
+    opponent: rg.opponent,
+    playerIds: rg.roster.map((i) => roster.players[i].id),
+    sets: Array(MAX_SETS).fill(null),
+    activeSet: 1,
+    history: [],
+  }));
+  const games = [...matchedGames, ...appendedGames];
+  if (games.length > MAX_GAMES_PER_DAY) {
+    return { ok: false, error: `Updating would make ${games.length} games; the day limit is ${MAX_GAMES_PER_DAY}.` };
+  }
+
+  const activeGameId = games.some((g) => g.gameId === s.activeGameId) ? s.activeGameId : games[0] ? games[0].gameId : null;
+
+  // team takes the incoming value; lastChangedAt untouched — a roster merge adds no stats.
+  const session = { ...s, team: roster.team, players: directory, games, activeGameId };
+  return { ok: true, session, added: { games: appendedGames.length, players: addedPlayers } };
+}
+
+export function openDayRoster(s, roster, nowIso) {
+  if (s.date === null) {
+    return { kind: 'opened', session: newDayFromRoster(roster, nowIso) };
+  }
+  // Deliberate edge: a roster with the same date but a different team still merges — the spec
+  // makes `date` the identity of a day payload, not `team`.
+  if (roster.date === s.date) {
+    const merged = mergeDayRoster(s, roster);
+    if (!merged.ok) return { kind: 'error', error: merged.error };
+    return { kind: 'sameDay', session: merged.session, added: merged.added };
+  }
+  return { kind: 'otherDay', roster, unexported: hasUnexportedStats(s) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2 — the tick list and subs
+// ---------------------------------------------------------------------------------------------
+
+export function setPlayerTicked(s, gameId, playerId, ticked) {
   const game = findGame(s, gameId);
   if (!game) return { ok: false, error: 'That game does not exist.' };
-  const existingById = new Map(game.players.map((p) => [p.id, p]));
-  const rosterIds = new Set(roster.players.map((p) => p.id));
-  const fromRoster = roster.players.map((p) => {
-    const prior = existingById.get(p.id);
-    return { id: p.id, name: p.name, sub: prior ? prior.sub : false };
-  });
-  const kept = game.players.filter((p) => !rosterIds.has(p.id) && (p.sub || hasAnyCount(game, p.id)));
-  const players = [...fromRoster, ...kept];
-  if (players.length > MAX_ROSTER_PLAYERS) {
-    return { ok: false, error: `Updating would make ${players.length} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
+  if (ticked) {
+    if (game.playerIds.includes(playerId)) return { ok: true, session: s };
+    if (game.playerIds.length >= MAX_ROSTER_PLAYERS) {
+      return { ok: false, error: `This game already has ${MAX_ROSTER_PLAYERS} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
+    }
+    const session = withGame(s, gameId, (g) => ({ ...g, playerIds: [...g.playerIds, playerId] }));
+    return { ok: true, session };
   }
-  const session = withGame(s, gameId, (g) => ({ ...g, players }));
+  if (!game.playerIds.includes(playerId)) return { ok: true, session: s };
+  // The refusal is the safeguard: buildDayStatsPayload derives lines from what is recorded, and
+  // a player hidden from the record screen while her counts sat in sets[n].counts would be a
+  // silent inconsistency the coach could not see.
+  if (hasAnyCount(game, playerId)) {
+    const player = s.players.find((p) => p.id === playerId);
+    const name = player ? player.name : playerId;
+    return { ok: false, error: `${name} has counts in this game — clear the set first to take her off.` };
+  }
+  const session = withGame(s, gameId, (g) => ({ ...g, playerIds: g.playerIds.filter((id) => id !== playerId) }));
   return { ok: true, session };
 }
+
+export function addSub(s, gameId, name, id) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (trimmed.length === 0) return { ok: false, error: 'Enter a name.' };
+  if (trimmed.length > MAX_NAME_LENGTH) {
+    return { ok: false, error: `That name is ${trimmed.length} characters; the limit is ${MAX_NAME_LENGTH}.` };
+  }
+  const game = findGame(s, gameId);
+  if (!game) return { ok: false, error: 'That game does not exist.' };
+  // Section 5 rule 3 made enforceable: a cx- id minted for somebody already in the directory
+  // under her real id imports at the planner as a stranger, and by then the two are indistinguishable.
+  const lower = trimmed.toLowerCase();
+  if (s.players.some((p) => p.name.toLowerCase() === lower)) {
+    return { ok: false, error: `Someone called ${trimmed} is already in today's players — tick her instead.` };
+  }
+  if (s.players.length >= MAX_DAY_PLAYERS) {
+    return { ok: false, error: `Today already has ${MAX_DAY_PLAYERS} players; the day limit is ${MAX_DAY_PLAYERS}.` };
+  }
+  if (game.playerIds.length >= MAX_ROSTER_PLAYERS) {
+    return { ok: false, error: `This game already has ${MAX_ROSTER_PLAYERS} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
+  }
+  const playerId = id ?? newClientId();
+  const session = {
+    ...s,
+    players: [...s.players, { id: playerId, name: trimmed, sub: true }],
+    games: s.games.map((g) => (g.gameId === gameId ? { ...g, playerIds: [...g.playerIds, playerId] } : g)),
+  };
+  return { ok: true, session };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 3 — five sets, tap/undo/score machinery (unchanged except the slot count), deletion
+// ---------------------------------------------------------------------------------------------
 
 export function setActiveGame(s, gameId) {
   return { ...s, activeGameId: gameId };
@@ -117,8 +275,10 @@ export function setActiveGame(s, gameId) {
 
 export function deleteGame(s, gameId) {
   const games = s.games.filter((g) => g.gameId !== gameId);
-  const activeGameId = s.activeGameId === gameId ? (games[0] ? games[0].gameId : null) : s.activeGameId;
-  return { activeGameId, games };
+  // A day with no games is not a day — the paste screen needs a coherent empty state to return to.
+  if (games.length === 0) return newSession();
+  const activeGameId = s.activeGameId === gameId ? games[0].gameId : s.activeGameId;
+  return { ...s, activeGameId, games };
 }
 
 export function setActiveSet(s, gameId, n) {
@@ -181,22 +341,6 @@ export function clearSet(s, gameId, n) {
   });
 }
 
-export function addSub(s, gameId, name, id) {
-  const trimmed = typeof name === 'string' ? name.trim() : '';
-  if (trimmed.length === 0) return { ok: false, error: 'Enter a name.' };
-  if (trimmed.length > MAX_NAME_LENGTH) {
-    return { ok: false, error: `That name is ${trimmed.length} characters; the limit is ${MAX_NAME_LENGTH}.` };
-  }
-  const game = findGame(s, gameId);
-  if (!game) return { ok: false, error: 'That game does not exist.' };
-  if (game.players.length >= MAX_ROSTER_PLAYERS) {
-    return { ok: false, error: `This game already has ${MAX_ROSTER_PLAYERS} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
-  }
-  const playerId = id ?? newClientId();
-  const session = withGame(s, gameId, (g) => ({ ...g, players: [...g.players, { id: playerId, name: trimmed, sub: true }] }));
-  return { ok: true, session };
-}
-
 export function isSetPlayed(setRecord) {
   if (setRecord === null) return false;
   if (setRecord.score !== null) return true;
@@ -209,39 +353,58 @@ export function getCount(game, n, playerId) {
   return c ? { serve: { in: c.serve.in, out: c.serve.out }, return: { in: c.return.in, out: c.return.out } } : zeroCount();
 }
 
-export function buildStatsPayload(game, nowIso) {
-  const sets = [];
-  game.sets.forEach((set, i) => {
-    if (!isSetPlayed(set)) return;
-    const players = [];
-    for (const p of game.players) {
-      const c = set.counts[p.id];
-      if (!c) continue;
-      if (c.serve.in + c.serve.out + c.return.in + c.return.out === 0) continue;
-      players.push({ id: p.id, serve: { in: c.serve.in, out: c.serve.out }, return: { in: c.return.in, out: c.return.out } });
-    }
-    sets.push({ n: i + 1, score: set.score === null ? null : [set.score[0], set.score[1]], players });
-  });
-  if (sets.length === 0) {
+// ---------------------------------------------------------------------------------------------
+// Step 4 — buildDayStatsPayload
+// ---------------------------------------------------------------------------------------------
+
+export function buildDayStatsPayload(day, nowIso) {
+  const gamesOut = [];
+  const usedIds = new Set();
+  for (const game of day.games) {
+    const sets = [];
+    // i + 1 per game — set numbers are scoped to a game, never to a day; every game restarts at 1.
+    game.sets.forEach((set, i) => {
+      if (!isSetPlayed(set)) return;
+      const lines = [];
+      // Lines iterate day directory order, deriving from `counts` (not `playerIds`), so no
+      // recorded stat can ever be lost to a tick-list edit.
+      for (const p of day.players) {
+        const c = set.counts[p.id];
+        if (!c) continue;
+        if (c.serve.in + c.serve.out + c.return.in + c.return.out === 0) continue;
+        lines.push({ id: p.id, serve: { in: c.serve.in, out: c.serve.out }, return: { in: c.return.in, out: c.return.out } });
+        usedIds.add(p.id);
+      }
+      sets.push({ n: i + 1, score: set.score === null ? null : [set.score[0], set.score[1]], players: lines });
+    });
+    if (sets.length === 0) continue; // games with no played set are omitted entirely
+    gamesOut.push({ gameId: game.gameId, sets });
+  }
+  if (gamesOut.length === 0) {
     return { ok: false, error: 'Nothing recorded yet — tap a count or enter a score first.' };
   }
-  const payload = {
-    v: 1,
-    kind: 'stats',
-    gameId: game.gameId,
-    recordedAt: nowIso,
-    players: game.players.map((p) => ({ id: p.id, name: p.name })),
-    sets,
-  };
-  const valid = validateStatsPayload(payload);
+  // The directory sent = entries named by at least one emitted line. Fall back to the whole
+  // directory for a day of score-only sets (legal): players must never be empty.
+  const playersOut =
+    usedIds.size > 0
+      ? day.players.filter((p) => usedIds.has(p.id)).map((p) => ({ id: p.id, name: p.name }))
+      : day.players.map((p) => ({ id: p.id, name: p.name }));
+  const payload = { v: 2, kind: 'stats', recordedAt: nowIso, players: playersOut, games: gamesOut };
+  const valid = validateDayStatsPayload(payload);
   if (!valid.ok) return valid;
+  const totalSets = gamesOut.reduce((sum, g) => sum + g.sets.length, 0);
   const summary = [
-    gameLabel(game),
-    ...sets.map((x) => `Set ${x.n} ${x.score ? `${x.score[0]}–${x.score[1]}` : 'no score'}`),
-    `${payload.players.length} player${payload.players.length === 1 ? '' : 's'}`,
+    dayLabel(day),
+    `${gamesOut.length} game${gamesOut.length === 1 ? '' : 's'}`,
+    `${totalSets} set${totalSets === 1 ? '' : 's'}`,
+    `${playersOut.length} player${playersOut.length === 1 ? '' : 's'}`,
   ].join(' · ');
-  return { ok: true, value: { text: encodeStats(payload), summary, payload: valid.value } };
+  return { ok: true, value: { text: encodeDayStats(payload), summary, payload: valid.value } };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 5 — persistence, parsing, migration
+// ---------------------------------------------------------------------------------------------
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -284,6 +447,7 @@ function parseSetRecord(value) {
   return { score, counts };
 }
 
+// Contract unchanged: { id, name, sub }.
 function parsePlayer(value, seenIds) {
   if (!isPlainObject(value)) return undefined;
   if (typeof value.id !== 'string' || !ID_PATTERN.test(value.id)) return undefined;
@@ -296,6 +460,107 @@ function parsePlayer(value, seenIds) {
 
 function parseHistoryEntry(value) {
   if (!isPlainObject(value)) return undefined;
+  if (!Number.isInteger(value.n) || value.n < 1 || value.n > MAX_SETS) return undefined;
+  if (typeof value.playerId !== 'string') return undefined;
+  if (value.stat !== 'serve' && value.stat !== 'return') return undefined;
+  if (value.side !== 'in' && value.side !== 'out') return undefined;
+  if (typeof value.delta !== 'number' || !Number.isInteger(value.delta)) return undefined;
+  return { n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
+}
+
+// v2 game shape: { gameId, opponent, playerIds, sets, activeSet, history }. team/date/importedAt/
+// players are no longer read — the parser rebuilds field by field, so a stale game carrying
+// extras is silently cleaned. A game naming an unknown directory id is dropped (salvage).
+function parseGame(value, directoryIds) {
+  if (!isPlainObject(value)) return undefined;
+  if (typeof value.gameId !== 'string') return undefined;
+  if (typeof value.opponent !== 'string') return undefined;
+  if (!Array.isArray(value.playerIds) || value.playerIds.length > MAX_ROSTER_PLAYERS) return undefined;
+  const seenPlayerIds = new Set();
+  const playerIds = [];
+  for (const id of value.playerIds) {
+    if (typeof id !== 'string') return undefined;
+    if (seenPlayerIds.has(id)) return undefined;
+    if (!directoryIds.has(id)) return undefined;
+    seenPlayerIds.add(id);
+    playerIds.push(id);
+  }
+  if (!Array.isArray(value.sets) || value.sets.length !== MAX_SETS) return undefined;
+  const sets = [];
+  for (const raw of value.sets) {
+    const set = parseSetRecord(raw);
+    if (set === undefined) return undefined;
+    sets.push(set);
+  }
+  if (!Number.isInteger(value.activeSet) || value.activeSet < 1 || value.activeSet > MAX_SETS) return undefined;
+  if (!Array.isArray(value.history)) return undefined;
+  const history = [];
+  for (const raw of value.history) {
+    const h = parseHistoryEntry(raw);
+    if (h === undefined) return undefined;
+    history.push(h);
+  }
+  return { gameId: value.gameId, opponent: value.opponent, playerIds, sets, activeSet: value.activeSet, history };
+}
+
+// The day envelope (schema 2). `date` a non-empty string, or null only when games and players
+// are both empty.
+function parseDay(value) {
+  if (!isPlainObject(value)) return undefined;
+  if (value.date !== null && !(typeof value.date === 'string' && value.date.length > 0)) return undefined;
+  if (typeof value.team !== 'string') return undefined;
+  if (!Array.isArray(value.players) || value.players.length > MAX_DAY_PLAYERS) return undefined;
+  const seenIds = new Set();
+  const players = [];
+  for (const raw of value.players) {
+    const p = parsePlayer(raw, seenIds);
+    if (p === undefined) return undefined;
+    players.push(p);
+  }
+  if (!Array.isArray(value.games) || value.games.length > MAX_GAMES_PER_DAY) return undefined;
+  const directoryIds = new Set(players.map((p) => p.id));
+  // Per-game salvage: a game that fails validation (or repeats an earlier gameId) is dropped
+  // rather than parking the whole saved day.
+  const games = [];
+  let dropped = 0;
+  const seenGameIds = new Set();
+  for (const raw of value.games) {
+    const g = parseGame(raw, directoryIds);
+    if (g === undefined || seenGameIds.has(g.gameId)) {
+      dropped++;
+      continue;
+    }
+    seenGameIds.add(g.gameId);
+    games.push(g);
+  }
+  if (value.games.length > 0 && games.length === 0) return undefined;
+  if (value.date === null && (players.length > 0 || games.length > 0)) return undefined;
+  for (const key of ['importedAt', 'lastExportedAt', 'lastChangedAt']) {
+    if (value[key] !== null && typeof value[key] !== 'string') return undefined;
+  }
+  let activeGameId = value.activeGameId;
+  if (activeGameId !== null && typeof activeGameId !== 'string') return undefined;
+  if (typeof activeGameId === 'string' && !games.some((g) => g.gameId === activeGameId)) {
+    activeGameId = games[0] ? games[0].gameId : null;
+  }
+  const day = {
+    date: value.date,
+    team: value.team,
+    players,
+    games,
+    activeGameId,
+    importedAt: value.importedAt,
+    lastExportedAt: value.lastExportedAt,
+    lastChangedAt: value.lastChangedAt,
+  };
+  return { day, dropped };
+}
+
+// -- schema-1 legacy parser, retained verbatim (3-slot sets, one game = one day's worth of
+// fields) purely so `migrateSchema1` has a faithful v1 session to lift from. --
+
+function parseHistoryEntryV1(value) {
+  if (!isPlainObject(value)) return undefined;
   if (value.n !== 1 && value.n !== 2 && value.n !== 3) return undefined;
   if (typeof value.playerId !== 'string') return undefined;
   if (value.stat !== 'serve' && value.stat !== 'return') return undefined;
@@ -304,7 +569,7 @@ function parseHistoryEntry(value) {
   return { n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
 }
 
-function parseGame(value) {
+function parseGameV1(value) {
   if (!isPlainObject(value)) return undefined;
   if (typeof value.gameId !== 'string') return undefined;
   if (typeof value.team !== 'string') return undefined;
@@ -330,7 +595,7 @@ function parseGame(value) {
   if (!Array.isArray(value.history)) return undefined;
   const history = [];
   for (const raw of value.history) {
-    const h = parseHistoryEntry(raw);
+    const h = parseHistoryEntryV1(raw);
     if (h === undefined) return undefined;
     history.push(h);
   }
@@ -349,6 +614,99 @@ function parseGame(value) {
   };
 }
 
+function parseLegacySession(session) {
+  if (!Array.isArray(session.games)) return undefined;
+  const games = [];
+  let dropped = 0;
+  const seenGameIds = new Set();
+  for (const raw of session.games) {
+    const g = parseGameV1(raw);
+    if (g === undefined || seenGameIds.has(g.gameId)) {
+      dropped++;
+      continue;
+    }
+    seenGameIds.add(g.gameId);
+    games.push(g);
+  }
+  if (session.games.length > 0 && games.length === 0) return undefined;
+  let activeGameId = session.activeGameId;
+  if (activeGameId !== null && typeof activeGameId !== 'string') return undefined;
+  if (typeof activeGameId === 'string' && !games.some((g) => g.gameId === activeGameId)) {
+    activeGameId = games[0] ? games[0].gameId : null;
+  }
+  return { session: { activeGameId, games }, dropped };
+}
+
+/**
+ * Migration, schema 1 -> 2. Rule: keep the day containing the active game; set the other days
+ * aside. If activeGameId is null or unresolvable, keep the date whose games have the most recent
+ * importedAt. Games on other dates are dropped and counted in `droppedDays`.
+ */
+function migrateSchema1(v1session) {
+  const games = v1session.games;
+  if (games.length === 0) return { day: newSession(), droppedDays: 0 };
+
+  const active = v1session.activeGameId ? games.find((g) => g.gameId === v1session.activeGameId) : undefined;
+  let keptDate;
+  if (active) {
+    keptDate = active.date;
+  } else {
+    let best; // most recent importedAt seen per date, tracked as we scan
+    for (const g of games) {
+      if (best === undefined || g.importedAt > best.importedAt) best = { date: g.date, importedAt: g.importedAt };
+    }
+    keptDate = best.date;
+  }
+  const keptGames = games.filter((g) => g.date === keptDate);
+  const droppedDays = new Set(games.filter((g) => g.date !== keptDate).map((g) => g.date)).size;
+
+  // A v1 day of three games could hold up to 36 distinct girls; refusing beats truncating.
+  if (keptGames.length > MAX_GAMES_PER_DAY) return undefined;
+
+  // Directory = the union of the kept games' players, in game order, de-duped by id.
+  const directory = [];
+  const indexById = new Map();
+  for (const g of keptGames) {
+    for (const p of g.players) {
+      const isSub = p.sub || CLIENT_ID_PATTERN.test(p.id);
+      const idx = indexById.get(p.id);
+      if (idx === undefined) {
+        indexById.set(p.id, directory.length);
+        directory.push({ id: p.id, name: p.name, sub: isSub });
+      } else if (isSub) {
+        directory[idx].sub = true;
+      }
+    }
+  }
+  if (directory.length > MAX_DAY_PLAYERS) return undefined;
+
+  const day = {
+    date: keptDate,
+    team: active ? active.team : keptGames[0].team,
+    players: directory,
+    // Per-game playerIds = that game's own players' ids, so the tick lists reproduce exactly
+    // what she was recording.
+    games: keptGames.map((g) => ({
+      gameId: g.gameId,
+      opponent: g.opponent,
+      playerIds: g.players.map((p) => p.id),
+      sets: [...g.sets, null, null], // pad 3 to 5
+      activeSet: g.activeSet,
+      history: g.history,
+    })),
+    activeGameId:
+      v1session.activeGameId && keptGames.some((g) => g.gameId === v1session.activeGameId)
+        ? v1session.activeGameId
+        : keptGames[0]
+          ? keptGames[0].gameId
+          : null,
+    importedAt: keptGames.reduce((min, g) => (min === null || g.importedAt < min ? g.importedAt : min), null),
+    lastExportedAt: keptGames.reduce((max, g) => (g.lastExportedAt !== null && (max === null || g.lastExportedAt > max) ? g.lastExportedAt : max), null),
+    lastChangedAt: null,
+  };
+  return { day, droppedDays };
+}
+
 export function parseSession(text) {
   const MALFORMED = { ok: false, error: 'saved session is malformed' };
   let envelope;
@@ -358,30 +716,27 @@ export function parseSession(text) {
     return MALFORMED;
   }
   if (!isPlainObject(envelope)) return MALFORMED;
-  if (envelope.schema !== SESSION_SCHEMA) return MALFORMED;
+  if (envelope.schema !== 1 && envelope.schema !== 2) return MALFORMED;
   const session = envelope.session;
   if (!isPlainObject(session)) return MALFORMED;
-  if (!Array.isArray(session.games)) return MALFORMED;
-  // Per-game salvage: a game that fails validation (or repeats an earlier gameId) is dropped
-  // rather than parking the whole saved session — see load() in ui.js for the amber banner this
-  // enables. Envelope-level faults (not JSON, wrong schema, games not an array, activeGameId of
-  // the wrong type) still fail the whole parse; only individual games are salvageable.
-  const games = [];
-  let dropped = 0;
-  const seenGameIds = new Set();
-  for (const raw of session.games) {
-    const g = parseGame(raw);
-    if (g === undefined || seenGameIds.has(g.gameId)) { dropped++; continue; }
-    seenGameIds.add(g.gameId);
-    games.push(g);
+
+  if (envelope.schema === 2) {
+    const result = parseDay(session);
+    if (result === undefined) return MALFORMED;
+    return { ok: true, value: result.day, dropped: result.dropped };
   }
-  if (session.games.length > 0 && games.length === 0) return MALFORMED;
-  let activeGameId = session.activeGameId;
-  if (activeGameId !== null && typeof activeGameId !== 'string') return MALFORMED;
-  if (typeof activeGameId === 'string' && !games.some((g) => g.gameId === activeGameId)) {
-    activeGameId = games[0] ? games[0].gameId : null;
+
+  // schema === 1: this code ships to phones that already hold a schema-1 save; it must never
+  // throw during boot, so the whole legacy leg — parse then migrate — is one try/catch.
+  try {
+    const legacy = parseLegacySession(session);
+    if (legacy === undefined) return MALFORMED;
+    const migrated = migrateSchema1(legacy.session);
+    if (migrated === undefined) return MALFORMED;
+    return { ok: true, value: migrated.day, dropped: legacy.dropped, droppedDays: migrated.droppedDays };
+  } catch {
+    return MALFORMED;
   }
-  return { ok: true, value: { activeGameId, games }, dropped };
 }
 
 export function serialiseSession(s) {
@@ -391,12 +746,19 @@ export function serialiseSession(s) {
 export function runSelfCheck() {
   try {
     if (fnv1a32(new Uint8Array()) !== '811c9dc5') return { ok: false, error: 'fnv1a32 of empty input' };
+    if (fnv1a32(new TextEncoder().encode('a')) !== 'e40c292c') return { ok: false, error: 'fnv1a32 of "a"' };
+    if (encodeDayRoster(ROSTER_V2_VECTOR.payload) !== ROSTER_V2_VECTOR.encoded) return { ok: false, error: 'day roster vector encode' };
+    if (encodeDayStats(STATS_V2_VECTOR.payload) !== STATS_V2_VECTOR.encoded) return { ok: false, error: 'day stats vector encode' };
     if (encodeRoster(ROSTER_VECTOR.payload) !== ROSTER_VECTOR.encoded) return { ok: false, error: 'roster vector encode' };
     if (encodeStats(STATS_VECTOR.payload) !== STATS_VECTOR.encoded) return { ok: false, error: 'stats vector encode' };
-    const r = decodeRoster(ROSTER_VECTOR.encoded);
-    const t = decodeStats(STATS_VECTOR.encoded);
-    if (!r.ok || JSON.stringify(r.value) !== JSON.stringify(ROSTER_VECTOR.payload)) return { ok: false, error: 'roster vector decode' };
-    if (!t.ok || JSON.stringify(t.value) !== JSON.stringify(STATS_VECTOR.payload)) return { ok: false, error: 'stats vector decode' };
+    const r2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
+    if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_VECTOR.payload)) return { ok: false, error: 'day roster vector decode' };
+    const t2 = decodeDayStats(STATS_V2_VECTOR.encoded);
+    if (!t2.ok || JSON.stringify(t2.value) !== JSON.stringify(STATS_V2_VECTOR.payload)) return { ok: false, error: 'day stats vector decode' };
+    const r1 = decodeDayRoster(ROSTER_VECTOR.encoded);
+    if (!r1.ok || JSON.stringify(r1.value) !== JSON.stringify(ROSTER_V1_AS_DAY)) return { ok: false, error: 'legacy roster vector decode' };
+    const t1 = decodeDayStats(STATS_VECTOR.encoded);
+    if (!t1.ok || JSON.stringify(t1.value) !== JSON.stringify(STATS_V1_AS_DAY)) return { ok: false, error: 'legacy stats vector decode' };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
