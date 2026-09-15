@@ -65,19 +65,20 @@ out.transcript = (function () {
   // 1. runSelfCheck — the codec's own golden-vector check, encode AND decode.
   rec('runSelfCheck', runSelfCheck());
 
-  // 2. decodeDayRoster — a two-game v2 day. Names carry the characters most likely to
+  // 2. decodeDayRoster — a two-game v3 day. Names carry the characters most likely to
   //    be disturbed by the string array (markup, quotes, ampersand, non-ASCII). Two
   //    games so the day directory (s.players) is genuinely shared state, not a single
-  //    game's own roster wearing a day-shaped label.
+  //    game's own roster wearing a day-shaped label. GAME has one set (mask 3, both
+  //    players); GAME2 has two sets (mask 1 each, p1 only) so setCount varies per game.
   const rosterText = encodeDayRoster({
-    v: 2, kind: 'roster', date: '2026-09-19', team: 'Home & Co <b>',
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Home & Co <b>',
     players: [
       { id: 'p1', name: 'Ada <&> "Q"', jersey: 7 },
       { id: 'p2', name: "Zo\\u00eb O'Brien" },
     ],
     games: [
-      { gameId: GAME, opponent: 'Away "FC"', roster: [0, 1] },
-      { gameId: GAME2, opponent: 'Second "FC"', roster: [0] },
+      { gameId: GAME, opponent: 'Away "FC"', sets: [3] },
+      { gameId: GAME2, opponent: 'Second "FC"', sets: [1, 1] },
     ],
   });
   rec('encodeDayRoster', rosterText);
@@ -135,9 +136,9 @@ out.transcript = (function () {
   //     reading one of these strings back through the obfuscated bundle, a mangled
   //     label (e.g. a key renamed but not its lookup, or vice versa) would ship as
   //     "undefined" in a coach-facing error message and nothing here would catch it.
-  //     "CIQR3." is a version above CONTRACT_VERSION (2) -- decodePayload refuses it
+  //     "CIQR4." is a version above CONTRACT_VERSION (3) -- decodePayload refuses it
   //     before it ever checks the checksum, so garbage after the version is fine.
-  const tooNew = decodeDayRoster('CIQR3.x.00000000');
+  const tooNew = decodeDayRoster('CIQR4.x.00000000');
   rec('decodeDayRoster.tooNew', tooNew);
   //     A roster-prefixed payload handed to the stats decoder: the kind check runs
   //     before the checksum too, so the valid rosterText from step 2 works here as-is.
@@ -222,7 +223,7 @@ test('the real codec/session data path survives hardening unchanged', async () =
   // come back as "undefined" instead of failing to parse; nothing else in this suite
   // reads a coach-facing error string all the way through the obfuscated bundle.
   assert.ok(
-    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 3); this app understands 2."}'),
+    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 4); this app understands 3."}'),
     'AUTHOR_LABEL[expected] resolved correctly for a too-new roster'
   );
   assert.ok(
