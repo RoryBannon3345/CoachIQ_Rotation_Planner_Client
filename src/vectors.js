@@ -27,3 +27,74 @@ export const STATS_VECTOR = {
   payload: STATS_PAYLOAD,
   encoded: 'CIQS1.eyJ2IjoxLCJraW5kIjoic3RhdHMiLCJnYW1lSWQiOiJnYW1lLTEiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMjFdLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwic2VydmUiOnsiaW4iOjgsIm91dCI6Mn0sInJldHVybiI6eyJpbiI6NSwib3V0IjoxfX0seyJpZCI6ImN4LThmMmsxcSIsInNlcnZlIjp7ImluIjowLCJvdXQiOjB9LCJyZXR1cm4iOnsiaW4iOjMsIm91dCI6MH19XX0seyJuIjoyLCJzY29yZSI6bnVsbCwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo0LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6Mn19XX1dfQ.27119bc0',
 };
+
+/**
+ * The v2 vectors: a two-game tournament day, which is the shape the whole contract moved to and
+ * the smallest one that can go wrong in a v2-specific way (a second game, a per-game set list that
+ * starts again at 1, and a `roster` of indices that is not simply every player).
+ */
+const ROSTER_V2_PAYLOAD = {
+  v: 2, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', roster: [0, 1] },
+    { gameId: 'game-2', opponent: 'Falcons', roster: [1] },
+  ],
+};
+
+const STATS_V2_PAYLOAD = {
+  v: 2, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
+  players: [{ id: 'grace', name: 'Grace' }, { id: 'cx-8f2k1q', name: 'Ava' }],
+  games: [
+    { gameId: 'game-1', sets: [
+      { n: 1, score: [25, 21], players: [
+        { id: 'grace', serve: { in: 8, out: 2 }, return: { in: 5, out: 1 } },
+        { id: 'cx-8f2k1q', serve: { in: 0, out: 0 }, return: { in: 3, out: 0 } },
+      ] },
+      { n: 2, score: null, players: [{ id: 'grace', serve: { in: 4, out: 1 }, return: { in: 2, out: 2 } }] },
+    ] },
+    { gameId: 'game-2', sets: [
+      { n: 1, score: [25, 18], players: [{ id: 'cx-8f2k1q', serve: { in: 6, out: 1 }, return: { in: 2, out: 0 } }] },
+    ] },
+  ],
+};
+
+export const ROSTER_V2_VECTOR = {
+  payload: ROSTER_V2_PAYLOAD,
+  encoded: 'CIQR2.eyJ2IjoyLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwicm9zdGVyIjpbMCwxXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJyb3N0ZXIiOlsxXX1dfQ.7b1e1d96',
+};
+
+export const STATS_V2_VECTOR = {
+  payload: STATS_V2_PAYLOAD,
+  encoded: 'CIQS2.eyJ2IjoyLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.0342dd9e',
+};
+
+/**
+ * `ROSTER_V1_AS_DAY` — the day shape `normaliseRosterV1`/`decodeDayRoster` must produce from
+ * `ROSTER_VECTOR.payload`. Written by hand, not computed at test time: comparing
+ * `decodeDayRoster(v1)` against `normaliseRosterV1(v1)` evaluated at runtime is a tautology that
+ * would pass even if the normaliser were wrong. Key order matches `normaliseRosterV1`'s own
+ * literal order (v, kind, date, team, players, games).
+ */
+export const ROSTER_V1_AS_DAY = {
+  v: 2, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [{ gameId: 'game-1', opponent: 'Lions', roster: [0, 1] }],
+};
+
+/**
+ * `STATS_V1_AS_DAY` — the day shape `normaliseStatsV1`/`decodeDayStats` must produce from
+ * `STATS_VECTOR.payload`. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
+ * matches `normaliseStatsV1`'s own literal order (v, kind, recordedAt, players, games).
+ */
+export const STATS_V1_AS_DAY = {
+  v: 2, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
+  players: [{ id: 'grace', name: 'Grace' }, { id: 'cx-8f2k1q', name: 'Ava' }],
+  games: [{ gameId: 'game-1', sets: [
+    { n: 1, score: [25, 21], players: [
+      { id: 'grace', serve: { in: 8, out: 2 }, return: { in: 5, out: 1 } },
+      { id: 'cx-8f2k1q', serve: { in: 0, out: 0 }, return: { in: 3, out: 0 } },
+    ] },
+    { n: 2, score: null, players: [{ id: 'grace', serve: { in: 4, out: 1 }, return: { in: 2, out: 2 } }] },
+  ] }],
+};

@@ -1,6 +1,6 @@
 // `__APP_HTML__` is substituted with the emitted page's filename by scripts/build.mjs
 // (APP_HTML). This file is never served from src/ -- only the built copy runs.
-const CACHE = 'ciq-stats-v2';
+const CACHE = 'ciq-stats-v3';
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./__APP_HTML__']))); });
 self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', (e) => {

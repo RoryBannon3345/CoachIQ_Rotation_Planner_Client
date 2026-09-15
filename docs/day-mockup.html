@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoachIQ — Day Model Mockup</title>
+<style>
+/* ============================================================================================
+   1) VERBATIM from src/styles.css (tokens + existing class rules). Not modified below this
+      comment block except for two additive mockup-only overrides, clearly marked further down.
+   ============================================================================================ */
+
+:root {
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fb98a; --warn:#e8963c; --err:#e0524a;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(16,32,48,.07), 0 6px 20px rgba(16,32,48,.07);
+  --backdrop:rgba(16,32,48,.35);
+  --warn-bg:rgba(232,150,60,.1); --warn-border:rgba(232,150,60,.35);
+  --err-bg:rgba(224,82,74,.1); --err-border:rgba(224,82,74,.4);
+  --info-bg:rgba(47,125,225,.14); --ok-bg:rgba(63,185,138,.16);
+}
+
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body {
+  margin:0; background:var(--bg); color:var(--fg);
+  font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+  padding: env(safe-area-inset-top) 12px 0;
+  -webkit-user-select:none;
+  overscroll-behavior:none;
+}
+button { font:inherit; color:inherit; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+textarea, input { -webkit-user-select:text; user-select:text; }
+[hidden] { display:none !important; }
+#app, .screen { height:100%; }
+
+/* ---------- shared shipped pieces (reused from the mockup) ---------- */
+.seg { display:inline-flex; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
+.seg button { background:none; border:0; padding:6px 10px; min-height:44px; font-size:12px; color:var(--fg-2); }
+.seg button.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.banner { margin:10px 12px 0; padding:10px 12px; border-radius:var(--radius); background:var(--warn-bg); border:1px solid var(--warn-border); font-size:12.5px; line-height:1.5; display:flex; align-items:center; gap:10px; }
+.banner.err { background:var(--err-bg); border-color:var(--err-border); }
+.banner b { color:var(--warn); }
+.banner.err b { color:var(--err); }
+.banner span { flex:1; }
+.gchip { font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); background:var(--info-bg); border-radius:4px; padding:1px 5px; flex:none; }
+.payload { width:100%; margin-top:10px; resize:none; background:var(--bg-3); border:1px solid var(--line); border-radius:8px; padding:8px 10px; color:var(--fg-2); font:11.5px/1.5 ui-monospace,Consolas,"Cascadia Mono",monospace; word-break:break-all; }
+.btn { background:var(--bg-4); border:1px solid var(--line-2); border-radius:8px; padding:8px 14px; display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; font-size:13px; }
+.btn:hover { background:var(--bg-3); border-color:var(--fg-3); }
+.btn.icon { padding:8px 11px; min-width:44px; }
+.btn.sm { padding:6px 12px; min-height:44px; font-size:12.5px; }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+.btn.danger { background:var(--err-bg); border-color:var(--err-border); color:var(--err); font-weight:600; }
+.btn.block { width:100%; }
+
+/* ---------- screen shell ---------- */
+.screen { position:relative; background:var(--bg); display:flex; flex-direction:column; }
+.screen-pad { padding:16px 12px; }
+
+/* topbar / setbar (recording screen) */
+.topbar { display:flex; align-items:center; gap:6px; padding:6px 10px; min-height:48px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.topbar .title-group { flex:1; min-width:0; overflow:hidden; display:flex; flex-direction:column; justify-content:center; }
+.topbar .title { font-weight:650; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.topbar .title-team { font-size:10px; line-height:1.3; color:var(--fg-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.setbar { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead { display:grid; grid-template-columns:96px repeat(4,1fr); gap:4px; padding:6px 10px 4px; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead span:first-child { text-align:left; }
+
+/* rows */
+.rows { flex:1; overflow-y:auto; }
+.row { display:grid; grid-template-columns: 96px repeat(4, 1fr); gap:4px; height:52px; align-items:center; padding:0 10px; border-bottom:1px solid var(--line); }
+.row:nth-child(even) { background:var(--bg-3); }
+.name { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:4px; }
+.name .gchip { font-size:8px; padding:1px 4px; }
+.cnt { min-height:48px; font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
+.cnt.in { background:var(--ok-bg); border-color:var(--ok); color:#237a5a; }
+.cnt.out { background:var(--warn-bg); border-color:var(--warn); color:#a15b13; }
+/* "-" (subtract one) mode: every count button turns red-outlined, ready to take one subtraction */
+.minus .cnt { border-color:var(--err); }
+
+/* bottom bar */
+.bottombar { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; padding:8px 0 calc(8px + env(safe-area-inset-bottom)); background:var(--bg); flex:none; }
+.bottombar .undo { justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bottombar .minus { font-size:18px; font-weight:800; }
+
+/* bottom sheets */
+.screen.sheet-host { position:fixed; inset:0; z-index:50; background:var(--backdrop); display:flex; align-items:flex-end; justify-content:center; padding:0; }
+.sheet { width:100%; max-width:460px; background:var(--bg-2); border-radius:16px 16px 0 0; padding:16px 14px calc(20px + env(safe-area-inset-bottom)); box-shadow:var(--shadow); }
+.sheet h3 { margin:0 0 4px; font-size:15px; }
+.sheet .helper { font-size:12px; color:var(--fg-3); margin:2px 0 14px; line-height:1.5; }
+.sheet label { display:block; font-size:11.5px; color:var(--fg-3); margin:0 0 4px; }
+.sheet input[type="text"], .sheet input[type="number"] { width:100%; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; padding:9px 10px; font:inherit; color:var(--fg); margin-bottom:12px; }
+.sheet input[inputmode="numeric"] { text-align:center; font-size:20px; font-weight:700; }
+.sheet .score-row { display:flex; align-items:flex-end; gap:12px; margin-bottom:6px; }
+.sheet .score-row > div { flex:1; }
+.sheet .actions { display:flex; gap:8px; margin-top:6px; }
+.sheet .actions .btn { flex:1; }
+.sheet ul.menu { list-style:none; margin:0 0 4px; padding:0; }
+.sheet ul.menu li { border-bottom:1px solid var(--line); }
+.sheet ul.menu li:last-child { border-bottom:0; }
+.sheet ul.menu button { width:100%; text-align:left; background:none; border:0; padding:12px 4px; font-size:13.5px; justify-content:flex-start; min-height:44px; }
+.sheet ul.menu button:hover { background:var(--bg-3); }
+.sheet ul.menu .muted-line { padding:10px 4px; font-size:11.5px; color:var(--fg-3); display:flex; justify-content:space-between; }
+
+/* game switcher list */
+.glist { list-style:none; margin:0; padding:0; }
+.glist li { display:flex; align-items:center; gap:8px; padding:12px 4px; border-bottom:1px solid var(--line); }
+.glist li:last-child { border-bottom:0; }
+.glist .gmeta { flex:1; font-size:12.5px; cursor:pointer; }
+.glist .gmeta .gtitle { font-weight:650; font-size:13.5px; display:block; }
+.glist .gmeta .gsub { color:var(--fg-3); font-size:11.5px; }
+.glist .newgame button { width:100%; justify-content:flex-start; color:var(--accent); font-weight:600; background:none; border:1px dashed var(--line-2); }
+
+/* paste roster screen */
+.paste-box { width:100%; min-height:120px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; color:var(--fg); font:13px/1.5 inherit; resize:vertical; }
+.paste-box::placeholder { color:var(--fg-3); }
+.helper { font-size:11.5px; color:var(--fg-3); margin:8px 0 0; line-height:1.5; }
+.summary-line { font-size:12.5px; color:var(--fg-2); margin:0 0 4px; }
+
+/* ============================================================================================
+   2) Mockup-only additions. Two things live here:
+      a) two small overrides needed only because six screens sit in fixed-size preview frames on
+         one page instead of filling a real viewport (position:fixed -> absolute; the set-bar
+         segment restyle called for in the brief so 5 tabs + score fit in 320px);
+      b) brand-new classes for the Players tick-list screen, which has no shipped CSS yet, plus
+         the page chrome (frames, captions, layout) around the six previews.
+   ============================================================================================ */
+
+/* the brief's required set-bar restyle: 5 tabs + score button must fit in 320px */
+.seg button { padding:6px 0; min-width:44px; }
+
+/* sheets are previewed inside a fixed-size phone frame, not a real viewport */
+.phone .screen.sheet-host { position:absolute; }
+
+/* new: Players tick-list sheet (no shipped rules exist for this screen yet) */
+.ticklist { list-style:none; margin:0; padding:0; max-height:300px; overflow-y:auto; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.tick { display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 4px; border-bottom:1px solid var(--line); }
+.tick:last-child { border-bottom:0; }
+.tick input[type="checkbox"] { width:22px; height:22px; flex:none; accent-color:var(--accent); }
+.tick .tname { flex:1; font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tick.addsub button { width:100%; justify-content:flex-start; color:var(--accent); font-weight:600; background:none; border:1px dashed var(--line-2); }
+.tickfoot { display:flex; align-items:center; justify-content:space-between; padding-top:12px; font-size:12px; color:var(--fg-3); }
+
+/* page chrome for this design-preview document (never shipped, never imported by the app) */
+body { -webkit-user-select:text; user-select:text; padding:24px 16px 60px; }
+.page { max-width:1400px; margin:0 auto; }
+.page h1 { font-size:22px; margin:0 0 10px; }
+.intro { max-width:760px; font-size:13.5px; line-height:1.6; color:var(--fg-2); margin:0 0 32px; }
+.intro strong { color:var(--fg); }
+.frames { display:flex; flex-wrap:wrap; gap:28px 24px; align-items:flex-start; }
+.frame-block { width:320px; }
+.frame-cap h2 { font-size:14.5px; margin:0 0 4px; color:var(--fg); }
+.frame-cap p { font-size:11.5px; line-height:1.5; color:var(--fg-2); margin:0 0 10px; }
+.phone { width:320px; height:620px; background:var(--bg); border:1px solid var(--line-2); border-radius:22px; overflow:hidden; position:relative; box-shadow:var(--shadow); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>CoachIQ Rotation Planner — Day Model (v2) Design Preview</h1>
+  <p class="intro">
+    Today the app opens <strong>one game per pasted roster</strong>: a coach pastes a fresh roster
+    for every match. This preview shows the day model instead: <strong>one whole tournament day per
+    pasted roster</strong>. The coach pastes the day's player directory once in the morning, records
+    up to eight games against that shared roster without pasting anything between matches in the gym,
+    then exports one stats payload covering every game at night. The six panels below are static,
+    non-interactive frames for review only — nothing here is shipped code or imported by the app.
+  </p>
+
+  <div class="frames">
+
+    <!-- ============================================================ Panel 1: Paste screen -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>1. Paste screen</h2>
+        <p>Today this opens a single game. The new version opens the whole day's player directory once, before any games exist yet.</p>
+      </div>
+      <div class="phone">
+        <div class="screen screen-pad">
+          <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open the day</p>
+          <textarea class="paste-box" readonly>CIQR2.eyJ2IjoyLCJraW5kIjoicm9zdGVy&hellip;</textarea>
+          <p class="helper">Paste the day roster copied from CoachIQ Rotation Planner</p>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button type="button" class="btn primary block">Open day</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ Panel 2: Record screen -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>2. Record screen</h2>
+        <p>Set tabs now run 1&ndash;5 (was 1&ndash;3) and the Games switcher can hold up to 8 games sharing this one roster; the counting grid itself is unchanged.</p>
+      </div>
+      <div class="phone">
+        <div class="screen">
+          <div class="topbar">
+            <button type="button" class="btn icon sm">Games &#9662;</button>
+            <span class="title-group">
+              <span class="title-team">Blizzard</span>
+              <span class="title">vs Practice_9_18 &middot; 18 Sep</span>
+            </span>
+            <button type="button" class="btn icon sm">&#8942;</button>
+          </div>
+          <div class="setbar">
+            <div class="seg" role="group" aria-label="Which set">
+              <button type="button" class="on">1</button>
+              <button type="button">2</button>
+              <button type="button">3</button>
+              <button type="button">4</button>
+              <button type="button">5</button>
+            </div>
+            <button type="button" class="btn sm">25&ndash;21</button>
+          </div>
+          <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+          <div class="rows">
+            <div class="row"><div class="name">Addison</div><button type="button" class="cnt in">12</button><button type="button" class="cnt out">3</button><button type="button" class="cnt in">8</button><button type="button" class="cnt out">1</button></div>
+            <div class="row"><div class="name">Brooklyn</div><button type="button" class="cnt in">5</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">14</button><button type="button" class="cnt out">2</button></div>
+            <div class="row"><div class="name">Brynn</div><button type="button" class="cnt in">9</button><button type="button" class="cnt out">4</button><button type="button" class="cnt in">6</button><button type="button" class="cnt out">0</button></div>
+            <div class="row"><div class="name">Emily</div><button type="button" class="cnt in">3</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">10</button><button type="button" class="cnt out">5</button></div>
+            <div class="row"><div class="name">Grace</div><button type="button" class="cnt in">15</button><button type="button" class="cnt out">7</button><button type="button" class="cnt in">4</button><button type="button" class="cnt out">2</button></div>
+            <div class="row"><div class="name">Hailey</div><button type="button" class="cnt in">6</button><button type="button" class="cnt out">2</button><button type="button" class="cnt in">7</button><button type="button" class="cnt out">3</button></div>
+            <div class="row"><div class="name">Lexi</div><button type="button" class="cnt in">11</button><button type="button" class="cnt out">5</button><button type="button" class="cnt in">9</button><button type="button" class="cnt out">1</button></div>
+            <div class="row"><div class="name">Lily</div><button type="button" class="cnt in">2</button><button type="button" class="cnt out">0</button><button type="button" class="cnt in">3</button><button type="button" class="cnt out">0</button></div>
+            <div class="row"><div class="name">Melanie</div><button type="button" class="cnt in">8</button><button type="button" class="cnt out">3</button><button type="button" class="cnt in">12</button><button type="button" class="cnt out">4</button></div>
+            <div class="row"><div class="name">Zoie</div><button type="button" class="cnt in">4</button><button type="button" class="cnt out">1</button><button type="button" class="cnt in">5</button><button type="button" class="cnt out">2</button></div>
+          </div>
+          <div class="bottombar">
+            <button type="button" class="btn sm undo">&#8630; Undo Grace S in</button>
+            <button type="button" class="btn icon sm minus">&minus;</button>
+            <button type="button" class="btn sm primary">Export</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ Panel 3: Players sheet -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>3. Players sheet (new)</h2>
+        <p>Brand new screen. Before, a game's roster was fixed at paste time; now every game gets its own tick-list drawn from the whole shared day directory, always showing all players &mdash; never just this game's pre-selection.</p>
+      </div>
+      <div class="phone">
+        <div class="screen">
+          <div class="topbar">
+            <button type="button" class="btn icon sm">Games &#9662;</button>
+            <span class="title-group">
+              <span class="title-team">Blizzard</span>
+              <span class="title">vs Ridgeline &middot; 18 Sep</span>
+            </span>
+            <button type="button" class="btn icon sm">&#8942;</button>
+          </div>
+          <div class="setbar">
+            <div class="seg" role="group" aria-label="Which set">
+              <button type="button" class="on">1</button>
+              <button type="button">2</button>
+              <button type="button">3</button>
+              <button type="button">4</button>
+              <button type="button">5</button>
+            </div>
+            <button type="button" class="btn sm">score</button>
+          </div>
+          <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+          <div class="rows"></div>
+        </div>
+        <div class="screen sheet-host">
+          <div class="sheet">
+            <h3>Players</h3>
+            <p class="helper">vs Ridgeline &middot; tick who is playing this game</p>
+            <ul class="ticklist">
+              <li class="tick"><input type="checkbox" checked><span class="tname">Addison</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Brooklyn</span></li>
+              <li class="tick"><input type="checkbox"><span class="tname">Brynn</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Emily</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Grace</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Hailey</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Lexi</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Lily</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Melanie</span></li>
+              <li class="tick"><input type="checkbox"><span class="tname">Zoie</span></li>
+              <li class="tick"><input type="checkbox" checked><span class="tname">Ava <span class="gchip">Sub</span></span></li>
+              <li class="tick addsub"><button type="button" class="btn block">+ Add a sub&hellip;</button></li>
+            </ul>
+            <div class="tickfoot">
+              <span>9 of 12</span>
+              <button type="button" class="btn primary sm">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ Panel 4: Switcher sheet -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>4. Switcher sheet</h2>
+        <p>Gains a day header line, and the footer swaps &ldquo;+ New game (paste roster)&rdquo; for &ldquo;Paste a new day roster&hellip;&rdquo;, since a new paste now replaces the whole day, not just adds a game.</p>
+      </div>
+      <div class="phone">
+        <div class="screen">
+          <div class="topbar">
+            <button type="button" class="btn icon sm">Games &#9662;</button>
+            <span class="title-group">
+              <span class="title-team">Blizzard</span>
+              <span class="title">vs Practice_9_18 &middot; 18 Sep</span>
+            </span>
+            <button type="button" class="btn icon sm">&#8942;</button>
+          </div>
+          <div class="setbar">
+            <div class="seg" role="group" aria-label="Which set">
+              <button type="button" class="on">1</button>
+              <button type="button">2</button>
+              <button type="button">3</button>
+              <button type="button">4</button>
+              <button type="button">5</button>
+            </div>
+            <button type="button" class="btn sm">25&ndash;21</button>
+          </div>
+          <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+          <div class="rows"></div>
+        </div>
+        <div class="screen sheet-host">
+          <div class="sheet">
+            <h3>Games</h3>
+            <p class="helper" style="margin:-2px 0 14px;">Blizzard &middot; 18 Sep &middot; exported 21:04</p>
+            <ul class="glist">
+              <li>
+                <div class="gmeta"><span class="gtitle">vs Practice_9_18</span><span class="gsub">3 sets</span></div>
+                <button type="button" class="btn danger sm">Delete</button>
+              </li>
+              <li>
+                <div class="gmeta"><span class="gtitle">vs Ridgeline</span><span class="gsub">2 sets</span></div>
+                <button type="button" class="btn danger sm">Delete</button>
+              </li>
+              <li class="newgame" style="padding-top:14px;"><button type="button" class="btn block">Paste a new day roster&hellip;</button></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ Panel 5: Replace-day confirm -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>5. Replace-day confirm (new)</h2>
+        <p>Brand new guard. Replacing a whole day of unexported stats is a bigger loss than replacing one game, so it gets its own explicit confirmation naming both dates.</p>
+      </div>
+      <div class="phone">
+        <div class="screen screen-pad">
+          <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open the day</p>
+          <textarea class="paste-box" readonly>CIQR2.eyJ2IjoyLCJraW5kIjoicm9zdGVy&hellip;</textarea>
+          <p class="helper">Paste the day roster copied from CoachIQ Rotation Planner</p>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button type="button" class="btn primary block">Open day</button>
+          </div>
+        </div>
+        <div class="screen sheet-host">
+          <div class="sheet">
+            <h3>Open a different day?</h3>
+            <p class="helper" style="margin-bottom:14px;">This will close <b>18 Sep</b> and open <b>19 Sep</b>.</p>
+            <div class="banner err" role="alert" style="margin:0 0 16px;"><span>18 Sep has stats you have not exported yet. They will be lost.</span></div>
+            <div class="actions">
+              <button type="button" class="btn">Cancel</button>
+              <button type="button" class="btn danger">Replace the day</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ Panel 6: Export screen -->
+    <div class="frame-block">
+      <div class="frame-cap">
+        <h2>6. Export screen</h2>
+        <p>One payload now bundles every game in the day instead of one game per export, so the summary line reports totals across games, sets and players.</p>
+      </div>
+      <div class="phone">
+        <div class="screen screen-pad">
+          <p class="summary-line" style="font-weight:650;font-size:15px;">Export stats</p>
+          <p class="summary-line">Blizzard &middot; 18 Sep &middot; 2 games &middot; 5 sets &middot; 11 players</p>
+          <textarea class="payload" rows="6" readonly>CIQS2.eyJ2IjoyLCJraW5kIjoic3RhdHM&hellip;</textarea>
+          <div class="actions" style="display:flex;gap:8px;margin-top:12px;">
+            <button type="button" class="btn sm">Copy</button>
+            <button type="button" class="btn sm">Share&hellip;</button>
+            <button type="button" class="btn sm" style="margin-left:auto;">Back</button>
+          </div>
+          <p class="helper">One payload covers the whole day &mdash; every game, each with its own sets.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

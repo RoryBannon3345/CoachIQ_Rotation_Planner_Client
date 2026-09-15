@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players and 3 sets. Plays several games a day. Exchanges CIQR1… roster payloads and CIQS1… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR2… roster payloads and CIQS2… stats payloads with the planner by copy and paste, with no server or network required.
 
 ## Develop
 
@@ -129,7 +129,11 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] Tap, lock the phone 60 s, unlock → counts intact. Background the app, open five other apps, return → intact. Kill the app, relaunch → intact and on the same game/set.
 - [ ] "−" mode subtracts exactly once then turns off; Undo reverses the last tap and shows what it undid.
 - [ ] Second game in the same session; switch back and forth; counts never bleed.
+- [ ] Switch game between sets without pasting anything — Games ▾, pick the other game, counts and set tab for each game are exactly as left.
+- [ ] Tick a directory player the morning's plan did not name — ⋯ → Players…, tick someone who was never on this game's pre-selection, confirm she is now on the record screen with a clean count.
+- [ ] Five set tabs reachable with a thumb, with the current one clearly marked.
 - [ ] Export → Share → Mail to self → paste into the planner's Stats dialog → import preview shows the right sets/scores/guests. Re-export after editing → planner shows "This replaces the stats already stored".
+- [ ] One export covers the whole day — a single Export from any game produces one payload naming every game recorded that day, not one payload per game.
 - [ ] Paste the stats string into the roster box → "This is a stats payload, not a roster payload."
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache).
 
@@ -139,12 +143,19 @@ The payload format is frozen in `reference/stats-contract.md` and is the source 
 
 ## `reference/`
 
-Verbatim copies from the planner repo at commit `2c57064` (merge of the game-statistics feature). Read-only; if the planner's contract changes, re-copy these.
+Verbatim copies from the planner repo. `stats-contract.md`, `statsContract.ts`, `vectors.ts` and
+`stats-contract-v2-client-guide.md` are current as of planner commit `64f0072` (merge of
+`day-stats-contract-v2`, the branch that took the contract to v2). `stats-mockup.html` and
+`StatsDialog.tsx` are still from the earlier v1 copy at commit `2c57064`, kept for mockup/vocabulary
+reference only — neither affects the wire contract this app implements, and the planner has since
+split that card's import half into its own `UpdateStatsDialog.tsx`, not mirrored here. Read-only; if
+the planner's contract changes, re-copy the affected files.
 
 | File | What it is |
 |---|---|
-| `stats-contract.md` | The shared payload contract. Source of truth for both apps. |
-| `statsContract.ts` | The planner's codec and validators (zero imports, copyable). |
-| `vectors.ts` | The golden test vectors both apps check against. |
-| `stats-mockup.html` | The planner's Stats dialog mockup, for matching look and vocabulary. |
-| `StatsDialog.tsx` | How the planner produces the roster payload and imports the stats payload. |
+| `stats-contract.md` | The shared payload contract, v1 and v2. Source of truth for both apps. |
+| `stats-contract-v2-client-guide.md` | The v2 migration guide written for this app's author — what changed from v1 to v2 and why, including the index-vs-id rationale for roster ticking. |
+| `statsContract.ts` | The planner's codec and validators, v1 and v2 (zero imports, copyable). |
+| `vectors.ts` | The golden test vectors both apps check against, v1 and v2. |
+| `stats-mockup.html` | The planner's v1 Stats dialog mockup, for matching look and vocabulary. |
+| `StatsDialog.tsx` | The planner's v1 Stats card — how it produced the roster payload and imported the stats payload back, before the day-scoped v2 dialogs split that. |
