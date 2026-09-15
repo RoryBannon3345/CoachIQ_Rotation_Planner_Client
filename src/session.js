@@ -1,6 +1,6 @@
 // session.js — pure, DOM-free session/game state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
-import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, ID_PATTERN, fnv1a32, encodePayload, encodeStats, validateStatsPayload, decodeRoster, decodeStats } from './codec.js';
+import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, ID_PATTERN, fnv1a32, encodePayload, encodeRoster, encodeStats, validateStatsPayload, decodeRoster, decodeStats } from './codec.js';
 import { ROSTER_VECTOR, STATS_VECTOR } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
@@ -391,7 +391,7 @@ export function serialiseSession(s) {
 export function runSelfCheck() {
   try {
     if (fnv1a32(new Uint8Array()) !== '811c9dc5') return { ok: false, error: 'fnv1a32 of empty input' };
-    if (encodePayload('roster', ROSTER_VECTOR.payload) !== ROSTER_VECTOR.encoded) return { ok: false, error: 'roster vector encode' };
+    if (encodeRoster(ROSTER_VECTOR.payload) !== ROSTER_VECTOR.encoded) return { ok: false, error: 'roster vector encode' };
     if (encodeStats(STATS_VECTOR.payload) !== STATS_VECTOR.encoded) return { ok: false, error: 'stats vector encode' };
     const r = decodeRoster(ROSTER_VECTOR.encoded);
     const t = decodeStats(STATS_VECTOR.encoded);
