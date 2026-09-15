@@ -130,3 +130,12 @@ export const STATS_V1_AS_DAY = {
     { n: 2, score: null, players: [{ id: 'grace', serve: { in: 4, out: 1 }, return: { in: 2, out: 2 } }] },
   ] }],
 };
+
+/**
+ * `STATS_V2_AS_V3` — the day shape `decodeDayStats` must produce from `STATS_V2_VECTOR.payload`.
+ * Byte-for-byte the v2 sheet with its version digit moved: the stats payload shape did not change
+ * at contract v3, so normalising a v2 body is nothing more than reporting it at the current
+ * version. Key order matches `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`,
+ * `players`, `games`.
+ */
+export const STATS_V2_AS_V3 = { ...STATS_V2_PAYLOAD, v: 3 };

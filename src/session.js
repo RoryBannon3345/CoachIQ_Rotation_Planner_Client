@@ -225,7 +225,15 @@ function mergeDayRoster(s, roster) {
         return i >= setCount ? merged.filter((id) => hasCountInSet(g, i + 1, id)) : merged;
       }),
     );
-    return { ...g, opponent: rg.opponent, setCount, setPlayerIds };
+    // A slot at or beyond the new count is provably unplayed (setCount >= highestPlayedSlot + 1,
+    // so no i >= setCount can be the highest-played slot), so nulling its record here — same as
+    // clearSet — discards no score and no count, only leftover zeroed counts a minus-mode netback
+    // may have left behind.
+    const sets = g.sets.map((set, i) => (i >= setCount ? null : set));
+    // Mirror clearSet: a slot the merge just retired must not leave a history entry stamped at
+    // it, or undo/export can resurrect a tab the UI no longer shows (see mergeDayRoster's tests).
+    const history = g.history.filter((h) => h.n <= setCount);
+    return { ...g, opponent: rg.opponent, setCount, setPlayerIds, sets, history };
   });
   for (const g of matchedGames) {
     const named = gamePlayerIdsUnion(g).length;
@@ -869,7 +877,7 @@ export function parseSession(text) {
   if (envelope.schema === 3) {
     const result = parseDay(session);
     if (result === undefined) return MALFORMED;
-    return { ok: true, value: result.day, dropped: result.dropped };
+    return { ok: true, value: result.day, dropped: result.dropped, schema: envelope.schema };
   }
 
   if (envelope.schema === 2) {
@@ -877,7 +885,7 @@ export function parseSession(text) {
     try {
       const result = parseDay(migrateSchema2(session));
       if (result === undefined) return MALFORMED;
-      return { ok: true, value: result.day, dropped: result.dropped };
+      return { ok: true, value: result.day, dropped: result.dropped, schema: envelope.schema };
     } catch {
       return MALFORMED;
     }
@@ -890,7 +898,7 @@ export function parseSession(text) {
     if (legacy === undefined) return MALFORMED;
     const migrated = migrateSchema1(legacy.session);
     if (migrated === undefined) return MALFORMED;
-    return { ok: true, value: migrated.day, dropped: legacy.dropped, droppedDays: migrated.droppedDays };
+    return { ok: true, value: migrated.day, dropped: legacy.dropped, droppedDays: migrated.droppedDays, schema: envelope.schema };
   } catch {
     return MALFORMED;
   }

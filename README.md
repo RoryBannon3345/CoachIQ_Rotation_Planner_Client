@@ -17,8 +17,15 @@ npm install        # once -- the build has devDependencies
 npm run build      # hardened -> dist/CoachIQ_Rotation_Planner_Client.html + dist/sw.js  (what you ship)
 npm run build:dev  # readable -> dist-dev/CoachIQ_Rotation_Planner_Client.html           (for debugging)
 npm test           # unit tests
-npm run verify     # boots both builds in headless Edge and diffs what they render
+npm run verify     # boots both builds in headless Edge, diffs what they render, then checks the shipped dist/ bundle against the cross-app golden vector
 ```
+
+`npm run verify` runs two checks in sequence, both against headless Edge (or Chrome, if Edge is
+not found): `scripts/verify-build.mjs` (readable vs. hardened bundle parity, plus a `dist/` smoke
+test when it exists) and `scripts/verify-golden-vector.mjs` (pastes the contract's fixed
+cross-app golden vector into the shipped `dist/` bundle and asserts it renders the right
+sets/tabs/tick-lists). Run them individually with `npm run verify:build` or
+`npm run verify:golden-vector`.
 
 `npm run build` is the production build. It concatenates `src/*.js` in dependency
 order, inlines them with `styles.css` into `src/index.html`, and then hardens the

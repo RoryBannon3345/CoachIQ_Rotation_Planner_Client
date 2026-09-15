@@ -291,3 +291,32 @@ test('a tap lands in the set actually shown, not a hidden slot beyond a shrunk s
   assert.equal(getCount(game, 3, 'grace').serve.in, 1, 'the tap must land in the set the coach can see');
   assert.equal(getCount(game, 5, 'grace').serve.in, 0, 'and never in the hidden slot beyond setCount');
 });
+
+// Regression: parseSession only ever reported `droppedDays` on the schema-1 leg, so `load()`'s old
+// `migrated = parsed.droppedDays !== undefined` check missed a schema-2 save that migrated cleanly
+// (nothing salvage-dropped). Boot never re-committed it, so every single boot re-ran migrateSchema2
+// against the same stale schema-2 envelope on disk until the coach's first tap or tick happened to
+// trigger a save. The fix widens the flag to any envelope read below the current SESSION_SCHEMA.
+test('a clean schema-2 save (nothing dropped) is still re-committed at schema 3 on the very first boot', async () => {
+  const env = freshEnv();
+  const schema2 = JSON.stringify({
+    schema: 2, savedAt: '2026-09-19T20:00:00Z',
+    session: {
+      date: '2026-09-19', team: 'Thunder',
+      players: [{ id: 'grace', name: 'Grace', sub: false }],
+      games: [{
+        gameId: 'game-1', opponent: 'Lions', playerIds: ['grace'],
+        sets: [null, null, null, null, null], activeSet: 1, history: [],
+      }],
+      activeGameId: 'game-1', importedAt: '2026-09-19T09:00:00Z', lastExportedAt: null, lastChangedAt: null,
+    },
+  });
+  env.store.set(STORAGE_KEY, schema2);
+  await bootUi();
+
+  const raw = env.store.get(STORAGE_KEY);
+  assert.ok(raw, 'a session is on disk after boot');
+  assert.equal(JSON.parse(raw).schema, 3, 'the schema-2 envelope was re-committed at the current schema on first boot');
+  // Nothing was actually unreadable, so no "could not be read" banner should show.
+  assert.doesNotMatch(env.document.getElementById('app').innerHTML, /could not be read/);
+});

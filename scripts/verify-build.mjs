@@ -24,16 +24,10 @@ import puppeteer from 'puppeteer-core';
 import { build, APP_HTML } from './build.mjs';
 import { buildProd } from './build-prod.mjs';
 import { encodeDayRoster } from '../src/codec.js';
+import { BROWSER_CANDIDATES } from './browser-candidates.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_HTML = join(ROOT, 'dist', APP_HTML);
-
-const BROWSER_CANDIDATES = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-];
 
 const executablePath = BROWSER_CANDIDATES.find((p) => existsSync(p));
 if (!executablePath) {

@@ -24,17 +24,11 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { BROWSER_CANDIDATES } from './browser-candidates.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_HTML = 'CoachIQ_Rotation_Planner_Client.html';
 const SHIPPED_HTML = join(ROOT, 'dist', APP_HTML);
-
-const BROWSER_CANDIDATES = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-];
 
 const executablePath = BROWSER_CANDIDATES.find((p) => existsSync(p));
 if (!executablePath) {

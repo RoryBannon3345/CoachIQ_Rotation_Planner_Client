@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -97,9 +97,11 @@ function load() {
   if (raw === null) return { session: newSession(), banner: null };
   const parsed = parseSession(raw);
   if (parsed.ok) {
-    // parseSession only reports `droppedDays` on the schema-1 migration path — its presence is
-    // how we know a migration just happened and the on-disk envelope is still schema 1.
-    const migrated = parsed.droppedDays !== undefined;
+    // Any envelope read at a schema below the current one was just migrated in memory by
+    // parseSession, so the on-disk save is still that older schema until we re-commit it below.
+    // (`droppedDays` alone used to stand in for this, but it is only ever set on the schema-1 leg
+    // — a schema-2 save that migrated cleanly, with nothing dropped, was never re-committed.)
+    const migrated = parsed.schema !== undefined && parsed.schema < SESSION_SCHEMA;
     // Two different things can happen here, and they read differently to the coach: a game can be
     // genuinely unreadable (corrupt/malformed — salvage-dropped on either path), while a whole
     // OTHER day is only ever dropped by the v1 -> v2 migration's own keep-the-active-day policy —
@@ -118,8 +120,8 @@ function load() {
       try { localStorage.setItem(UNREADABLE_KEY, raw); } catch { /* best effort */ }
     }
     if (migrated) {
-      // Re-commit immediately so the schema-2 envelope replaces the schema-1 one on disk;
-      // otherwise every boot re-migrates from the same stale schema-1 save.
+      // Re-commit immediately so the current schema-3 envelope replaces the older one on disk;
+      // otherwise every boot re-migrates from the same stale save.
       try { localStorage.setItem(STORAGE_KEY, serialiseSession(parsed.value)); } catch { /* best effort */ }
     }
     if (clauses.length > 0) {

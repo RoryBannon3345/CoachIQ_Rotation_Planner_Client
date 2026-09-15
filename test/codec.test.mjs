@@ -7,7 +7,7 @@ import {
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
   normaliseRosterV1, normaliseStatsV1, maskHas, maskOf, maskMembers, maskCount, maskUnion,
 } from '../src/codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY } from '../src/vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V2_AS_V3 } from '../src/vectors.js';
 
 test('fnv1a32 reference values', () => {
   assert.equal(fnv1a32(new Uint8Array()), '811c9dc5');
@@ -132,9 +132,17 @@ test('v3 roster catalogue', () => {
     'The roster payload is malformed: its version is not 1, 2 or 3.',
   );
 });
-test('golden v2 stats vector round-trips byte-exact', () => {
+test('golden v2 stats vector round-trips byte-exact; the encode side stays pinned to v2', () => {
+  // The stats payload shape did not change at contract v3, and the Planner accepts a v2 stats
+  // body indefinitely, so nothing here may ever emit a `CIQS3.` prefix.
   assert.equal(encodeDayStats(STATS_V2_VECTOR.payload), STATS_V2_VECTOR.encoded);
+  assert.ok(STATS_V2_VECTOR.encoded.startsWith('CIQS2.'), 'encodeDayStats must keep emitting a CIQS2. prefix');
   assert.deepEqual(decodeDayStats(STATS_V2_VECTOR.encoded), { ok: true, value: STATS_V2_VECTOR.payload });
+});
+test('decodeDayStats also accepts a v3-tagged stats body (NOT_A_KNOWN_VERSION promises 1, 2 or 3)', () => {
+  const encoded = encodePayload('stats', STATS_V2_AS_V3, 3);
+  assert.ok(encoded.startsWith('CIQS3.'));
+  assert.deepEqual(decodeDayStats(encoded), { ok: true, value: STATS_V2_AS_V3 });
 });
 test('whitespace and line-wrapping are harmless', () => {
   const wrapped = ROSTER_VECTOR.encoded.replace(/(.{40})/g, '$1\n  ');

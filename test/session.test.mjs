@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/session.js';
 import { decodeDayRoster, decodeDayStats, MAX_SETS } from '../src/codec.js';
-import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR } from '../src/vectors.js';
+import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
 
 // The v2 golden day re-expressed at contract v3, which is the only roster shape the session model
 // reads now. game-1 gets FIVE set masks (mask 3 = maskOf([0, 1]) = both players) and game-2 two
@@ -168,6 +168,46 @@ test('a merge drops count-free ticks from tabs it puts beyond the set count', ()
   assert.equal(g.setCount, 1, 'the re-sent roster names one set and set 1 holds the only counts');
   assert.deepEqual(g.setPlayerIds.slice(1).flat(), [], 'nothing parked in tabs the UI will not draw');
   assert.equal(S.getCount(g, 1, 'p0').serve.in, 1, 'the recorded count is untouched');
+});
+
+test('a merge retiring a set slot prunes that slot out of history too, so undo cannot resurrect it', () => {
+  // She records set 1, then mis-taps in set 4 and corrects it with minus mode -- net zero, so
+  // set 4 is NOT "played" (isSetPlayed sums raw counts to 0) even though history holds both the
+  // +1 and the -1. A re-sent two-set roster is a legal same-day merge: setCount drops to
+  // Math.max(2, highestPlayedSlot + 1) = 2. Before the fix, `history` rode through untouched at
+  // n = [1, 4, 4]; Undo (which always reverses the LAST entry, unclamped by design) would replay
+  // the n=4 entry invisibly and reactivate a phantom set 4 that buildDayStatsPayload -- which
+  // walks `game.sets` directly, not `setCount` -- would then export.
+  const players = [{ id: 'p0', name: 'P0' }, { id: 'p1', name: 'P1' }];
+  const full = {
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'T', players,
+    games: [{ gameId: 'g', opponent: 'Lions', sets: [3, 3, 3, 3] }],
+  };
+  let day = S.newDayFromRoster(full, 'now');
+  day = S.tap(day, 'g', 1, 'p0', 'serve', 'in', 1); // set 1: recorded and played
+  day = S.tap(day, 'g', 4, 'p0', 'serve', 'in', 1); // set 4: taps to 1...
+  day = S.tap(day, 'g', 4, 'p0', 'serve', 'in', -1); // ...then back to 0 -- net zero, not "played"
+  assert.equal(S.isSetPlayed(day.games[0].sets[3]), false, 'net-zero counts do not count as played');
+  assert.deepEqual(day.games[0].history.map((h) => h.n), [1, 4, 4], 'before merge: history at n = 1,4,4');
+
+  const resent = { ...full, games: [{ gameId: 'g', opponent: 'Lions', sets: [3, 3] }] };
+  const res = S.openDayRoster(day, resent, 'now');
+  assert.equal(res.kind, 'sameDay');
+  const g = res.session.games[0];
+  assert.equal(g.setCount, 2, 'setCount = max(incoming 2, highestPlayedSlot(0) + 1)');
+  assert.deepEqual(g.history.map((h) => h.n), [1], 'the n=4 history entries do not survive the retired slot');
+  assert.equal(g.sets[2], null, 'slot 3 (index 2), beyond the new count, is nulled');
+  assert.equal(g.sets[3], null, 'slot 4 (index 3), beyond the new count, is nulled -- it held only a net-zero count');
+
+  // The export the coach sends right after the merge carries only the real set 1 -- no phantom set 4.
+  const built = S.buildDayStatsPayload(res.session, 'now');
+  assert.equal(built.ok, true);
+  assert.deepEqual(built.value.payload.games[0].sets.map((s) => s.n), [1], 'only set 1 was ever played; set 4 never appears');
+
+  // Undo now reverses the last SURVIVING entry (set 1), not a phantom set-4 replay.
+  const u = S.undo(res.session, 'g');
+  assert.deepEqual(u.undone, { n: 1, playerId: 'p0', stat: 'serve', side: 'in', delta: 1 });
+  assert.equal(S.getCount(u.session.games[0], 4, 'p0').serve.in, 0, 'set 4 stays at zero -- no phantom reactivation');
 });
 
 test('the parser is never stricter than the runtime: a day at the cap survives save and reload', () => {
@@ -576,8 +616,18 @@ test('envelope round-trips and rejects junk; schema 1 is accepted and migrated',
 
 test('self-check passes', () => { assert.deepEqual(S.runSelfCheck(), { ok: true }); });
 
-test('runSelfCheck passes and covers all three roster versions', () => {
-  assert.deepEqual(S.runSelfCheck(), { ok: true });
+test('decodeDayRoster normalises all three roster versions (v1, v2, v3) to the current day shape', () => {
+  const v1 = decodeDayRoster(ROSTER_VECTOR.encoded);
+  assert.equal(v1.ok, true);
+  assert.deepEqual(v1.value, ROSTER_V1_AS_DAY);
+
+  const v2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
+  assert.equal(v2.ok, true);
+  assert.deepEqual(v2.value, ROSTER_V2_AS_V3);
+
+  const v3 = decodeDayRoster(ROSTER_V3_VECTOR.encoded);
+  assert.equal(v3.ok, true);
+  assert.deepEqual(v3.value, ROSTER_V3_VECTOR.payload);
 });
 
 test('gameLabel prefers the opponent and falls back to an ordinal', () => {

@@ -1,6 +1,6 @@
 // codec.js — verbatim port of the CoachIQ stats contract codec.
-// Source: reference/stats-contract-v2-client-guide.md ("The reference codec", section 7) and
-// reference/statsContract.ts (constants, validators, v2 functions), with TypeScript type syntax stripped.
+// Source: reference/stats-contract-v3-client-guide.md (the v3 migration guide) and
+// reference/statsContract.ts (constants, validators, v1-v3 functions), with TypeScript type syntax stripped.
 // Do not edit; re-copy from those sources if the contract changes.
 
 export const CONTRACT_VERSION = 3;
@@ -368,8 +368,8 @@ export function validateStatsPayload(value) {
   };
 }
 
-/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 2 now, and
- * without it this would emit a `CIQR2.` prefix around a body saying `"v":1`, which
+/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 3 now, and
+ * without it this would emit a `CIQR3.` prefix around a body saying `"v":1`, which
  * `decodePayload`'s own cross-check refuses as corruption. */
 export function encodeRoster(payload) {
   return encodePayload('roster', payload, 1);
@@ -380,7 +380,7 @@ export function encodeStats(payload) {
   return encodePayload('stats', payload, 1);
 }
 
-/** Encodes a day roster at the current contract version — no pin, because a v2 payload's `v` and
+/** Encodes a day roster at the current contract version — no pin, because a v3 payload's `v` and
  * `CONTRACT_VERSION` are the same number by definition. */
 export function encodeDayRoster(payload) {
   return encodePayload('roster', payload);
@@ -587,7 +587,11 @@ export function validateDayRosterPayload(value) {
 
 export function validateDayStatsPayload(value) {
   if (!isRecord(value)) return malformed('stats', 'it is not an object');
-  if (value.v !== 2) return malformed('stats', NOT_A_KNOWN_VERSION);
+  // Both, not just 3: the stats shape did not change at v3, and an un-updated Client still sends
+  // v2 bodies. Refusing them would take the coach's whole day of stats down over a version digit
+  // that means nothing on this path — and stats flow Client -> planner, so accepting the older
+  // number cannot break anything the Client does.
+  if (value.v !== 2 && value.v !== 3) return malformed('stats', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'stats') return malformed('stats', 'its kind is not "stats"');
   if (!isNonEmptyString(value.recordedAt)) return malformed('stats', 'it has no recorded time');
   if (value.recordedAt.length > MAX_RECORDED_AT_LENGTH) {
@@ -653,7 +657,10 @@ export function validateDayStatsPayload(value) {
     games.push({ gameId: gid, sets });
   }
 
-  return { ok: true, value: { v: 2, kind: 'stats', recordedAt: value.recordedAt, players, games } };
+  // `v` is echoed, not normalised to a fixed number: buildDayStatsPayload re-validates the v2
+  // object it is about to encode through this same function, and encodeDayStats's pin to 2 must
+  // see that same 2 come back, or the re-encoded body and its CIQS2. prefix would disagree.
+  return { ok: true, value: { v: value.v, kind: 'stats', recordedAt: value.recordedAt, players, games } };
 }
 
 /**
@@ -753,6 +760,6 @@ export function decodeDayStats(text) {
     if (!v1.ok) return v1;
     return { ok: true, value: normaliseStatsV1(v1.value) };
   }
-  if (version === 2) return validateDayStatsPayload(decoded.value);
+  if (version === 2 || version === 3) return validateDayStatsPayload(decoded.value);
   return malformed('stats', NOT_A_KNOWN_VERSION);
 }
