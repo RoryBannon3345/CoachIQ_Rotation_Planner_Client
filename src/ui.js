@@ -98,20 +98,30 @@ function load() {
     // parseSession only reports `droppedDays` on the schema-1 migration path — its presence is
     // how we know a migration just happened and the on-disk envelope is still schema 1.
     const migrated = parsed.droppedDays !== undefined;
+    // Two different things can happen here, and they read differently to the coach: a game can be
+    // genuinely unreadable (corrupt/malformed — salvage-dropped on either path), while a whole
+    // OTHER day is only ever dropped by the v1 -> v2 migration's own keep-the-active-day policy —
+    // it was read just fine, just not carried over. Word each clause for what actually happened.
+    const gamePart = parsed.dropped > 0
+      ? `${parsed.dropped} game${parsed.dropped === 1 ? '' : 's'} could not be read and ${parsed.dropped === 1 ? 'was' : 'were'} set aside`
+      : null;
+    const dayPart = migrated && parsed.droppedDays > 0
+      ? `${parsed.droppedDays} other day${parsed.droppedDays === 1 ? '' : 's'} from the old save ${parsed.droppedDays === 1 ? 'was' : 'were'} set aside — only the day you had open carried over`
+      : null;
+    const clauses = [gamePart, dayPart].filter(Boolean);
+    if (clauses.length > 0) {
+      // Back up the still-intact raw save BEFORE the migration re-commit below can overwrite
+      // STORAGE_KEY, so a throw on that write never leaves the set-aside games/days recoverable
+      // nowhere.
+      try { localStorage.setItem(UNREADABLE_KEY, raw); } catch { /* best effort */ }
+    }
     if (migrated) {
       // Re-commit immediately so the schema-2 envelope replaces the schema-1 one on disk;
       // otherwise every boot re-migrates from the same stale schema-1 save.
       try { localStorage.setItem(STORAGE_KEY, serialiseSession(parsed.value)); } catch { /* best effort */ }
     }
-    const parts = [];
-    let singular = false;
-    if (parsed.dropped > 0) { parts.push(`${parsed.dropped} game${parsed.dropped === 1 ? '' : 's'}`); singular = parsed.dropped === 1; }
-    if (migrated && parsed.droppedDays > 0) { parts.push(`${parsed.droppedDays} day${parsed.droppedDays === 1 ? '' : 's'}`); singular = parts.length === 1 && parsed.droppedDays === 1; }
-    if (parts.length > 0) {
-      try { localStorage.setItem(UNREADABLE_KEY, raw); } catch { /* best effort */ }
-      const was = parts.length === 1 && singular ? 'was' : 'were';
-      const text = `${parts.join(' and ')} could not be read and ${was} set aside; the rest were kept.`;
-      return { session: parsed.value, banner: { kind: 'warn', text } };
+    if (clauses.length > 0) {
+      return { session: parsed.value, banner: { kind: 'warn', text: `${clauses.join('; ')}; the rest were kept.`, dismissible: true } };
     }
     return { session: parsed.value, banner: null };
   }
@@ -751,6 +761,7 @@ function renderExport() {
   return `
 <div class="screen screen-pad">
   <p class="summary-line" style="font-weight:650;font-size:15px;">Export stats</p>
+  ${topBannerHtml()}
   <p class="summary-line">${esc(data.summary)}</p>
   ${gameLines}
   <textarea id="exportPayload" class="payload" rows="6" readonly aria-label="Stats payload">${esc(data.text)}</textarea>
@@ -781,18 +792,23 @@ function onExport() {
   state.exportData = { summary: result.value.summary, text: result.value.text, payload: result.value.payload };
   state.exportStatus = null;
   state.screen = 'export';
-  // lastExportedAt lives on the day — one field, not a games.map — because the export now covers
-  // every game at once.
-  commit({ ...state.session, lastExportedAt: nowIso });
+  // lastExportedAt is stamped only once the payload genuinely leaves the device — in
+  // onExportCopy (on a real clipboard success) and onExportShare (on a real share completion) —
+  // never merely for switching to this screen. Rendering the export screen proves nothing left
+  // the phone: hasUnexportedStats must keep warning until it actually does.
+  render();
 }
 
 async function onExportCopy() {
   const textarea = document.getElementById('exportPayload');
   const text = state.exportData ? state.exportData.text : (textarea ? textarea.value : '');
   const ok = await copyPayload(text, textarea);
-  state.exportStatus = ok
-    ? { kind: 'ok', text: "Copied — paste it into the planner's Stats dialog." }
-    : { kind: 'err', text: 'The clipboard is not available here — select the text and copy it.' };
+  if (ok) {
+    state.exportStatus = { kind: 'ok', text: "Copied — paste it into the planner's Stats dialog." };
+    commit({ ...state.session, lastExportedAt: new Date().toISOString() });
+    return;
+  }
+  state.exportStatus = { kind: 'err', text: 'The clipboard is not available here — select the text and copy it.' };
   render();
 }
 
@@ -804,7 +820,7 @@ function onExportShare() {
   if (!data) return;
   navigator.share({ title: data.summary, text: data.text }).then(() => {
     state.exportStatus = { kind: 'ok', text: 'Shared.' };
-    render();
+    commit({ ...state.session, lastExportedAt: new Date().toISOString() });
   }).catch(() => { /* an AbortError on cancel is not an error */ });
 }
 

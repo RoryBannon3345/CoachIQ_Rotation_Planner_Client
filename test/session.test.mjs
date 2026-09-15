@@ -423,9 +423,94 @@ test('migration from schema 1: single date pads sets, unions the directory, pres
   assert.deepEqual(result.value.games[0].sets[0].counts.grace.serve, { in: 3, out: 1 });
   assert.deepEqual(result.value.games[0].sets.slice(3), [null, null]);
   assert.equal(result.value.importedAt, '2026-09-19T09:00:00Z');
-  assert.equal(result.value.lastExportedAt, '2026-09-19T12:00:00Z');
+  // Finding 2: a day is exported only if EVERY played game went out. g1 has a played set (a
+  // score, and counts) and lastExportedAt: null; g2's own lastExportedAt is non-null but that
+  // must NOT leak onto the day — a `max` reduce here would wrongly mark the whole day exported
+  // and suppress the replace-day/new-day warning while g1's counts were never sent anywhere.
+  assert.equal(result.value.lastExportedAt, null);
   assert.equal(result.value.lastChangedAt, null);
   assert.equal(result.value.activeGameId, 'g2');
+});
+
+test('migration from schema 1: lastExportedAt is the max of kept games only once every played game has been exported', () => {
+  const g1 = {
+    gameId: 'g1', team: 'Thunder', opponent: 'Lions', date: '2026-09-19', importedAt: '2026-09-19T09:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [{ score: [25, 20], counts: { grace: { serve: { in: 3, out: 1 }, return: { in: 0, out: 0 } } } }, null, null],
+    activeSet: 1, history: [], lastExportedAt: '2026-09-19T10:00:00Z',
+  };
+  const g2 = {
+    gameId: 'g2', team: 'Thunder', opponent: 'Bears', date: '2026-09-19', importedAt: '2026-09-19T11:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [{ score: [25, 18], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } } }, null, null],
+    activeSet: 1, history: [], lastExportedAt: '2026-09-19T12:00:00Z',
+  };
+  const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'g2', games: [g1, g2] } };
+  const result = S.parseSession(JSON.stringify(envelope));
+  assert.equal(result.ok, true);
+  // Both played games were exported — the max of the two timestamps is meaningful here, and the
+  // day is correctly treated as fully exported.
+  assert.equal(result.value.lastExportedAt, '2026-09-19T12:00:00Z');
+});
+
+test('migration from schema 1: an unplayed kept game with a stale lastExportedAt does not force the day to null', () => {
+  const g1 = {
+    gameId: 'g1', team: 'Thunder', opponent: 'Lions', date: '2026-09-19', importedAt: '2026-09-19T09:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [{ score: [25, 20], counts: { grace: { serve: { in: 3, out: 1 }, return: { in: 0, out: 0 } } } }, null, null],
+    activeSet: 1, history: [], lastExportedAt: '2026-09-19T10:00:00Z',
+  };
+  // g2 was never played (no score, no counts) but still carries a null lastExportedAt from before
+  // it was cleared -- it must not count against the "every played game exported" rule.
+  const g2 = {
+    gameId: 'g2', team: 'Thunder', opponent: 'Bears', date: '2026-09-19', importedAt: '2026-09-19T11:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [null, null, null],
+    activeSet: 1, history: [], lastExportedAt: null,
+  };
+  const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'g1', games: [g1, g2] } };
+  const result = S.parseSession(JSON.stringify(envelope));
+  assert.equal(result.ok, true);
+  assert.equal(result.value.lastExportedAt, '2026-09-19T10:00:00Z');
+});
+
+test('parseGameV1 refuses an empty date (finding 3): the only game names date "" and is salvage-dropped, leaving the whole schema-1 session malformed rather than migrating to an unreadable day', () => {
+  const gEmpty = {
+    gameId: 'gEmpty', team: 'Thunder', opponent: 'Lions', date: '', importedAt: '2026-09-19T09:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [null, null, null], activeSet: 1, history: [], lastExportedAt: null,
+  };
+  const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'gEmpty', games: [gEmpty] } };
+  const result = S.parseSession(JSON.stringify(envelope));
+  // Before the fix, parseGameV1 accepted `date: ''`, migrateSchema1 lifted it to `day.date = ''`,
+  // and parseDay's own non-empty check would only reject it on the NEXT boot -- by which point
+  // ui.js's re-commit had already overwritten the original schema-1 save. Rejecting the game here,
+  // during the legacy parse itself, means the schema-1 raw save is what survives untouched.
+  assert.equal(result.ok, false);
+});
+
+test('parseGameV1 salvage-drops an empty-date game but migrates cleanly when another kept game has a real date, and the result round-trips as a valid schema-2 save', () => {
+  const gEmpty = {
+    gameId: 'gEmpty', team: 'Thunder', opponent: 'Lions', date: '', importedAt: '2026-09-19T09:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [null, null, null], activeSet: 1, history: [], lastExportedAt: null,
+  };
+  const gGood = {
+    gameId: 'gGood', team: 'Thunder', opponent: 'Bears', date: '2026-09-19', importedAt: '2026-09-19T09:00:00Z',
+    players: [{ id: 'grace', name: 'Grace', sub: false }],
+    sets: [null, null, null], activeSet: 1, history: [], lastExportedAt: null,
+  };
+  const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'gGood', games: [gEmpty, gGood] } };
+  const result = S.parseSession(JSON.stringify(envelope));
+  assert.equal(result.ok, true);
+  assert.equal(result.dropped, 1);
+  assert.equal(result.value.date, '2026-09-19');
+  // This is exactly what ui.js's load() re-commits to STORAGE_KEY immediately after a migration —
+  // it must itself parse back as a valid schema-2 save, not be rejected on the very next boot.
+  const saved = S.serialiseSession(result.value);
+  const reparsed = S.parseSession(saved);
+  assert.equal(reparsed.ok, true);
+  assert.deepEqual(reparsed.value, result.value);
 });
 
 test("migration from schema 1: multiple dates keeps the active game's date and reports droppedDays", () => {

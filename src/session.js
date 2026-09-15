@@ -399,7 +399,10 @@ export function buildDayStatsPayload(day, nowIso) {
     `${totalSets} set${totalSets === 1 ? '' : 's'}`,
     `${playersOut.length} player${playersOut.length === 1 ? '' : 's'}`,
   ].join(' · ');
-  return { ok: true, value: { text: encodeDayStats(payload), summary, payload: valid.value } };
+  // Encode the validated, rebuilt object — not the pre-validation `payload` — so the returned
+  // `.text` and `.payload` can never diverge even if a future validator change stops rebuilding
+  // in the same key order.
+  return { ok: true, value: { text: encodeDayStats(valid.value), summary, payload: valid.value } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -557,7 +560,10 @@ function parseDay(value) {
 }
 
 // -- schema-1 legacy parser, retained verbatim (3-slot sets, one game = one day's worth of
-// fields) purely so `migrateSchema1` has a faithful v1 session to lift from. --
+// fields) purely so `migrateSchema1` has a faithful v1 session to lift from, with one deliberate
+// exception: parseGameV1's `date` check mirrors the codec's own v1 tightening (isNonEmptyString),
+// because a real phone can hold a save from before that tightening shipped, and letting `date: ''`
+// through here would hand `migrateSchema1` a day `parseDay` refuses to read back. --
 
 function parseHistoryEntryV1(value) {
   if (!isPlainObject(value)) return undefined;
@@ -574,7 +580,9 @@ function parseGameV1(value) {
   if (typeof value.gameId !== 'string') return undefined;
   if (typeof value.team !== 'string') return undefined;
   if (typeof value.opponent !== 'string') return undefined;
-  if (typeof value.date !== 'string') return undefined;
+  // Non-string OR empty: matches the codec's isNonEmptyString tightening for `date`. Without this,
+  // a genuine pre-tightening phone save with `date: ''` would migrate to a day `parseDay` rejects.
+  if (typeof value.date !== 'string' || value.date.length === 0) return undefined;
   if (typeof value.importedAt !== 'string') return undefined;
   if (!Array.isArray(value.players) || value.players.length > MAX_ROSTER_PLAYERS) return undefined;
   const seenIds = new Set();
@@ -701,7 +709,13 @@ function migrateSchema1(v1session) {
           ? keptGames[0].gameId
           : null,
     importedAt: keptGames.reduce((min, g) => (min === null || g.importedAt < min ? g.importedAt : min), null),
-    lastExportedAt: keptGames.reduce((max, g) => (g.lastExportedAt !== null && (max === null || g.lastExportedAt > max) ? g.lastExportedAt : max), null),
+    // A day is only safe to discard if EVERY played game went out — the opposite of what a plain
+    // `max` gives you. If any kept game with a played set still has `lastExportedAt === null`, the
+    // day's must be null too, so hasUnexportedStats keeps warning until the rest are actually
+    // exported. Only once every played game has a timestamp does the max of those become meaningful.
+    lastExportedAt: keptGames.some((g) => g.lastExportedAt === null && g.sets.some(isSetPlayed))
+      ? null
+      : keptGames.reduce((max, g) => (g.lastExportedAt !== null && (max === null || g.lastExportedAt > max) ? g.lastExportedAt : max), null),
     lastChangedAt: null,
   };
   return { day, droppedDays };
