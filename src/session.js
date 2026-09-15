@@ -1,11 +1,11 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
-import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats } from './codec.js';
+import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskHas, maskOf, maskMembers, maskCount, maskUnion } from './codec.js';
 import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
-export const SESSION_SCHEMA = 2;
+export const SESSION_SCHEMA = 3;
 export const APP_VERSION = '2.0.0';
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 200;
@@ -57,6 +57,40 @@ export function gameLabel(game, i) {
   return game.opponent ? `vs ${game.opponent}` : `Game ${i + 1}`;
 }
 
+/** How many set tabs this game has. `sets.length` from the roster is authoritative, but a game
+ * whose count was later reduced by a re-sent roster keeps whatever it needs to show recorded
+ * data — see `mergeDayRoster`. */
+export function gameSetCount(game) {
+  return game.setCount;
+}
+
+/** Everyone this game names across its live sets, in directory order is the caller's job — this
+ * returns first-seen order, which is what the 12-player cap counts. The cap is the union across
+ * sets, exactly as `validateDayRosterPayload` measures it with `maskCount(union, …)`; a per-set
+ * cap would let us build a day the planner then refuses. */
+export function gamePlayerIdsUnion(game) {
+  const seen = [];
+  for (let i = 0; i < game.setCount; i += 1) {
+    for (const id of game.setPlayerIds[i]) if (!seen.includes(id)) seen.push(id);
+  }
+  return seen;
+}
+
+/** The highest slot index holding a played set, or -1 when nothing is recorded. */
+function highestPlayedSlot(game) {
+  let highest = -1;
+  game.sets.forEach((set, i) => { if (isSetPlayed(set)) highest = i; });
+  return highest;
+}
+
+/** `setPlayerIds` padded to MAX_SETS. Slots beyond `setCount` are retained rather than dropped,
+ * so a count that later grows back does not lose ticks the coach already made. */
+function padSetPlayerIds(lists) {
+  const out = [];
+  for (let i = 0; i < MAX_SETS; i += 1) out.push(lists[i] ? [...lists[i]] : []);
+  return out;
+}
+
 export function dayLabel(day) {
   return `${day.team ? day.team + ' · ' : ''}${formatDate(day.date)}`;
 }
@@ -78,29 +112,35 @@ function withGame(s, gameId, fn) {
   return changed ? { ...s, games } : s;
 }
 
-function hasAnyCount(game, playerId) {
-  return game.sets.some((set) => {
-    if (!set) return false;
-    const c = set.counts[playerId];
-    if (!c) return false;
-    return c.serve.in + c.serve.out + c.return.in + c.return.out > 0;
-  });
+/** Counts in one specific set. Un-ticking is guarded per set now: a girl who played set 1 may
+ * legitimately be taken off set 2's list, and refusing that would make the per-set tick-list
+ * unusable after the first tap. */
+function hasCountInSet(game, n, playerId) {
+  const set = game.sets[n - 1];
+  if (!set) return false;
+  const c = set.counts[playerId];
+  if (!c) return false;
+  return c.serve.in + c.serve.out + c.return.in + c.return.out > 0;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Step 1 — ingest
 // ---------------------------------------------------------------------------------------------
 
-/** `roster` is always a v2 day roster payload — `decodeDayRoster` normalises v1 before it ever
- * reaches here, so nothing below branches on a version. */
+/** `roster` is always a v3 day roster payload — `decodeDayRoster` normalises v1 and v2 before it
+ * ever reaches here, so nothing below branches on a version. */
 export function newDayFromRoster(roster, nowIso) {
   const directory = roster.players.map((p) => ({ id: p.id, name: p.name, sub: false }));
+  const size = directory.length;
   const games = roster.games.map((g) => ({
     gameId: g.gameId,
     opponent: g.opponent,
-    // index -> id, resolved exactly once, here at ingest. validateDayRosterPayload has already
-    // proved every index is a whole number in [0, players.length), so this cannot miss.
-    playerIds: g.roster.map((i) => directory[i].id),
+    // sets.length is the one and only source of truth for how many sets this game has, and
+    // different games in the same day legitimately differ.
+    setCount: g.sets.length,
+    // Mask -> ids, resolved exactly once, here at ingest. validateDayRosterPayload has already
+    // proved every mask is in range, so maskMembers cannot name a player outside the directory.
+    setPlayerIds: padSetPlayerIds(g.sets.map((mask) => maskMembers(mask, size).map((i) => directory[i].id))),
     sets: Array(MAX_SETS).fill(null),
     activeSet: 1,
     history: [],
@@ -154,20 +194,31 @@ function mergeDayRoster(s, roster) {
   }
   const subLookup = new Map(directory.map((p) => [p.id, p.sub]));
 
-  // Games already present (matched on gameId): keep sets/history/activeSet, take the new opponent;
-  // new tick list = the incoming ids, plus any already-ticked player who has counts or is a sub.
+  // Games already present (matched on gameId): keep sets/history/activeSet, take the new opponent.
+  // Each set's new tick list = that set's incoming ids, plus anyone already ticked there who has
+  // counts in THAT set or is a sub.
   const matchedGames = s.games.map((g) => {
     const rg = roster.games.find((x) => x.gameId === g.gameId);
     if (!rg) return g; // a local game the roster no longer names: keep it, untouched.
-    const incomingIds = rg.roster.map((i) => roster.players[i].id);
-    const keepIds = g.playerIds.filter((id) => !incomingIds.includes(id) && (hasAnyCount(g, id) || subLookup.get(id)));
-    return { ...g, opponent: rg.opponent, playerIds: [...incomingIds, ...keepIds] };
+    const incoming = rg.sets.map((mask) => maskMembers(mask, roster.players.length).map((i) => roster.players[i].id));
+    const setPlayerIds = padSetPlayerIds(
+      g.setPlayerIds.map((existing, i) => {
+        if (i >= incoming.length) return existing; // a set the new roster does not describe
+        const keep = existing.filter((id) => !incoming[i].includes(id) && (hasCountInSet(g, i + 1, id) || subLookup.get(id)));
+        return [...incoming[i], ...keep];
+      }),
+    );
+    // Never below what is already recorded: mergeDayRoster is non-destructive by construction,
+    // and dropping a tab would hide counts that buildDayStatsPayload still exports.
+    const setCount = Math.max(incoming.length, highestPlayedSlot(g) + 1);
+    return { ...g, opponent: rg.opponent, setCount, setPlayerIds };
   });
   for (const g of matchedGames) {
-    if (g.playerIds.length > MAX_ROSTER_PLAYERS) {
+    const named = gamePlayerIdsUnion(g).length;
+    if (named > MAX_ROSTER_PLAYERS) {
       return {
         ok: false,
-        error: `Updating "${g.opponent || g.gameId}" would make ${g.playerIds.length} players; the game limit is ${MAX_ROSTER_PLAYERS}.`,
+        error: `Updating "${g.opponent || g.gameId}" would make ${named} players; the game limit is ${MAX_ROSTER_PLAYERS}.`,
       };
     }
   }
@@ -177,7 +228,8 @@ function mergeDayRoster(s, roster) {
   const appendedGames = newRosterGames.map((rg) => ({
     gameId: rg.gameId,
     opponent: rg.opponent,
-    playerIds: rg.roster.map((i) => roster.players[i].id),
+    setCount: rg.sets.length,
+    setPlayerIds: padSetPlayerIds(rg.sets.map((mask) => maskMembers(mask, roster.players.length).map((i) => roster.players[i].id))),
     sets: Array(MAX_SETS).fill(null),
     activeSet: 1,
     history: [],
@@ -212,31 +264,43 @@ export function openDayRoster(s, roster, nowIso) {
 // Step 2 — the tick list and subs
 // ---------------------------------------------------------------------------------------------
 
-export function setPlayerTicked(s, gameId, playerId, ticked) {
+export function setPlayerTicked(s, gameId, n, playerId, ticked) {
   const game = findGame(s, gameId);
   if (!game) return { ok: false, error: 'That game does not exist.' };
+  const current = game.setPlayerIds[n - 1];
   if (ticked) {
-    if (game.playerIds.includes(playerId)) return { ok: true, session: s };
-    if (game.playerIds.length >= MAX_ROSTER_PLAYERS) {
+    if (current.includes(playerId)) return { ok: true, session: s };
+    // The cap is the union across sets, matching validateDayRosterPayload's maskCount(union, …).
+    // Somebody already named by another set costs nothing to add here.
+    const union = gamePlayerIdsUnion(game);
+    if (!union.includes(playerId) && union.length >= MAX_ROSTER_PLAYERS) {
       return { ok: false, error: `This game already has ${MAX_ROSTER_PLAYERS} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
     }
-    const session = withGame(s, gameId, (g) => ({ ...g, playerIds: [...g.playerIds, playerId] }));
+    const session = withGame(s, gameId, (g) => {
+      const setPlayerIds = g.setPlayerIds.slice();
+      setPlayerIds[n - 1] = [...current, playerId];
+      return { ...g, setPlayerIds };
+    });
     return { ok: true, session };
   }
-  if (!game.playerIds.includes(playerId)) return { ok: true, session: s };
-  // The refusal is the safeguard: buildDayStatsPayload derives lines from what is recorded, and
-  // a player hidden from the record screen while her counts sat in sets[n].counts would be a
-  // silent inconsistency the coach could not see.
-  if (hasAnyCount(game, playerId)) {
+  if (!current.includes(playerId)) return { ok: true, session: s };
+  // The refusal is the safeguard: buildDayStatsPayload derives lines from what is recorded, and a
+  // player hidden from the record screen while her counts sat in sets[n].counts would be a silent
+  // inconsistency the coach could not see. Scoped to this set — she may still be off set 2's list.
+  if (hasCountInSet(game, n, playerId)) {
     const player = s.players.find((p) => p.id === playerId);
     const name = player ? player.name : playerId;
-    return { ok: false, error: `${name} has counts in this game — clear the set first to take her off.` };
+    return { ok: false, error: `${name} has counts in Set ${n} — clear the set first to take her off.` };
   }
-  const session = withGame(s, gameId, (g) => ({ ...g, playerIds: g.playerIds.filter((id) => id !== playerId) }));
+  const session = withGame(s, gameId, (g) => {
+    const setPlayerIds = g.setPlayerIds.slice();
+    setPlayerIds[n - 1] = current.filter((id) => id !== playerId);
+    return { ...g, setPlayerIds };
+  });
   return { ok: true, session };
 }
 
-export function addSub(s, gameId, name, id) {
+export function addSub(s, gameId, n, name, id) {
   const trimmed = typeof name === 'string' ? name.trim() : '';
   if (trimmed.length === 0) return { ok: false, error: 'Enter a name.' };
   if (trimmed.length > MAX_NAME_LENGTH) {
@@ -253,14 +317,21 @@ export function addSub(s, gameId, name, id) {
   if (s.players.length >= MAX_DAY_PLAYERS) {
     return { ok: false, error: `Today already has ${MAX_DAY_PLAYERS} players; the day limit is ${MAX_DAY_PLAYERS}.` };
   }
-  if (game.playerIds.length >= MAX_ROSTER_PLAYERS) {
+  if (gamePlayerIdsUnion(game).length >= MAX_ROSTER_PLAYERS) {
     return { ok: false, error: `This game already has ${MAX_ROSTER_PLAYERS} players; the stats app limit is ${MAX_ROSTER_PLAYERS}.` };
   }
   const playerId = id ?? newClientId();
+  // She joins the set she was added to, and only that one — a sub who comes on for set 3 is not
+  // in sets 1 and 2, and assuming otherwise would pre-tick her into sets she never played.
   const session = {
     ...s,
     players: [...s.players, { id: playerId, name: trimmed, sub: true }],
-    games: s.games.map((g) => (g.gameId === gameId ? { ...g, playerIds: [...g.playerIds, playerId] } : g)),
+    games: s.games.map((g) => {
+      if (g.gameId !== gameId) return g;
+      const setPlayerIds = g.setPlayerIds.slice();
+      setPlayerIds[n - 1] = [...setPlayerIds[n - 1], playerId];
+      return { ...g, setPlayerIds };
+    }),
   };
   return { ok: true, session };
 }
@@ -366,7 +437,7 @@ export function buildDayStatsPayload(day, nowIso) {
     game.sets.forEach((set, i) => {
       if (!isSetPlayed(set)) return;
       const lines = [];
-      // Lines iterate day directory order, deriving from `counts` (not `playerIds`), so no
+      // Lines iterate day directory order, deriving from `counts` (not the tick lists), so no
       // recorded stat can ever be lost to a tick-list edit.
       for (const p of day.players) {
         const c = set.counts[p.id];
@@ -471,23 +542,33 @@ function parseHistoryEntry(value) {
   return { n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
 }
 
-// v2 game shape: { gameId, opponent, playerIds, sets, activeSet, history }. team/date/importedAt/
-// players are no longer read — the parser rebuilds field by field, so a stale game carrying
-// extras is silently cleaned. A game naming an unknown directory id is dropped (salvage).
+// v3 game shape: { gameId, opponent, setCount, setPlayerIds, sets, activeSet, history }.
+// team/date/importedAt/players are no longer read — the parser rebuilds field by field, so a
+// stale game carrying extras is silently cleaned (including a schema-2 `playerIds`). A game
+// naming an unknown directory id is dropped (salvage).
 function parseGame(value, directoryIds) {
   if (!isPlainObject(value)) return undefined;
   if (typeof value.gameId !== 'string') return undefined;
   if (typeof value.opponent !== 'string') return undefined;
-  if (!Array.isArray(value.playerIds) || value.playerIds.length > MAX_ROSTER_PLAYERS) return undefined;
-  const seenPlayerIds = new Set();
-  const playerIds = [];
-  for (const id of value.playerIds) {
-    if (typeof id !== 'string') return undefined;
-    if (seenPlayerIds.has(id)) return undefined;
-    if (!directoryIds.has(id)) return undefined;
-    seenPlayerIds.add(id);
-    playerIds.push(id);
+  if (!Number.isInteger(value.setCount) || value.setCount < 1 || value.setCount > MAX_SETS) return undefined;
+  if (!Array.isArray(value.setPlayerIds) || value.setPlayerIds.length !== MAX_SETS) return undefined;
+  const setPlayerIds = [];
+  const union = new Set();
+  for (const rawList of value.setPlayerIds) {
+    if (!Array.isArray(rawList)) return undefined;
+    const seenInSet = new Set();
+    const list = [];
+    for (const id of rawList) {
+      if (typeof id !== 'string') return undefined;
+      if (seenInSet.has(id)) return undefined;
+      if (!directoryIds.has(id)) return undefined;
+      seenInSet.add(id);
+      union.add(id);
+      list.push(id);
+    }
+    setPlayerIds.push(list);
   }
+  if (union.size > MAX_ROSTER_PLAYERS) return undefined;
   if (!Array.isArray(value.sets) || value.sets.length !== MAX_SETS) return undefined;
   const sets = [];
   for (const raw of value.sets) {
@@ -503,10 +584,10 @@ function parseGame(value, directoryIds) {
     if (h === undefined) return undefined;
     history.push(h);
   }
-  return { gameId: value.gameId, opponent: value.opponent, playerIds, sets, activeSet: value.activeSet, history };
+  return { gameId: value.gameId, opponent: value.opponent, setCount: value.setCount, setPlayerIds, sets, activeSet: value.activeSet, history };
 }
 
-// The day envelope (schema 2). `date` a non-empty string, or null only when games and players
+// The day envelope (schema 3). `date` a non-empty string, or null only when games and players
 // are both empty.
 function parseDay(value) {
   if (!isPlainObject(value)) return undefined;
@@ -692,12 +773,13 @@ function migrateSchema1(v1session) {
     date: keptDate,
     team: active ? active.team : keptGames[0].team,
     players: directory,
-    // Per-game playerIds = that game's own players' ids, so the tick lists reproduce exactly
-    // what she was recording.
+    // Per-set lists = that game's own players, in every slot: a schema-1 save has no per-set
+    // membership either, so the tick lists reproduce exactly what she was recording.
     games: keptGames.map((g) => ({
       gameId: g.gameId,
       opponent: g.opponent,
-      playerIds: g.players.map((p) => p.id),
+      setCount: MAX_SETS,
+      setPlayerIds: padSetPlayerIds(Array(MAX_SETS).fill(g.players.map((p) => p.id))),
       sets: [...g.sets, null, null], // pad 3 to 5
       activeSet: g.activeSet,
       history: g.history,
@@ -721,6 +803,30 @@ function migrateSchema1(v1session) {
   return { day, droppedDays };
 }
 
+/**
+ * A schema-2 saved day lifted to schema 3, in the raw — `parseDay` validates the schema-3 shape,
+ * so the lift has to happen before it, on untrusted JSON. Anything malformed is passed through
+ * untouched for `parseDay` to reject in the one place that does rejection.
+ *
+ * A schema-2 save carries no set count and one flat tick list per game, because the UI that wrote
+ * it showed five tabs unconditionally and had no per-set membership to record. So it keeps five
+ * tabs, and every set inherits that game's whole list. Deliberately NOT derived from what she
+ * happened to have played: shrinking an in-progress day's tabs under her while she is recording is
+ * a worse failure than showing two tabs she will not use. A CIQR3. paste for the same date merges
+ * real per-set masks in.
+ */
+function migrateSchema2(session) {
+  if (!isPlainObject(session) || !Array.isArray(session.games)) return session;
+  return {
+    ...session,
+    games: session.games.map((g) => {
+      if (!isPlainObject(g) || !Array.isArray(g.playerIds)) return g;
+      const { playerIds, ...rest } = g;
+      return { ...rest, setCount: MAX_SETS, setPlayerIds: Array.from({ length: MAX_SETS }, () => [...playerIds]) };
+    }),
+  };
+}
+
 export function parseSession(text) {
   const MALFORMED = { ok: false, error: 'saved session is malformed' };
   let envelope;
@@ -730,14 +836,25 @@ export function parseSession(text) {
     return MALFORMED;
   }
   if (!isPlainObject(envelope)) return MALFORMED;
-  if (envelope.schema !== 1 && envelope.schema !== 2) return MALFORMED;
+  if (envelope.schema !== 1 && envelope.schema !== 2 && envelope.schema !== 3) return MALFORMED;
   const session = envelope.session;
   if (!isPlainObject(session)) return MALFORMED;
 
-  if (envelope.schema === 2) {
+  if (envelope.schema === 3) {
     const result = parseDay(session);
     if (result === undefined) return MALFORMED;
     return { ok: true, value: result.day, dropped: result.dropped };
+  }
+
+  if (envelope.schema === 2) {
+    // Wrapped because this ships to phones holding a schema-2 save; boot must never throw.
+    try {
+      const result = parseDay(migrateSchema2(session));
+      if (result === undefined) return MALFORMED;
+      return { ok: true, value: result.day, dropped: result.dropped };
+    } catch {
+      return MALFORMED;
+    }
   }
 
   // schema === 1: this code ships to phones that already hold a schema-1 save; it must never
