@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR2… roster payloads and CIQS2… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS2… stats payloads with the planner by copy and paste, with no server or network required.
 
 ## Develop
 
@@ -17,8 +17,15 @@ npm install        # once -- the build has devDependencies
 npm run build      # hardened -> dist/CoachIQ_Rotation_Planner_Client.html + dist/sw.js  (what you ship)
 npm run build:dev  # readable -> dist-dev/CoachIQ_Rotation_Planner_Client.html           (for debugging)
 npm test           # unit tests
-npm run verify     # boots both builds in headless Edge and diffs what they render
+npm run verify     # boots both builds in headless Edge, diffs what they render, then checks the shipped dist/ bundle against the cross-app golden vector
 ```
+
+`npm run verify` runs two checks in sequence, both against headless Edge (or Chrome, if Edge is
+not found): `scripts/verify-build.mjs` (readable vs. hardened bundle parity, plus a `dist/` smoke
+test when it exists) and `scripts/verify-golden-vector.mjs` (pastes the contract's fixed
+cross-app golden vector into the shipped `dist/` bundle and asserts it renders the right
+sets/tabs/tick-lists). Run them individually with `npm run verify:build` or
+`npm run verify:golden-vector`.
 
 `npm run build` is the production build. It concatenates `src/*.js` in dependency
 order, inlines them with `styles.css` into `src/index.html`, and then hardens the
@@ -120,7 +127,7 @@ Open the app on the phone once while online; the service worker fetches the late
 Two constants must be bumped for every release, and both are easy to forget:
 
 1. `APP_VERSION` in `src/session.js` — what the ⋯ menu reports, so you can tell which build a phone is running.
-2. `CACHE` in `src/sw.js` (e.g. `ciq-stats-v2` → `ciq-stats-v3`) — the only cache-busting mechanism this app has. Nothing is content-hashed (see "Asset filenames"), so a phone that already cached the old build keeps serving it until the cache name changes.
+2. `CACHE` in `src/sw.js` (e.g. `ciq-stats-v3` → `ciq-stats-v4`) — the only cache-busting mechanism this app has. Nothing is content-hashed (see "Asset filenames"), so a phone that already cached the old build keeps serving it until the cache name changes.
 
 ## Verify on the phone
 
@@ -144,8 +151,9 @@ The payload format is frozen in `reference/stats-contract.md` and is the source 
 ## `reference/`
 
 Verbatim copies from the planner repo. `stats-contract.md`, `statsContract.ts`, `vectors.ts` and
-`stats-contract-v2-client-guide.md` are current as of planner commit `64f0072` (merge of
-`day-stats-contract-v2`, the branch that took the contract to v2). `stats-mockup.html` and
+`stats-contract-v3-client-guide.md` are current as of planner commit `6af23e6` (the v3 per-set
+roster payload work, `stats-contract-v3` branch merged to main). `stats-contract-v2-client-guide.md`
+is kept alongside it for historical context on the v1→v2 move. `stats-mockup.html` and
 `StatsDialog.tsx` are still from the earlier v1 copy at commit `2c57064`, kept for mockup/vocabulary
 reference only — neither affects the wire contract this app implements, and the planner has since
 split that card's import half into its own `UpdateStatsDialog.tsx`, not mirrored here. Read-only; if
@@ -153,9 +161,10 @@ the planner's contract changes, re-copy the affected files.
 
 | File | What it is |
 |---|---|
-| `stats-contract.md` | The shared payload contract, v1 and v2. Source of truth for both apps. |
+| `stats-contract.md` | The shared payload contract, v1, v2 and v3. Source of truth for both apps. |
 | `stats-contract-v2-client-guide.md` | The v2 migration guide written for this app's author — what changed from v1 to v2 and why, including the index-vs-id rationale for roster ticking. |
-| `statsContract.ts` | The planner's codec and validators, v1 and v2 (zero imports, copyable). |
-| `vectors.ts` | The golden test vectors both apps check against, v1 and v2. |
+| `stats-contract-v3-client-guide.md` | The v3 migration guide written for this app's author — what changed from v2 to v3 (per-set membership bitmasks replacing a single per-game roster) and why. |
+| `statsContract.ts` | The planner's codec and validators, v1, v2 and v3 (zero imports, copyable). |
+| `vectors.ts` | The golden test vectors both apps check against, v1, v2 and v3. |
 | `stats-mockup.html` | The planner's v1 Stats dialog mockup, for matching look and vocabulary. |
 | `StatsDialog.tsx` | The planner's v1 Stats card — how it produced the roster payload and imported the stats payload back, before the day-scoped v2 dialogs split that. |

@@ -70,16 +70,48 @@ export const STATS_V2_VECTOR = {
 };
 
 /**
+ * The v3 vectors: the same two-game day, with `games[].roster` replaced by `games[].sets`.
+ * `game-1` runs three sets with different membership each time (both players, then Grace alone,
+ * then Zoe alone) — the shape that could not be expressed at all before v3. `game-2` runs two
+ * sets and has nobody picked for the second: a mask of `0`, legal on purpose.
+ */
+const ROSTER_V3_PAYLOAD = {
+  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] },
+  ],
+};
+
+export const ROSTER_V3_VECTOR = {
+  payload: ROSTER_V3_PAYLOAD,
+  encoded: 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391',
+};
+
+/**
  * `ROSTER_V1_AS_DAY` — the day shape `normaliseRosterV1`/`decodeDayRoster` must produce from
- * `ROSTER_VECTOR.payload`. Written by hand, not computed at test time: comparing
- * `decodeDayRoster(v1)` against `normaliseRosterV1(v1)` evaluated at runtime is a tautology that
- * would pass even if the normaliser were wrong. Key order matches `normaliseRosterV1`'s own
- * literal order (v, kind, date, team, players, games).
+ * `ROSTER_VECTOR.payload` at v3. A v1 roster is a one-game day whose directory is that game's
+ * players, so its single set names every one of them: two players, indices 0 and 1, mask 3.
  */
 export const ROSTER_V1_AS_DAY = {
-  v: 2, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
-  games: [{ gameId: 'game-1', opponent: 'Lions', roster: [0, 1] }],
+  games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3] }],
+};
+
+/**
+ * `ROSTER_V2_AS_V3` — the day shape `decodeDayRoster` must produce from `ROSTER_V2_VECTOR.payload`.
+ * A v2 game carried no set structure, so each normalises to ONE set holding its whole roster:
+ * `game-1`'s `roster: [0, 1]` becomes mask 3, `game-2`'s `roster: [1]` becomes mask 2.
+ */
+export const ROSTER_V2_AS_V3 = {
+  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2] },
+  ],
 };
 
 /**
@@ -98,3 +130,12 @@ export const STATS_V1_AS_DAY = {
     { n: 2, score: null, players: [{ id: 'grace', serve: { in: 4, out: 1 }, return: { in: 2, out: 2 } }] },
   ] }],
 };
+
+/**
+ * `STATS_V2_AS_V3` — the day shape `decodeDayStats` must produce from `STATS_V2_VECTOR.payload`.
+ * Byte-for-byte the v2 sheet with its version digit moved: the stats payload shape did not change
+ * at contract v3, so normalising a v2 body is nothing more than reporting it at the current
+ * version. Key order matches `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`,
+ * `players`, `games`.
+ */
+export const STATS_V2_AS_V3 = { ...STATS_V2_PAYLOAD, v: 3 };

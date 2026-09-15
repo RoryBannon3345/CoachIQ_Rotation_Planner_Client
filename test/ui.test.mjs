@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -53,12 +53,12 @@ async function bootUi() {
 }
 
 const ROSTER_TEXT = encodeDayRoster({
-  v: 2,
+  v: 3,
   kind: 'roster',
   date: '2026-09-19',
   team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace' }],
-  games: [{ gameId: 'g1', opponent: 'Lions', roster: [0] }],
+  games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }], // mask 1 = index 0 = grace, one set
 });
 
 function click(document, selector) {
@@ -66,6 +66,44 @@ function click(document, selector) {
   assert.ok(el, `expected an element matching ${selector}`);
   el.click();
   return el;
+}
+
+/** Boots a fresh ui.js instance pre-loaded with `session` (already the internal day/session shape —
+ * e.g. straight from `newDayFromRoster`, not an encoded payload) written into fake localStorage
+ * under STORAGE_KEY, so boot()'s own load() reads it back exactly as given. */
+async function bootWithSession(session) {
+  const env = freshEnv();
+  env.store.set(STORAGE_KEY, serialiseSession(session));
+  await bootUi();
+  return env;
+}
+
+/** Switches to `gameId` and, if given, selects set `n`, entirely through the same clicks a coach
+ * would use — ui.js has no exports to reach into, and none are being added for this. */
+function switchToGameAndSet(document, gameId, n) {
+  click(document, '[data-action="open-switcher"]');
+  click(document, `[data-action="switch-game"][data-gid="${gameId}"]`);
+  if (n !== undefined) click(document, `[data-action="select-set"][data-n="${n}"]`);
+}
+
+/** Drives the record screen for one game (and, optionally, one of its sets) of a pre-built day and
+ * returns the rendered HTML. Used by the setCount/tick-list tests, which build `day` directly via
+ * `newDayFromRoster` rather than round-tripping through an encoded payload. */
+async function renderWith(day, gameId, n) {
+  const { document } = await bootWithSession(day);
+  switchToGameAndSet(document, gameId, n);
+  return document.getElementById('app').innerHTML;
+}
+
+/** Same, but also opens the players sheet — via the menu, which (unlike the empty-state's own
+ * "Tick players…" button) is reachable whether or not the target set's tick list is empty — and
+ * returns the combined record-screen-plus-sheet HTML. */
+async function renderPlayersSheetWith(day, gameId, n) {
+  const { document } = await bootWithSession(day);
+  switchToGameAndSet(document, gameId, n);
+  click(document, '[data-action="open-menu"]');
+  click(document, '[data-action="open-players"]');
+  return document.getElementById('app').innerHTML;
 }
 
 /** Pastes ROSTER_TEXT, opens the day, and taps one count so the day has a played (unexported) set. */
@@ -162,4 +200,123 @@ test('the export screen shows the save-failed banner (finding 6)', async () => {
     document.getElementById('app').innerHTML.includes('Could not save — export your stats now.'),
     'the save-failed banner reaches the export screen'
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Contract v3 — setCount tabs and per-set tick lists (Task 5)
+// ---------------------------------------------------------------------------------------------
+
+test('the set bar shows exactly sets.length tabs, per game', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [
+      { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] },
+      { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] },
+    ],
+  }, '2026-09-19T09:00:00Z');
+
+  const html1 = await renderWith(day, 'game-1');
+  assert.equal((html1.match(/data-action="select-set"/g) || []).length, 3);
+  assert.match(html1, /data-n="3"/);
+  assert.doesNotMatch(html1, /data-n="4"/, 'no phantom fourth tab');
+
+  const html2 = await renderWith(day, 'game-2');
+  assert.equal((html2.match(/data-action="select-set"/g) || []).length, 2, 'same day, different count');
+});
+
+test('each set shows its own rows, and mask 0 offers the sheet rather than an error', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [{ gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] }],
+  }, '2026-09-19T09:00:00Z');
+
+  const set1 = await renderWith(day, 'game-2', 1);
+  assert.match(set1, /Zoë/);
+  assert.doesNotMatch(set1, /Grace/);
+
+  const set2 = await renderWith(day, 'game-2', 2);
+  assert.match(set2, /No players ticked for this set yet/);
+  assert.doesNotMatch(set2, /malformed|error|Error/);
+});
+
+test('the players sheet shows the whole directory, pre-ticked from that set only', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] }],
+  }, '2026-09-19T09:00:00Z');
+
+  const sheet = await renderPlayersSheetWith(day, 'game-1', 2);
+  // Pre-selection, not a whitelist: Zoë is absent from set 2's mask but must still be tickable.
+  assert.match(sheet, /Grace/);
+  assert.match(sheet, /Zoë/);
+  assert.equal((sheet.match(/data-action="toggle-tick"/g) || []).length, 2);
+  assert.equal((sheet.match(/checkbox" tabindex="-1" checked/g) || []).length, 1, 'only Grace pre-ticked');
+  assert.match(sheet, /Set 2 · tick who is playing this set/);
+});
+
+// Regression: a same-day merge (mergeDayRoster) can shrink a game's setCount while leaving
+// activeSet parked on a now-hidden later tab — it only ever grows setCount to cover recorded data
+// and never touches activeSet. The record screen clamps its own display to the visible set, but a
+// tap must write into that SAME clamped set, not into the raw (possibly out-of-range) activeSet
+// slot — otherwise the coach sees a set-3 row, taps it, and the count silently lands in set 5's
+// hidden data instead, corrupting what buildDayStatsPayload later exports.
+test('a tap lands in the set actually shown, not a hidden slot beyond a shrunk setCount', async () => {
+  let day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [1, 1, 1, 1, 1] }], // grace named in all 5
+  }, '2026-09-19T09:00:00Z');
+  // Simulate exactly what mergeDayRoster can leave behind, without going through the merge itself:
+  // setCount shrunk to 3, activeSet still parked on 5.
+  day = {
+    ...day,
+    games: day.games.map((g) => (g.gameId === 'game-1' ? { ...g, setCount: 3, activeSet: 5 } : g)),
+  };
+
+  const { store, document } = await bootWithSession(day);
+
+  // The record screen must clamp its display to set 3 — exactly 3 tabs, none of them set 5.
+  const html = document.getElementById('app').innerHTML;
+  assert.equal((html.match(/data-action="select-set"/g) || []).length, 3);
+  assert.doesNotMatch(html, /data-n="5"/);
+
+  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
+
+  const saved = parseSession(store.get(STORAGE_KEY));
+  assert.equal(saved.ok, true, 'the committed session parses back cleanly');
+  const game = saved.value.games.find((g) => g.gameId === 'game-1');
+  assert.equal(getCount(game, 3, 'grace').serve.in, 1, 'the tap must land in the set the coach can see');
+  assert.equal(getCount(game, 5, 'grace').serve.in, 0, 'and never in the hidden slot beyond setCount');
+});
+
+// Regression: parseSession only ever reported `droppedDays` on the schema-1 leg, so `load()`'s old
+// `migrated = parsed.droppedDays !== undefined` check missed a schema-2 save that migrated cleanly
+// (nothing salvage-dropped). Boot never re-committed it, so every single boot re-ran migrateSchema2
+// against the same stale schema-2 envelope on disk until the coach's first tap or tick happened to
+// trigger a save. The fix widens the flag to any envelope read below the current SESSION_SCHEMA.
+test('a clean schema-2 save (nothing dropped) is still re-committed at schema 3 on the very first boot', async () => {
+  const env = freshEnv();
+  const schema2 = JSON.stringify({
+    schema: 2, savedAt: '2026-09-19T20:00:00Z',
+    session: {
+      date: '2026-09-19', team: 'Thunder',
+      players: [{ id: 'grace', name: 'Grace', sub: false }],
+      games: [{
+        gameId: 'game-1', opponent: 'Lions', playerIds: ['grace'],
+        sets: [null, null, null, null, null], activeSet: 1, history: [],
+      }],
+      activeGameId: 'game-1', importedAt: '2026-09-19T09:00:00Z', lastExportedAt: null, lastChangedAt: null,
+    },
+  });
+  env.store.set(STORAGE_KEY, schema2);
+  await bootUi();
+
+  const raw = env.store.get(STORAGE_KEY);
+  assert.ok(raw, 'a session is on disk after boot');
+  assert.equal(JSON.parse(raw).schema, 3, 'the schema-2 envelope was re-committed at the current schema on first boot');
+  // Nothing was actually unreadable, so no "could not be read" banner should show.
+  assert.doesNotMatch(env.document.getElementById('app').innerHTML, /could not be read/);
 });

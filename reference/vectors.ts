@@ -39,11 +39,16 @@ export const STATS_VECTOR = {
 };
 
 /**
- * The v2 vectors: a two-game tournament day, which is the shape the whole contract moved to and
+ * The v2 vectors: a two-game tournament day, which is the shape the contract moved to at v2 and
  * the smallest one that can go wrong in a v2-specific way (a second game, a per-game set list that
  * starts again at 1, and a `roster` of indices that is not simply every player).
+ *
+ * Frozen, and no longer expressible through `DayRosterPayload`/`DayStatsPayload` now that those
+ * name the v3 shape: `statsContract.ts`'s v2 roster types are deliberately not exported (see
+ * `DayRosterGameV2`'s docblock), so these stay untyped object literals, checked structurally by
+ * `encodePayload`'s `unknown` parameter the same way a hand-edited legacy payload would be.
  */
-const ROSTER_V2_PAYLOAD: DayRosterPayload = {
+const ROSTER_V2_PAYLOAD = {
   v: 2, kind: 'roster', date: '2026-09-19', team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
   games: [
@@ -52,7 +57,7 @@ const ROSTER_V2_PAYLOAD: DayRosterPayload = {
   ],
 };
 
-const STATS_V2_PAYLOAD: DayStatsPayload = {
+const STATS_V2_PAYLOAD = {
   v: 2, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
   players: [{ id: 'grace', name: 'Grace' }, { id: 'cx-8f2k1q', name: 'Ava' }],
   games: [
@@ -77,4 +82,50 @@ export const ROSTER_V2_VECTOR = {
 export const STATS_V2_VECTOR = {
   payload: STATS_V2_PAYLOAD,
   encoded: 'CIQS2.eyJ2IjoyLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.0342dd9e',
+};
+
+/**
+ * The v3 vectors: the same two-game day as the v2 pair, so the diff between them shows exactly
+ * what the version changed — `roster` index arrays becoming one bitmask per set.
+ *
+ * `game-1` runs three sets with different membership each time (both players, then Grace alone,
+ * then Zoë alone), which is the shape that could not be expressed at all before v3. `game-2` runs
+ * two sets and has nobody picked for the second — a mask of `0`, legal on purpose.
+ */
+const ROSTER_V3_PAYLOAD: DayRosterPayload = {
+  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0] },
+  ],
+};
+
+/**
+ * The v3 stats vector: byte-for-byte the v2 sheet with its version digit moved, which is the
+ * whole of what v3 does to the stats half of the contract.
+ *
+ * `STATS_V2_PAYLOAD` is untyped (see the block comment above it), so its `kind` widens to
+ * `string` and its `score` tuples widen to `number[]` — neither matches `DayStatsPayload`. `kind`
+ * is narrowed inline; `games` is narrowed by casting it back to its own already-correct shape
+ * rather than retyping `STATS_V2_PAYLOAD` itself (which would risk moving the frozen v2 vector's
+ * JSON key order) or retyping `DayStatsPayload` (which would loosen the contract for everyone
+ * else). Both overrides land on keys the spread already carries, so the key order stays exactly
+ * `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`, `players`, `games`.
+ */
+const STATS_V3_PAYLOAD: DayStatsPayload = {
+  ...STATS_V2_PAYLOAD,
+  kind: 'stats' as const,
+  v: 3,
+  games: STATS_V2_PAYLOAD.games as DayStatsPayload['games'],
+};
+
+export const ROSTER_V3_VECTOR = {
+  payload: ROSTER_V3_PAYLOAD,
+  encoded: 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391',
+};
+
+export const STATS_V3_VECTOR = {
+  payload: STATS_V3_PAYLOAD,
+  encoded: 'CIQS3.eyJ2IjozLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.89cc6a1f',
 };

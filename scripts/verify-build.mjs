@@ -24,16 +24,10 @@ import puppeteer from 'puppeteer-core';
 import { build, APP_HTML } from './build.mjs';
 import { buildProd } from './build-prod.mjs';
 import { encodeDayRoster } from '../src/codec.js';
+import { BROWSER_CANDIDATES } from './browser-candidates.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_HTML = join(ROOT, 'dist', APP_HTML);
-
-const BROWSER_CANDIDATES = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-];
 
 const executablePath = BROWSER_CANDIDATES.find((p) => existsSync(p));
 if (!executablePath) {
@@ -43,32 +37,37 @@ if (!executablePath) {
 
 // A roster the app will accept, carrying characters that exercise the HTML
 // escaper -- the construct most at risk from `transformObjectKeys`.
-// Built with the app's own encoder so the envelope (CIQR2.<base64url>.<fnv1a32>)
+// Built with the app's own encoder so the envelope (CIQR3.<base64url>.<fnv1a32>)
 // is always valid; hand-rolling it would silently decay as the codec evolves.
 // Shape and limits per validateDayRosterPayload in src/codec.js: v/kind/date/
 // team/players/games, ids matching ID_PATTERN, names <= 64 chars.
 //
-// A two-game v2 day, per the contract's headline failure mode (guide §8): "A Client
-// that ignores the indices and ticks everybody still decodes this vector and is
-// still wrong." Game 1 pre-selects every one of ROSTER_NAMES (indices [0,1,2,3]) so
-// checkExpectations' per-name text check still holds now that the record screen only
-// shows ticked players. Game 2 ticks only [0,1] -- the new leg below drives into its
-// players sheet and asserts the tick-list reflects that partial selection, which is
-// the one thing in this suite that checks index-driven ticking on the shipped file.
+// A two-game v3 day, per the contract's headline failure mode (guide §8): "A Client
+// that ignores the masks and ticks everybody still decodes this vector and is
+// still wrong." Game 1 has THREE sets -- [15, 15, 3] -- with sets 1 and 2 pre-selecting
+// every one of ROSTER_NAMES (mask 15 = indices [0,1,2,3]) so checkExpectations' per-name
+// text check still holds now that the record screen only shows ticked players; its
+// default active set (set 1) is what that check reads. Game 2 has TWO sets -- [3, 0] --
+// set 1 ticking only indices [0,1] (mask 3): the new leg below drives into its players
+// sheet and asserts the tick-list reflects that partial selection, which is the one
+// thing in this suite that checks mask-driven ticking on the shipped file. The two
+// games deliberately carry different set counts (3 vs 2) so this harness exercises
+// per-game `sets.length` for the first time; set 2 of game 2 (mask 0) is left for the
+// golden-vector script to exercise the "nothing ticked" empty state.
 const ROSTER_NAMES = ['Ada <&> "Q"', "O'Brien", 'Zoe Muller', 'Sam'];
 const TEAM = 'Home & Co <b>';
 const OPPONENT = 'Away "FC"';
 const SECOND_GAME_ID = 'verify-2';
 
 const ROSTER_TEXT = encodeDayRoster({
-  v: 2,
+  v: 3,
   kind: 'roster',
   date: '2026-09-13',
   team: TEAM,
   players: ROSTER_NAMES.map((name, i) => ({ id: `p${i + 1}`, name })),
   games: [
-    { gameId: 'verify-1', opponent: OPPONENT, roster: [0, 1, 2, 3] },
-    { gameId: SECOND_GAME_ID, opponent: 'Second "FC"', roster: [0, 1] },
+    { gameId: 'verify-1', opponent: OPPONENT, sets: [15, 15, 3] },
+    { gameId: SECOND_GAME_ID, opponent: 'Second "FC"', sets: [3, 0] },
   ],
 });
 
