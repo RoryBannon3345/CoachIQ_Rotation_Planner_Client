@@ -598,12 +598,13 @@ function renderRecord() {
 function onTapCount(btn) {
   const game = currentGame();
   if (!game) return;
+  const n = clampedActiveSet(game);
   const pid = btn.dataset.pid;
   const stat = btn.dataset.stat;
   const side = btn.dataset.side;
   const delta = state.minusMode ? -1 : 1;
   const previousSession = state.session;
-  const tapped = tap(state.session, game.gameId, game.activeSet, pid, stat, side, delta);
+  const tapped = tap(state.session, game.gameId, n, pid, stat, side, delta);
   // one-shot: only switches itself off when the tap actually changed something — a no-op tap
   // (count already at 0) must not silently consume minus mode.
   if (state.minusMode && tapped !== previousSession) state.minusMode = false;

@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -255,4 +255,39 @@ test('the players sheet shows the whole directory, pre-ticked from that set only
   assert.equal((sheet.match(/data-action="toggle-tick"/g) || []).length, 2);
   assert.equal((sheet.match(/checkbox" tabindex="-1" checked/g) || []).length, 1, 'only Grace pre-ticked');
   assert.match(sheet, /Set 2 · tick who is playing this set/);
+});
+
+// Regression: a same-day merge (mergeDayRoster) can shrink a game's setCount while leaving
+// activeSet parked on a now-hidden later tab — it only ever grows setCount to cover recorded data
+// and never touches activeSet. The record screen clamps its own display to the visible set, but a
+// tap must write into that SAME clamped set, not into the raw (possibly out-of-range) activeSet
+// slot — otherwise the coach sees a set-3 row, taps it, and the count silently lands in set 5's
+// hidden data instead, corrupting what buildDayStatsPayload later exports.
+test('a tap lands in the set actually shown, not a hidden slot beyond a shrunk setCount', async () => {
+  let day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [1, 1, 1, 1, 1] }], // grace named in all 5
+  }, '2026-09-19T09:00:00Z');
+  // Simulate exactly what mergeDayRoster can leave behind, without going through the merge itself:
+  // setCount shrunk to 3, activeSet still parked on 5.
+  day = {
+    ...day,
+    games: day.games.map((g) => (g.gameId === 'game-1' ? { ...g, setCount: 3, activeSet: 5 } : g)),
+  };
+
+  const { store, document } = await bootWithSession(day);
+
+  // The record screen must clamp its display to set 3 — exactly 3 tabs, none of them set 5.
+  const html = document.getElementById('app').innerHTML;
+  assert.equal((html.match(/data-action="select-set"/g) || []).length, 3);
+  assert.doesNotMatch(html, /data-n="5"/);
+
+  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
+
+  const saved = parseSession(store.get(STORAGE_KEY));
+  assert.equal(saved.ok, true, 'the committed session parses back cleanly');
+  const game = saved.value.games.find((g) => g.gameId === 'game-1');
+  assert.equal(getCount(game, 3, 'grace').serve.in, 1, 'the tap must land in the set the coach can see');
+  assert.equal(getCount(game, 5, 'grace').serve.in, 0, 'and never in the hidden slot beyond setCount');
 });
