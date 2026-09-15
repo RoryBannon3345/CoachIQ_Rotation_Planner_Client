@@ -759,6 +759,7 @@ function renderExport() {
     ${shareBtn}
     <button type="button" class="btn sm" style="margin-left:auto;" data-action="export-back">Back</button>
   </div>
+  <p class="helper">One payload covers the whole day — every game, each with its own sets.</p>
   ${statusHtml}
 </div>`;
 }

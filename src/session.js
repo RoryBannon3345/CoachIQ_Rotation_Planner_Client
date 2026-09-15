@@ -58,7 +58,7 @@ export function gameLabel(game, i) {
 }
 
 export function dayLabel(day) {
-  return `${formatDate(day.date)}${day.team ? ' · ' + day.team : ''}`;
+  return `${day.team ? day.team + ' · ' : ''}${formatDate(day.date)}`;
 }
 
 function findGame(s, gameId) {

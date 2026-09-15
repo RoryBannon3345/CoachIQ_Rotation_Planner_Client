@@ -24,7 +24,7 @@ test('emits no source maps', () => {
 
 test('leaks no readable identifiers from the sources', () => {
   // Names that exist in src/ and must not survive into the shipped bundle.
-  for (const name of ['buildStatsPayload', 'runSelfCheck', 'decodeRoster', 'parseSession', 'minusMode']) {
+  for (const name of ['buildDayStatsPayload', 'runSelfCheck', 'decodeDayRoster', 'parseSession', 'minusMode']) {
     assert.ok(!html.includes(name), `identifier "${name}" leaked into production html`);
   }
 });

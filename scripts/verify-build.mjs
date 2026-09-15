@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { build, APP_HTML } from './build.mjs';
 import { buildProd } from './build-prod.mjs';
-import { encodeRoster } from '../src/codec.js';
+import { encodeDayRoster } from '../src/codec.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_HTML = join(ROOT, 'dist', APP_HTML);
@@ -43,22 +43,33 @@ if (!executablePath) {
 
 // A roster the app will accept, carrying characters that exercise the HTML
 // escaper -- the construct most at risk from `transformObjectKeys`.
-// Built with the app's own encoder so the envelope (CIQR1.<base64url>.<fnv1a32>)
+// Built with the app's own encoder so the envelope (CIQR2.<base64url>.<fnv1a32>)
 // is always valid; hand-rolling it would silently decay as the codec evolves.
-// Shape and limits per validateRosterPayload in src/codec.js: v/kind/gameId/
-// team/opponent/date/players, ids matching ID_PATTERN, names <= 64 chars.
+// Shape and limits per validateDayRosterPayload in src/codec.js: v/kind/date/
+// team/players/games, ids matching ID_PATTERN, names <= 64 chars.
+//
+// A two-game v2 day, per the contract's headline failure mode (guide §8): "A Client
+// that ignores the indices and ticks everybody still decodes this vector and is
+// still wrong." Game 1 pre-selects every one of ROSTER_NAMES (indices [0,1,2,3]) so
+// checkExpectations' per-name text check still holds now that the record screen only
+// shows ticked players. Game 2 ticks only [0,1] -- the new leg below drives into its
+// players sheet and asserts the tick-list reflects that partial selection, which is
+// the one thing in this suite that checks index-driven ticking on the shipped file.
 const ROSTER_NAMES = ['Ada <&> "Q"', "O'Brien", 'Zoe Muller', 'Sam'];
 const TEAM = 'Home & Co <b>';
 const OPPONENT = 'Away "FC"';
+const SECOND_GAME_ID = 'verify-2';
 
-const ROSTER_TEXT = encodeRoster({
-  v: 1,
+const ROSTER_TEXT = encodeDayRoster({
+  v: 2,
   kind: 'roster',
-  gameId: 'verify-1',
-  team: TEAM,
-  opponent: OPPONENT,
   date: '2026-09-13',
+  team: TEAM,
   players: ROSTER_NAMES.map((name, i) => ({ id: `p${i + 1}`, name })),
+  games: [
+    { gameId: 'verify-1', opponent: OPPONENT, roster: [0, 1, 2, 3] },
+    { gameId: SECOND_GAME_ID, opponent: 'Second "FC"', roster: [0, 1] },
+  ],
 });
 
 /**
@@ -129,7 +140,40 @@ async function fingerprint(browser, htmlPath) {
       };
     });
 
-    return { ...fp, pasted, errors };
+    // New leg: drive past the record screen into the SECOND game's players sheet
+    // (Games ▾ -> the verify-2 row -> ⋯ -> Players…) and fold its tick-list into the
+    // fingerprint. This is the contract's headline failure mode, checked on the file
+    // that actually ships: a Client that ignores `roster` indices and ticks everybody
+    // still decodes ROSTER_TEXT and would still pass every other check above (game 1
+    // ticks all four names on purpose). Only this leg proves game 2 ticked exactly
+    // [0, 1] and no one else. The players sheet always renders the WHOLE day
+    // directory (4 rows here), never a per-game filtered view, so ticklistRows must
+    // be 4 regardless of which game is open -- only ticklistTicked should vary.
+    const ticklistDriveError = await page.evaluate((gameId) => {
+      const openSwitcher = document.querySelector('[data-action="open-switcher"]');
+      if (!openSwitcher) return 'missing [data-action="open-switcher"]';
+      openSwitcher.click();
+      const row = document.querySelector(`[data-action="switch-game"][data-gid="${gameId}"]`);
+      if (!row) return `missing switcher row for game "${gameId}"`;
+      row.click();
+      const openMenu = document.querySelector('[data-action="open-menu"]');
+      if (!openMenu) return 'missing [data-action="open-menu"]';
+      openMenu.click();
+      const openPlayers = document.querySelector('[data-action="open-players"]');
+      if (!openPlayers) return 'missing the players-sheet entry [data-action="open-players"]';
+      openPlayers.click();
+      return null;
+    }, SECOND_GAME_ID);
+
+    await page.waitForSelector('#app *', { timeout: 10_000 });
+
+    const ticklist = await page.evaluate(() => {
+      const rows = document.querySelectorAll('.ticklist li.tick:not(.addsub)');
+      const ticked = document.querySelectorAll('.ticklist li.tick:not(.addsub) input[type="checkbox"]:checked');
+      return { rows: rows.length, ticked: ticked.length };
+    });
+
+    return { ...fp, pasted, errors, ticklistDriveError, ticklistRows: ticklist.rows, ticklistTicked: ticklist.ticked };
   } finally {
     await context.close();
   }
@@ -150,6 +194,7 @@ function render(label, fp) {
     `distinct-class: ${fp.distinctClasses.length}`,
     `classes:        ${fp.distinctClasses.join(' ')}`,
     `text:           ${fp.text}`,
+    `ticklist:       ${fp.ticklistRows} rows, ${fp.ticklistTicked} ticked${fp.ticklistDriveError ? ` (DRIVE FAILED: ${fp.ticklistDriveError})` : ''}`,
   ].join('\n');
 }
 
@@ -179,11 +224,24 @@ function checkExpectations(label, fp) {
       problems.push(`player name "${name}" is missing from the rendered text -- the roster did not load`);
     }
   }
+  // This passes only while the record screen keeps the team string in its title
+  // group. Treat that as a hard UI requirement, not a nicety: it is the only signal
+  // in this fingerprint that the team name (not just the roster) actually decoded.
   if (!fp.text.includes(TEAM)) {
     problems.push(`team name "${TEAM}" is missing from the rendered text -- the payload was not decoded`);
   }
   if (!fp.text.includes(OPPONENT)) {
     problems.push(`opponent name "${OPPONENT}" is missing from the rendered text -- the payload was not decoded`);
+  }
+  if (fp.ticklistDriveError) {
+    problems.push(`could not drive to the verify-2 players sheet (${fp.ticklistDriveError})`);
+  } else {
+    if (fp.ticklistRows !== 4) {
+      problems.push(`players sheet shows ${fp.ticklistRows} tick-list rows -- expected 4, the whole day directory`);
+    }
+    if (fp.ticklistTicked !== 2) {
+      problems.push(`players sheet shows ${fp.ticklistTicked} ticked rows for game "${SECOND_GAME_ID}" -- expected 2 (indices [0, 1]); a Client that ignores the roster indices and ticks everybody would fail this`);
+    }
   }
   for (const problem of problems) {
     console.error(`FAIL: ${label} build ${problem}.`);

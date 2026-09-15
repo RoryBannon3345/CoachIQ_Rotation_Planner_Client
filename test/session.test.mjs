@@ -356,8 +356,8 @@ test('gameLabel prefers the opponent and falls back to an ordinal', () => {
   assert.equal(S.gameLabel({ opponent: '' }, 2), 'Game 3');
 });
 
-test('dayLabel formats the date and appends the team only when present', () => {
-  assert.equal(S.dayLabel({ date: '2026-09-19', team: 'Thunder' }), '19 Sep · Thunder');
+test('dayLabel leads with the team when present, date alone when it is empty', () => {
+  assert.equal(S.dayLabel({ date: '2026-09-19', team: 'Thunder' }), 'Thunder · 19 Sep');
   assert.equal(S.dayLabel({ date: '2026-09-19', team: '' }), '19 Sep');
 });
 

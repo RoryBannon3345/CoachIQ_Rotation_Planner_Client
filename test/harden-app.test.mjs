@@ -60,29 +60,37 @@ out.transcript = (function () {
   const rec = (label, value) => log.push(label + ' => ' + JSON.stringify(value));
   const NOW = '2026-09-13T10:00:00.000Z';
   const GAME = 'harden-app-1';
+  const GAME2 = 'harden-app-2';
 
   // 1. runSelfCheck — the codec's own golden-vector check, encode AND decode.
   rec('runSelfCheck', runSelfCheck());
 
-  // 2. decodeRoster — names carry the characters most likely to be disturbed by the
-  //    string array (markup, quotes, ampersand, non-ASCII).
-  const rosterText = encodeRoster({
-    v: 1, kind: 'roster', gameId: GAME, team: 'Home & Co <b>', opponent: 'Away "FC"',
-    date: '2026-09-19',
+  // 2. decodeDayRoster — a two-game v2 day. Names carry the characters most likely to
+  //    be disturbed by the string array (markup, quotes, ampersand, non-ASCII). Two
+  //    games so the day directory (s.players) is genuinely shared state, not a single
+  //    game's own roster wearing a day-shaped label.
+  const rosterText = encodeDayRoster({
+    v: 2, kind: 'roster', date: '2026-09-19', team: 'Home & Co <b>',
     players: [
       { id: 'p1', name: 'Ada <&> "Q"', jersey: 7 },
       { id: 'p2', name: "Zo\\u00eb O'Brien" },
     ],
+    games: [
+      { gameId: GAME, opponent: 'Away "FC"', roster: [0, 1] },
+      { gameId: GAME2, opponent: 'Second "FC"', roster: [0] },
+    ],
   });
-  rec('encodeRoster', rosterText);
-  const roster = decodeRoster(rosterText);
-  rec('decodeRoster', roster);
+  rec('encodeDayRoster', rosterText);
+  const roster = decodeDayRoster(rosterText);
+  rec('decodeDayRoster', roster);
 
-  // 3. openRoster
-  const opened = openRoster(newSession(), roster.value, NOW);
-  rec('openRoster.kind', opened.kind);
+  // 3. openDayRoster — the session IS the day now, so its own \`players\` field is the
+  //    whole-day directory shared by both games (not a per-game roster).
+  const opened = openDayRoster(newSession(), roster.value, NOW);
+  rec('openDayRoster.kind', opened.kind);
   let s = opened.session;
-  rec('openRoster.session', s);
+  rec('openDayRoster.session', s);
+  rec('openDayRoster.session.players', s.players);
 
   // 4. tap, twice — this is the applyDelta nested-spread hazard.
   //    Tap one creates set 1 from nothing, so it exercises the outer
@@ -109,17 +117,32 @@ out.transcript = (function () {
   //      The reloaded session must be usable, not merely parseable.
   s = reloaded.value;
 
-  // 8/9. buildStatsPayload -> encodeStats. The encoded string ends in an FNV-1a
-  //      checksum over the exact JSON bytes, so this one line catches key reordering
-  //      and numeric drift at once.
-  const stats = buildStatsPayload(s.games[0], NOW);
-  rec('buildStatsPayload', stats);
-  const encoded = encodeStats(stats.value.payload);
-  rec('encodeStats', encoded);
-  rec('encodeStats.matchesBuilt', encoded === stats.value.text);
+  // 8/9. buildDayStatsPayload -> encodeDayStats, over the WHOLE day (both games) at
+  //      once. The encoded string ends in an FNV-1a checksum over the exact JSON
+  //      bytes, so this one line catches key reordering and numeric drift at once.
+  const stats = buildDayStatsPayload(s, NOW);
+  rec('buildDayStatsPayload', stats);
+  const encoded = encodeDayStats(stats.value.payload);
+  rec('encodeDayStats', encoded);
+  rec('encodeDayStats.matchesBuilt', encoded === stats.value.text);
 
-  // 10. decodeStats — back through validation to a structurally rebuilt object.
-  rec('decodeStats', decodeStats(encoded));
+  // 10. decodeDayStats — back through validation to a structurally rebuilt object.
+  rec('decodeDayStats', decodeDayStats(encoded));
+
+  // 11. AUTHOR_LABEL / KIND_LABEL — computed-key lookups (\`AUTHOR_LABEL[expected]\`,
+  //     \`KIND_LABEL[kind]\`) on plain object literals inside codec.js's decodePayload,
+  //     exactly the transformObjectKeys hazard test/harden.test.mjs exists for. Without
+  //     reading one of these strings back through the obfuscated bundle, a mangled
+  //     label (e.g. a key renamed but not its lookup, or vice versa) would ship as
+  //     "undefined" in a coach-facing error message and nothing here would catch it.
+  //     "CIQR3." is a version above CONTRACT_VERSION (2) -- decodePayload refuses it
+  //     before it ever checks the checksum, so garbage after the version is fine.
+  const tooNew = decodeDayRoster('CIQR3.x.00000000');
+  rec('decodeDayRoster.tooNew', tooNew);
+  //     A roster-prefixed payload handed to the stats decoder: the kind check runs
+  //     before the checksum too, so the valid rosterText from step 2 works here as-is.
+  const kindMismatch = decodeDayStats(rosterText);
+  rec('decodeDayStats.kindMismatch', kindMismatch);
 
   // Saturation at both ends of the 0..999 clamp, to pin numbersToExpressions at the
   // boundaries rather than on mid-range values it is easy to get right by accident.
@@ -136,7 +159,7 @@ out.transcript = (function () {
   rec('clamp.p1Untouched', getCount(s.games[0], 1, 'p1'));
   rec('clamp.history', s.games[0].history);
 
-  // 11. undo — replays applyDelta with the negated, post-clamp delta.
+  // 12. undo — replays applyDelta with the negated, post-clamp delta.
   const undone = undo(s, GAME);
   rec('undo.entry', undone.undone);
   rec('undo.count', getCount(undone.session.games[0], 1, 'p2'));
@@ -165,8 +188,9 @@ test('the real codec/session data path survives hardening unchanged', async () =
   // Sanity: the driver actually ran the whole sequence, so an empty-transcript bug
   // cannot pass as "identical".
   assert.ok(typeof baseline === 'string' && baseline.length > 0, 'baseline transcript produced');
-  for (const step of ['runSelfCheck', 'decodeRoster', 'openRoster.session', 'tap2.count',
-    'setScore', 'parseSession', 'buildStatsPayload', 'encodeStats', 'decodeStats',
+  for (const step of ['runSelfCheck', 'decodeDayRoster', 'openDayRoster.session', 'tap2.count',
+    'setScore', 'parseSession', 'buildDayStatsPayload', 'encodeDayStats', 'decodeDayStats',
+    'decodeDayRoster.tooNew', 'decodeDayStats.kindMismatch',
     'clamp.atMax', 'clamp.atMin', 'undo.entry']) {
     assert.ok(baseline.includes(step + ' =>'), `baseline reached ${step}`);
   }
@@ -174,8 +198,8 @@ test('the real codec/session data path survives hardening unchanged', async () =
   // The baseline must be a HEALTHY run, not an identically-broken one: parity with a
   // failing baseline would otherwise pass. These are the load-bearing outcomes.
   assert.ok(baseline.includes('runSelfCheck => {"ok":true}'), 'codec self-check passed');
-  assert.ok(baseline.includes('decodeRoster => {"ok":true'), 'roster decoded');
-  assert.ok(baseline.includes('openRoster.kind => "opened"'), 'roster opened');
+  assert.ok(baseline.includes('decodeDayRoster => {"ok":true'), 'day roster decoded');
+  assert.ok(baseline.includes('openDayRoster.kind => "opened"'), 'day roster opened');
   // tap two must have preserved serve.in from tap one through the nested spread.
   assert.ok(
     baseline.includes('tap2.count => {"serve":{"in":1,"out":2},"return":{"in":0,"out":0}}'),
@@ -188,9 +212,23 @@ test('the real codec/session data path survives hardening unchanged', async () =
     baseline.includes('clamp.p1Untouched => {"serve":{"in":1,"out":2},"return":{"in":0,"out":0}}'),
     'the outer counts spread left the other player alone'
   );
-  assert.ok(baseline.includes('encodeStats.matchesBuilt => true'), 'encodeStats agrees with buildStatsPayload');
-  assert.ok(baseline.includes('decodeStats => {"ok":true'), 'stats payload decoded back');
+  assert.ok(baseline.includes('encodeDayStats.matchesBuilt => true'), 'encodeDayStats agrees with buildDayStatsPayload');
+  assert.ok(baseline.includes('decodeDayStats => {"ok":true'), 'day stats payload decoded back');
   assert.ok(baseline.includes('undo.entry => {"n":1,"playerId":"p2","stat":"return","side":"in","delta":-999}'), 'undo popped the clamped delta');
+
+  // AUTHOR_LABEL / KIND_LABEL, read through decodePayload's computed-key lookups. If
+  // either object literal were mangled by transformObjectKeys -- a key renamed but not
+  // its `[expected]`/`[kind]` lookup, or the reverse -- these strings would silently
+  // come back as "undefined" instead of failing to parse; nothing else in this suite
+  // reads a coach-facing error string all the way through the obfuscated bundle.
+  assert.ok(
+    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 3); this app understands 2."}'),
+    'AUTHOR_LABEL[expected] resolved correctly for a too-new roster'
+  );
+  assert.ok(
+    baseline.includes('decodeDayStats.kindMismatch => {"ok":false,"error":"This is a roster payload, not a stats payload."}'),
+    'KIND_LABEL[kind] resolved correctly for a kind mismatch'
+  );
 
   // The whole point. Any divergence -- a key renamed, a number rewritten wrong, a
   // string mangled -- lands here, and the checksum inside the encoded payloads means
@@ -200,9 +238,12 @@ test('the real codec/session data path survives hardening unchanged', async () =
 
 test('the hardened bundle really was obfuscated (the comparison above is not vacuous)', async () => {
   // If hardenJs ever silently became a pass-through, the parity assertion would still
-  // pass while proving nothing. Pin that it did not.
+  // pass while proving nothing. Pin that it did not -- including AUTHOR_LABEL/KIND_LABEL,
+  // the two object literals the new driver step above depends on for its coverage to mean
+  // anything.
   const code = await hardenJs(bundle);
-  for (const name of ['buildStatsPayload', 'runSelfCheck', 'decodeRoster', 'parseSession', 'applyDelta', 'clampCount']) {
+  for (const name of ['buildDayStatsPayload', 'runSelfCheck', 'decodeDayRoster', 'parseSession',
+    'applyDelta', 'clampCount', 'AUTHOR_LABEL', 'KIND_LABEL']) {
     assert.ok(!code.includes(name), `identifier "${name}" was mangled away`);
   }
   assert.ok(!code.includes('CIQR'), 'even the payload prefixes moved into the string array');
