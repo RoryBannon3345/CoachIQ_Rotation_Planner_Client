@@ -18,7 +18,11 @@ npm run build      # hardened -> dist/CoachIQ_Rotation_Planner_Client.html + dis
 npm run build:dev  # readable -> dist-dev/CoachIQ_Rotation_Planner_Client.html           (for debugging)
 npm test           # unit tests
 npm run verify     # boots both builds in headless Edge, diffs what they render, then checks the shipped dist/ bundle against the cross-app golden vector
+npm run deploy     # test + build + verify + publish to GitHub Pages  (or double-click buildAndDeploy.bat)
 ```
+
+`npm run build` only refreshes `dist/` on this machine and `git push` only publishes the source —
+neither puts a change on a coach's phone. `npm run deploy` is what does; see "Update the app".
 
 `npm run verify` runs two checks in sequence, both against headless Edge (or Chrome, if Edge is
 not found): `scripts/verify-build.mjs` (readable vs. hardened bundle parity, plus a `dist/` smoke
@@ -110,19 +114,44 @@ The home screen app is exempt from Safari's 7-day storage cleanup and keeps its 
 
 ## Update the app
 
-Edit source files, run `npm test`, rebuild with `npm run build`, commit, and push with `git push`. Then update the Pages deployment:
+Edit source files, commit, and `git push`. Then run **`buildAndDeploy.bat`** (or `npm run deploy`)
+— one command that tests, builds, verifies and publishes:
 
 ```
-git subtree push --prefix dist origin gh-pages
+buildAndDeploy.bat        # double-click it, or run it from any directory
+npm run deploy            # the same thing, without the console window
+npm run deploy:dry-run    # every check, stopping before it publishes
 ```
 
-If subtree push is rejected, use:
+**Do not stop at `git push`.** Pushing publishes the *source*. Pages serves from the `gh-pages`
+branch, which nothing updates except the subtree push at the end of that script. Contract v3 went
+out to `main`, fully verified, and sat there while every phone kept loading the previous build and
+refusing the new roster payloads with "made by a newer version of the Rotation Planner" — the
+deployment branch had simply never been updated. `npm run deploy` exists so that cannot recur.
+
+It refuses to publish, before touching `gh-pages`, if:
+
+- the current branch is ahead of `origin` — build output whose source is not on GitHub is output
+  nobody can reproduce or bisect;
+- the rebuild left `dist/` uncommitted. This is the one worth understanding: `git subtree push`
+  publishes the **committed** `dist/`, not the working tree, so a rebuild whose output differs from
+  the last commit would ship stale bytes while the verify you just watched pass applied to
+  different ones. Commit `dist/` and run it again;
+- `npm test` fails, or the headless-browser checks fail (obfuscated-vs-readable render parity, and
+  the `CIQR3.` golden vector decoding and rendering correctly in the shipped file).
+
+After pushing it polls the live URL until Pages serves the exact bytes it just verified.
+
+If the subtree push is rejected, the script stops and prints the recovery rather than running it —
+force-pushing rewrites the deployment branch, so it stays a deliberate act:
 
 ```
 git push origin `git subtree split --prefix dist main`:gh-pages --force
 ```
 
-Open the app on the phone once while online; the service worker fetches the latest version. The version line in the ⋯ menu shows the current build.
+Open the app on the phone once while online; the service worker is network-first, so it fetches the
+latest version rather than serving the cached one. The version line in the ⋯ menu shows the current
+build.
 
 Two constants must be bumped for every release, and both are easy to forget:
 
