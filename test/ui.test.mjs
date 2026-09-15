@@ -182,6 +182,56 @@ test('a successful share stamps lastExportedAt', async () => {
   assert.ok(typeof stamped === 'string' && stamped.length > 0, 'a genuinely successful share stamps lastExportedAt');
 });
 
+// iOS is the only platform this app ships on, and WebKit's share sheet drops `title` outright
+// whenever `text` is non-empty (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray
+// count])`). The single item it does carry a title on is the URL provider, which hangs the title
+// off LPLinkMetadata -- which is what Mail reads to pre-fill the subject. So the share must carry
+// a `url` alongside the payload, or the coach gets a subject-less email.
+test('the share carries a url so iOS Mail can pre-fill the subject from the title', async () => {
+  const { document, navigatorObj } = freshEnv();
+  Object.defineProperty(globalThis, 'location', {
+    value: { protocol: 'https:', href: 'https://example.test/stats/' },
+    configurable: true,
+    writable: true,
+  });
+  let shared = null;
+  navigatorObj.share = async (data) => {
+    shared = data;
+  };
+  await bootUi();
+  openDayAndRecordACount(document);
+  click(document, '[data-action="export"]');
+
+  click(document, '[data-action="export-share"]');
+  await flushAsync();
+
+  assert.ok(shared, 'navigator.share was called');
+  assert.ok(typeof shared.title === 'string' && shared.title.length > 0, 'a non-empty subject line is offered');
+  assert.equal(shared.url, 'https://example.test/stats/', 'the app URL rides along so the title reaches Mail as a subject');
+  assert.ok(shared.text.length > 0, 'the payload itself is still the shared text');
+});
+
+// Off https the app is being opened straight from Files, where `location.href` is a file: URL
+// that no share target can do anything useful with -- and Safari rejects the whole share() call
+// rather than dropping just the url, which would cost the coach the payload too.
+test('no url is shared when the app is not on https', async () => {
+  const { document, navigatorObj } = freshEnv();
+  let shared = null;
+  navigatorObj.share = async (data) => {
+    shared = data;
+  };
+  await bootUi();
+  openDayAndRecordACount(document);
+  click(document, '[data-action="export"]');
+
+  click(document, '[data-action="export-share"]');
+  await flushAsync();
+
+  assert.ok(shared, 'navigator.share was called');
+  assert.ok(!('url' in shared), 'no file: URL is handed to the share sheet');
+  assert.ok(shared.text.length > 0, 'the payload is still shared');
+});
+
 test('the export screen shows the save-failed banner (finding 6)', async () => {
   const { document } = freshEnv();
   await bootUi();

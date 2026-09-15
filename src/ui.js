@@ -828,10 +828,23 @@ async function onExportCopy() {
 // Stats never go by mailto: — a day sheet is roughly 13 KB, about six times what a mailto: URL
 // can be relied on to carry. Do not add a mailto share option here; Share… uses navigator.share
 // (which has no such size ceiling) and Copy relies on the clipboard.
+//
+// The `url` is not decoration, and dropping it costs the coach her email subject line. iOS is the
+// only platform this ships on, and WebKit's share sheet discards `title` outright whenever `text`
+// is non-empty — it appends the title only when nothing else is being shared at all
+// (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray count])`). Nothing in that sheet
+// implements `activityViewControllerSubjectForActivityType:`, so the single route a title has to
+// Mail's subject is `WKShareSheetURLItemProvider`, which hangs the title off `LPLinkMetadata` —
+// and that is what Mail reads to pre-fill the subject. Share without a url and the subject is
+// always blank. Off https the app was opened straight from Files and `location.href` is a file:
+// URL no target can use, so the key is omitted rather than risking a rejected share() that would
+// cost the payload too.
 function onExportShare() {
   const data = state.exportData;
   if (!data) return;
-  navigator.share({ title: data.summary, text: data.text }).then(() => {
+  const share = { title: data.summary, text: data.text };
+  if (location.protocol === 'https:') share.url = location.href;
+  navigator.share(share).then(() => {
     state.exportStatus = { kind: 'ok', text: 'Shared.' };
     commit({ ...state.session, lastExportedAt: new Date().toISOString() });
   }).catch(() => { /* an AbortError on cancel is not an error */ });
