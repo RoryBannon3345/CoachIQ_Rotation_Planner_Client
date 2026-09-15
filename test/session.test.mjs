@@ -9,7 +9,7 @@ import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR } fr
 // (mask 2 = maskOf([1]) = Zoë). The counts are deliberate, not minimal: several tests below visit
 // set 3 or tap set 5 on game-1, and a faithful one-set conversion would make those assertions
 // vacuous the moment setActiveSet is clamped to the game's set count.
-const rosterV2 = {
+const rosterV2AsV3 = {
   v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
   players: ROSTER_V2_VECTOR.payload.players,
   games: [
@@ -22,7 +22,7 @@ const rosterV3 = ROSTER_V3_VECTOR.payload;
 // Single-game fixture, rebuilt via decodeDayRoster so v1->day normalisation is exercised for free.
 const open = () => S.openDayRoster(S.newSession(), decodeDayRoster(ROSTER_VECTOR.encoded).value, '2026-09-19T20:00:00Z').session;
 // Two-game fixture, straight from the v2 golden payload's v3 restatement.
-const openV2 = () => S.openDayRoster(S.newSession(), rosterV2, '2026-09-19T20:00:00Z').session;
+const openV2 = () => S.openDayRoster(S.newSession(), rosterV2AsV3, '2026-09-19T20:00:00Z').session;
 
 test('openDayRoster creates the day and makes the first game active', () => {
   const s = open();
@@ -45,7 +45,7 @@ test('mask -> id resolution uses the payload masks, not "everyone"', () => {
 
 test('an empty game roster is legal and never filters the directory', () => {
   // maskOf([]) === 0: one set, nobody picked for it.
-  const roster = { ...rosterV2, games: [{ gameId: 'game-1', opponent: 'Lions', sets: [0] }, rosterV2.games[1]] };
+  const roster = { ...rosterV2AsV3, games: [{ gameId: 'game-1', opponent: 'Lions', sets: [0] }, rosterV2AsV3.games[1]] };
   const s = S.newDayFromRoster(roster, 'x');
   assert.deepEqual(s.games[0].setPlayerIds[0], []);
   assert.deepEqual(S.gamePlayerIdsUnion(s.games[0]), []);
@@ -147,6 +147,94 @@ test("a merge refreshes each set's ticks and keeps players who have counts there
   assert.deepEqual(res.session.games[0].setPlayerIds[1], ['grace'], 'set 2 takes the incoming mask');
 });
 
+// A day built the way a coach actually gets here: a roster whose later sets name girls the first
+// set does not, one count recorded, then a re-sent roster naming fewer sets. `maskOf([0..5])` is
+// 63 and `maskOf([6..11])` is 4032 over a twelve-player directory.
+const shrinkFixture = () => {
+  const players = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+  const full = {
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'T', players,
+    games: [{ gameId: 'g', opponent: 'Lions', sets: [63, 0, 0, 0, 4032] }],
+  };
+  const oneSet = { ...full, games: [{ gameId: 'g', opponent: 'Lions', sets: [63] }] };
+  let day = S.newDayFromRoster(full, 'now');
+  day = S.tap(day, 'g', 1, 'p0', 'serve', 'in', 1);
+  return { full, oneSet, day: S.openDayRoster(day, oneSet, 'now').session };
+};
+
+test('a merge drops count-free ticks from tabs it puts beyond the set count', () => {
+  const { day } = shrinkFixture();
+  const g = day.games[0];
+  assert.equal(g.setCount, 1, 'the re-sent roster names one set and set 1 holds the only counts');
+  assert.deepEqual(g.setPlayerIds.slice(1).flat(), [], 'nothing parked in tabs the UI will not draw');
+  assert.equal(S.getCount(g, 1, 'p0').serve.in, 1, 'the recorded count is untouched');
+});
+
+test('the parser is never stricter than the runtime: a day at the cap survives save and reload', () => {
+  // THE regression. The cap the app enforces (`gamePlayerIdsUnion`, live slots) and the cap
+  // `parseGame` enforces must measure the same thing. When they diverged, this day saved and
+  // then refused to load: parseDay drops the game, and a one-game day with no games left is
+  // MALFORMED — every count she recorded, gone on the next boot.
+  let { day } = shrinkFixture();
+  for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 1, `Sub ${i}`, `cx-sub0000${i}`).session;
+  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 12, 'the app allowed her right up to the cap');
+  const reloaded = S.parseSession(S.serialiseSession(day));
+  assert.equal(reloaded.ok, true, 'a day the app let her build must read back');
+  assert.deepEqual(reloaded.value, day);
+  assert.equal(S.getCount(reloaded.value.games[0], 1, 'p0').serve.in, 1);
+});
+
+test('shrink then grow: parked ticks do not resurrect into a refusal she cannot act on', () => {
+  // She has six subs ticked into set 5. A re-sent roster naming one set hides set 5; six more
+  // subs go into set 1. When the parked six were kept, the next roster paste resurrected them
+  // and every paste for that date failed with "would make 18 players" — names sitting in tabs
+  // the UI does not render, so there was no action available to her that could clear it.
+  const six = Array.from({ length: 6 }, (_, i) => ({ id: `q${i}`, name: `Q${i}` }));
+  const full = { v: 3, kind: 'roster', date: '2026-09-19', team: 'T', players: six, games: [{ gameId: 'g', opponent: 'Lions', sets: [63, 0, 0, 0, 0] }] };
+  let day = S.newDayFromRoster(full, 'now');
+  for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 5, `Sub ${i}`, `cx-park000${i}`).session;
+  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 12);
+  day = S.tap(day, 'g', 1, 'q0', 'serve', 'in', 1);
+
+  day = S.openDayRoster(day, { ...full, games: [{ gameId: 'g', opponent: 'Lions', sets: [63] }] }, 'now').session;
+  assert.equal(day.games[0].setCount, 1);
+  assert.deepEqual(day.games[0].setPlayerIds[4], [], 'set 5 is no longer drawn, so its ticks do not ride along');
+  for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 1, `New ${i}`, `cx-new0000${i}`).session;
+  assert.equal(S.parseSession(S.serialiseSession(day)).ok, true);
+
+  const grown = S.openDayRoster(day, full, 'now');
+  assert.equal(grown.kind, 'sameDay', 'the roster re-import must not wedge');
+  assert.equal(grown.session.games[0].setCount, 5);
+  assert.equal(S.gamePlayerIdsUnion(grown.session.games[0]).length, 12);
+  assert.equal(S.getCount(grown.session.games[0], 1, 'q0').serve.in, 1, 'no count was ever at risk');
+});
+
+test('a merge still refuses a genuine over-cap, and every name in the refusal is one she can reach', () => {
+  let { full, day } = shrinkFixture();
+  for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 1, `Sub ${i}`, `cx-sub0000${i}`).session;
+  const refused = S.openDayRoster(day, full, 'now');
+  assert.equal(refused.kind, 'error', '12 roster girls across five sets plus six subs really is 18');
+  assert.match(refused.error, /the game limit is 12/);
+  // Escapable: the only names not in the roster she just pasted are her own six subs, and they
+  // are all in set 1 — the tab the game is showing. Taking them off lets the paste through.
+  for (let i = 0; i < 6; i += 1) day = S.setPlayerTicked(day, 'g', 1, `cx-sub0000${i}`, false).session;
+  const retry = S.openDayRoster(day, full, 'now');
+  assert.equal(retry.kind, 'sameDay');
+  assert.equal(retry.session.games[0].setCount, 5);
+  assert.equal(S.getCount(retry.session.games[0], 1, 'p0').serve.in, 1);
+});
+
+test('setPlayerTicked and addSub refuse an out-of-range set instead of throwing', () => {
+  const s = openV2();
+  for (const n of [0, 6, 1.5, undefined]) {
+    assert.deepEqual(S.setPlayerTicked(s, 'game-1', n, 'grace', true), { ok: false, error: 'That set does not exist.' });
+    assert.deepEqual(S.addSub(s, 'game-1', n, 'Ava'), { ok: false, error: 'That set does not exist.' });
+  }
+  // A bad gameId still reports the game, not the set.
+  assert.equal(S.setPlayerTicked(s, 'nope', 9, 'grace', true).error, 'That game does not exist.');
+  assert.equal(S.addSub(s, 'nope', 9, 'Ava').error, 'That game does not exist.');
+});
+
 test('schema 3 round-trips, and a schema 2 save migrates to five tabs', () => {
   const day = S.newDayFromRoster(rosterV3, '2026-09-19T09:00:00Z');
   const parsed = S.parseSession(S.serialiseSession(day));
@@ -230,7 +318,7 @@ test('setActiveSet(3) does not itself start set 3, and 5 slots/history range are
 });
 
 test('buildDayStatsPayload reproduces the golden v2 stats vector', () => {
-  let s = S.newDayFromRoster(rosterV2, '2026-09-19T20:00:00Z');
+  let s = S.newDayFromRoster(rosterV2AsV3, '2026-09-19T20:00:00Z');
   s = S.addSub(s, 'game-1', 1, 'Ava', 'cx-8f2k1q').session;
   s = S.setPlayerTicked(s, 'game-2', 1, 'cx-8f2k1q', true).session;
   const t = (gameId, n, id, stat, side, k) => {
@@ -349,7 +437,7 @@ test('addSub caps per-game at 12 and per-day at 24, with distinct messages', () 
   // Day cap: spread additions across three fresh games so no single game's 12-cap is hit first.
   let s2 = openV2();
   const extraGames = {
-    v: 3, kind: 'roster', date: s2.date, team: s2.team, players: rosterV2.players,
+    v: 3, kind: 'roster', date: s2.date, team: s2.team, players: rosterV2AsV3.players,
     games: [
       // sets: [0] — one set, nobody picked. `sets: []` is not a legal game at v3.
       { gameId: 'game-3', opponent: 'Hawks', sets: [0] },
@@ -438,7 +526,7 @@ test('openDayRoster refuses a same-date merge that would push the day over its g
 test('openDayRoster on a different date reports otherDay without touching state; replaceDay confirms', () => {
   let s = openV2();
   s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
-  const otherRoster = { ...rosterV2, date: '2026-09-20' };
+  const otherRoster = { ...rosterV2AsV3, date: '2026-09-20' };
   const r = S.openDayRoster(s, otherRoster, 'x');
   assert.equal(r.kind, 'otherDay');
   assert.equal(r.unexported, true);

@@ -1,6 +1,6 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
-import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskHas, maskOf, maskMembers, maskCount, maskUnion } from './codec.js';
+import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskMembers } from './codec.js';
 import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
@@ -74,6 +74,12 @@ export function gamePlayerIdsUnion(game) {
     for (const id of game.setPlayerIds[i]) if (!seen.includes(id)) seen.push(id);
   }
   return seen;
+}
+
+/** Is `n` a 1-based set number naming a real slot? Bounded by MAX_SETS, the storage shape, not by
+ * the game's own `setCount` — clamping to what a game currently shows is `setActiveSet`'s job. */
+function isSetSlot(n) {
+  return Number.isInteger(n) && n >= 1 && n <= MAX_SETS;
 }
 
 /** The highest slot index holding a played set, or -1 when nothing is recorded. */
@@ -201,16 +207,24 @@ function mergeDayRoster(s, roster) {
     const rg = roster.games.find((x) => x.gameId === g.gameId);
     if (!rg) return g; // a local game the roster no longer names: keep it, untouched.
     const incoming = rg.sets.map((mask) => maskMembers(mask, roster.players.length).map((i) => roster.players[i].id));
-    const setPlayerIds = padSetPlayerIds(
-      g.setPlayerIds.map((existing, i) => {
-        if (i >= incoming.length) return existing; // a set the new roster does not describe
-        const keep = existing.filter((id) => !incoming[i].includes(id) && (hasCountInSet(g, i + 1, id) || subLookup.get(id)));
-        return [...incoming[i], ...keep];
-      }),
-    );
     // Never below what is already recorded: mergeDayRoster is non-destructive by construction,
     // and dropping a tab would hide counts that buildDayStatsPayload still exports.
     const setCount = Math.max(incoming.length, highestPlayedSlot(g) + 1);
+    const setPlayerIds = padSetPlayerIds(
+      g.setPlayerIds.map((existing, i) => {
+        const merged =
+          i >= incoming.length // a set the new roster does not describe
+            ? existing
+            : [...incoming[i], ...existing.filter((id) => !incoming[i].includes(id) && (hasCountInSet(g, i + 1, id) || subLookup.get(id)))];
+        // A slot at or beyond the new count is a tab the UI does not render, so a tick parked
+        // there is one the coach can neither see nor take off. Letting it ride would give the
+        // game invisible names that `gamePlayerIdsUnion` ignores but that a later re-grow
+        // resurrects into a cap refusal she has no action available to satisfy. Only recorded
+        // counts survive up here — and by construction (setCount >= highestPlayedSlot + 1)
+        // there are none, so this drops ticks and never a count.
+        return i >= setCount ? merged.filter((id) => hasCountInSet(g, i + 1, id)) : merged;
+      }),
+    );
     return { ...g, opponent: rg.opponent, setCount, setPlayerIds };
   });
   for (const g of matchedGames) {
@@ -267,6 +281,9 @@ export function openDayRoster(s, roster, nowIso) {
 export function setPlayerTicked(s, gameId, n, playerId, ticked) {
   const game = findGame(s, gameId);
   if (!game) return { ok: false, error: 'That game does not exist.' };
+  // Total, like every other failure path here: an out-of-range set must come back as a refusal,
+  // not a TypeError off the end of `setPlayerIds`.
+  if (!isSetSlot(n)) return { ok: false, error: 'That set does not exist.' };
   const current = game.setPlayerIds[n - 1];
   if (ticked) {
     if (current.includes(playerId)) return { ok: true, session: s };
@@ -308,6 +325,7 @@ export function addSub(s, gameId, n, name, id) {
   }
   const game = findGame(s, gameId);
   if (!game) return { ok: false, error: 'That game does not exist.' };
+  if (!isSetSlot(n)) return { ok: false, error: 'That set does not exist.' };
   // Section 5 rule 3 made enforceable: a cx- id minted for somebody already in the directory
   // under her real id imports at the planner as a stranger, and by then the two are indistinguishable.
   const lower = trimmed.toLowerCase();
@@ -554,7 +572,8 @@ function parseGame(value, directoryIds) {
   if (!Array.isArray(value.setPlayerIds) || value.setPlayerIds.length !== MAX_SETS) return undefined;
   const setPlayerIds = [];
   const union = new Set();
-  for (const rawList of value.setPlayerIds) {
+  for (let i = 0; i < value.setPlayerIds.length; i += 1) {
+    const rawList = value.setPlayerIds[i];
     if (!Array.isArray(rawList)) return undefined;
     const seenInSet = new Set();
     const list = [];
@@ -563,7 +582,14 @@ function parseGame(value, directoryIds) {
       if (seenInSet.has(id)) return undefined;
       if (!directoryIds.has(id)) return undefined;
       seenInSet.add(id);
-      union.add(id);
+      // The cap counts exactly what `gamePlayerIdsUnion` counts — the live slots. THE PARSER
+      // MUST NEVER BE STRICTER THAN THE RUNTIME: `setPlayerTicked` and `addSub` measure the cap
+      // over `0..setCount-1`, so counting parked slots here would refuse to read back a day the
+      // app itself let her build, and `parseDay` turns a refused game into a dropped game — or,
+      // for a one-game day, a malformed day. Every count she recorded, gone on the next boot.
+      // Parked ids never leave this client either: buildDayStatsPayload derives its lines from
+      // `counts`, never from the tick lists, so nothing downstream sees them.
+      if (i < value.setCount) union.add(id);
       list.push(id);
     }
     setPlayerIds.push(list);
