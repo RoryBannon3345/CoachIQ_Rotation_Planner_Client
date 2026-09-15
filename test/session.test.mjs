@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/session.js';
 import { decodeDayRoster, decodeDayStats } from '../src/codec.js';
-import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR } from '../src/vectors.js';
+import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR } from '../src/vectors.js';
 
 const rosterV2 = ROSTER_V2_VECTOR.payload;
 
@@ -350,6 +350,10 @@ test('envelope round-trips and rejects junk; schema 1 is accepted and migrated',
 });
 
 test('self-check passes', () => { assert.deepEqual(S.runSelfCheck(), { ok: true }); });
+
+test('runSelfCheck passes and covers all three roster versions', () => {
+  assert.deepEqual(S.runSelfCheck(), { ok: true });
+});
 
 test('gameLabel prefers the opponent and falls back to an ordinal', () => {
   assert.equal(S.gameLabel({ opponent: 'Lions' }, 0), 'vs Lions');

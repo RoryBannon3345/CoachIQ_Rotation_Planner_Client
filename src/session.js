@@ -1,7 +1,7 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
 import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats } from './codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY } from './vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
@@ -761,14 +761,16 @@ export function runSelfCheck() {
   try {
     if (fnv1a32(new Uint8Array()) !== '811c9dc5') return { ok: false, error: 'fnv1a32 of empty input' };
     if (fnv1a32(new TextEncoder().encode('a')) !== 'e40c292c') return { ok: false, error: 'fnv1a32 of "a"' };
-    if (encodeDayRoster(ROSTER_V2_VECTOR.payload) !== ROSTER_V2_VECTOR.encoded) return { ok: false, error: 'day roster vector encode' };
+    if (encodeDayRoster(ROSTER_V3_VECTOR.payload) !== ROSTER_V3_VECTOR.encoded) return { ok: false, error: 'day roster vector encode' };
     if (encodeDayStats(STATS_V2_VECTOR.payload) !== STATS_V2_VECTOR.encoded) return { ok: false, error: 'day stats vector encode' };
     if (encodeRoster(ROSTER_VECTOR.payload) !== ROSTER_VECTOR.encoded) return { ok: false, error: 'roster vector encode' };
     if (encodeStats(STATS_VECTOR.payload) !== STATS_VECTOR.encoded) return { ok: false, error: 'stats vector encode' };
-    const r2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
-    if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_VECTOR.payload)) return { ok: false, error: 'day roster vector decode' };
+    const r3 = decodeDayRoster(ROSTER_V3_VECTOR.encoded);
+    if (!r3.ok || JSON.stringify(r3.value) !== JSON.stringify(ROSTER_V3_VECTOR.payload)) return { ok: false, error: 'day roster vector decode' };
     const t2 = decodeDayStats(STATS_V2_VECTOR.encoded);
     if (!t2.ok || JSON.stringify(t2.value) !== JSON.stringify(STATS_V2_VECTOR.payload)) return { ok: false, error: 'day stats vector decode' };
+    const r2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
+    if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_AS_V3)) return { ok: false, error: 'legacy v2 roster vector decode' };
     const r1 = decodeDayRoster(ROSTER_VECTOR.encoded);
     if (!r1.ok || JSON.stringify(r1.value) !== JSON.stringify(ROSTER_V1_AS_DAY)) return { ok: false, error: 'legacy roster vector decode' };
     const t1 = decodeDayStats(STATS_VECTOR.encoded);
