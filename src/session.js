@@ -533,13 +533,19 @@ export function buildDayStatsPayload(day, nowIso) {
         lines.push({ id: p.id, serve: { in: c.serve.in, out: c.serve.out }, return: { in: c.return.in, out: c.return.out } });
         usedIds.add(p.id);
       }
-      sets.push({ n: i + 1, score: set.score === null ? null : [set.score[0], set.score[1]], players: lines });
+      const score = set.points !== '' ? pointTally(set.points) : set.score === null ? null : [set.score[0], set.score[1]];
+      const out = { n: i + 1, score, players: lines };
+      if (set.points !== '') {
+        out.servedFirst = set.servedFirst;
+        out.points = set.points;
+      }
+      sets.push(out);
     });
     if (sets.length === 0) continue; // games with no played set are omitted entirely
     gamesOut.push({ gameId: game.gameId, sets });
   }
   if (gamesOut.length === 0) {
-    return { ok: false, error: 'Nothing recorded yet — tap a count or enter a score first.' };
+    return { ok: false, error: 'Nothing recorded yet — tap a count, tap a point or enter a score first.' };
   }
   // The directory sent = entries named by at least one emitted line. Fall back to the whole
   // directory for a day of score-only sets (legal): players must never be empty.
@@ -547,7 +553,7 @@ export function buildDayStatsPayload(day, nowIso) {
     usedIds.size > 0
       ? day.players.filter((p) => usedIds.has(p.id)).map((p) => ({ id: p.id, name: p.name }))
       : day.players.map((p) => ({ id: p.id, name: p.name }));
-  const payload = { v: 2, kind: 'stats', recordedAt: nowIso, players: playersOut, games: gamesOut };
+  const payload = { v: 4, kind: 'stats', recordedAt: nowIso, players: playersOut, games: gamesOut };
   const valid = validateDayStatsPayload(payload);
   if (!valid.ok) return valid;
   const totalSets = gamesOut.reduce((sum, g) => sum + g.sets.length, 0);

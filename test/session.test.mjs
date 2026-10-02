@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/session.js';
 import { decodeDayRoster, decodeDayStats, MAX_SETS } from '../src/codec.js';
-import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
+import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V4_VECTOR, POINTS_46, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
 
 // The v2 golden day re-expressed at contract v3, which is the only roster shape the session model
 // reads now. game-1 gets FIVE set masks (mask 3 = maskOf([0, 1]) = both players) and game-2 two
@@ -357,8 +357,7 @@ test('setActiveSet(3) does not itself start set 3, and 5 slots/history range are
   assert.equal(S.getCount(s.games[0], 5, 'grace').serve.in, 1);
 });
 
-// TODO(Task 3): buildDayStatsPayload still emits v: 2; Task 3 moves it to v4 and re-points this at STATS_V4_VECTOR.
-test('buildDayStatsPayload reproduces the golden v2 stats vector', { todo: true }, () => {
+test('buildDayStatsPayload reproduces the golden v4 stats vector', () => {
   let s = S.newDayFromRoster(rosterV2AsV3, '2026-09-19T20:00:00Z');
   s = S.addSub(s, 'game-1', 1, 'Ava', 'cx-8f2k1q').session;
   s = S.setPlayerTicked(s, 'game-2', 1, 'cx-8f2k1q', true).session;
@@ -370,7 +369,8 @@ test('buildDayStatsPayload reproduces the golden v2 stats vector', { todo: true 
   t('game-1', 1, 'grace', 'return', 'in', 5);
   t('game-1', 1, 'grace', 'return', 'out', 1);
   t('game-1', 1, 'cx-8f2k1q', 'return', 'in', 3);
-  s = S.setScore(s, 'game-1', 1, [25, 21]);
+  s = S.setServedFirst(s, 'game-1', 1, true);
+  for (const c of POINTS_46) s = S.tapPoint(s, 'game-1', 1, c);
   t('game-1', 2, 'grace', 'serve', 'in', 4);
   t('game-1', 2, 'grace', 'serve', 'out', 1);
   t('game-1', 2, 'grace', 'return', 'in', 2);
@@ -380,14 +380,30 @@ test('buildDayStatsPayload reproduces the golden v2 stats vector', { todo: true 
   t('game-2', 1, 'cx-8f2k1q', 'return', 'in', 2);
   s = S.setScore(s, 'game-2', 1, [25, 18]);
 
-  const out = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z');
-  assert.equal(out.ok, true);
-  assert.equal(out.value.text, STATS_V2_VECTOR.encoded);
-  assert.deepEqual(decodeDayStats(out.value.text).value, STATS_V2_VECTOR.payload);
+  const built = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z');
+  assert.equal(built.ok, true, built.error);
+  assert.equal(built.value.text, STATS_V4_VECTOR.encoded, 'byte-exact against the frozen v4 vector');
+  assert.deepEqual(built.value.payload, STATS_V4_VECTOR.payload);
   // Zoie is never tapped: no stat line, filtered from the sent directory.
-  assert.deepEqual(out.value.payload.players.map((p) => p.id), ['grace', 'cx-8f2k1q']);
+  assert.deepEqual(built.value.payload.players.map((p) => p.id), ['grace', 'cx-8f2k1q']);
 });
 
+test('a logged set with no counts is still exported, with the tally as its score', () => {
+  let s = S.setServedFirst(open(), 'game-1', 2, false);
+  for (const c of 'TUUT') s = S.tapPoint(s, 'game-1', 2, c);
+  const built = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z');
+  assert.equal(built.ok, true);
+  const set2 = built.value.payload.games[0].sets.find((x) => x.n === 2);
+  assert.deepEqual(set2, { n: 2, score: [2, 2], players: [], servedFirst: false, points: 'TUUT' });
+  assert.deepEqual(decodeDayStats(built.value.text), { ok: true, value: built.value.payload });
+});
+
+test('a typed score on an unlogged set goes out as before, without log fields', () => {
+  const s = S.setScore(open(), 'game-1', 1, [25, 21]);
+  const set1 = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z').value.payload.games[0].sets[0];
+  assert.deepEqual(Object.keys(set1), ['n', 'score', 'players']);
+  assert.equal(S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z').value.payload.v, 4);
+});
 test('sets with no score and no counts are omitted, per game', () => {
   let s = openV2();
   s = S.setActiveSet(s, 'game-1', 3); // visiting set 3 does not start it
@@ -402,7 +418,7 @@ test('sets with no score and no counts are omitted, per game', () => {
 
 test('export refuses a day with nothing recorded', () => {
   const s = openV2();
-  assert.equal(S.buildDayStatsPayload(s, 'now').error, 'Nothing recorded yet — tap a count or enter a score first.');
+  assert.equal(S.buildDayStatsPayload(s, 'now').error, 'Nothing recorded yet — tap a count, tap a point or enter a score first.');
 });
 
 test('a score-only day (no counts anywhere) falls back to the whole directory, not an empty player list', () => {
