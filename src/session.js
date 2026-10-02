@@ -1,20 +1,27 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
-import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskMembers } from './codec.js';
+import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskMembers, MAX_POINTS } from './codec.js';
 import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V4_VECTOR, STATS_V2_AS_V4, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
-export const SESSION_SCHEMA = 3;
-export const APP_VERSION = '3.1.0';
+export const SESSION_SCHEMA = 4;
+export const APP_VERSION = '4.0.0';
 export const MAX_SCORE = 99;
-export const UNDO_LIMIT = 200;
+export const UNDO_LIMIT = 400;
 
 const STATS = ['serve', 'return'];
 const SIDES = ['in', 'out'];
 
 function zeroCount() {
   return { serve: { in: 0, out: 0 }, return: { in: 0, out: 0 } };
+}
+
+/** A set nobody has touched yet. `servedFirst` is null until the coach answers the set bar's
+ * question; `points` is one letter per rally (`U` we won it, `T` they did) and is the set's
+ * score once it is non-empty. Invariant: `points !== ''` implies `servedFirst !== null`. */
+function emptySet() {
+  return { score: null, counts: {}, servedFirst: null, points: '' };
 }
 
 function clampCount(n) {
@@ -387,7 +394,7 @@ export function setActiveSet(s, gameId, n) {
 // history entry for the actual, post-clamp delta) and undo() (which must NOT push a new entry —
 // it only ever pops the one it is reversing).
 function applyDelta(game, n, playerId, stat, side, delta) {
-  const set = game.sets[n - 1] ?? { score: null, counts: {} };
+  const set = game.sets[n - 1] ?? emptySet();
   const cur = set.counts[playerId] ?? zeroCount();
   const before = cur[stat][side];
   const after = clampCount(before + delta);
@@ -404,8 +411,53 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
     const game = applyDelta(g, n, playerId, stat, side, delta);
     if (game === g) return g;
     const after = getCount(game, n, playerId)[stat][side];
-    const history = [...game.history, { n, playerId, stat, side, delta: after - before }].slice(-UNDO_LIMIT);
+    const history = [...game.history, { kind: 'count', n, playerId, stat, side, delta: after - before }].slice(-UNDO_LIMIT);
     return { ...game, history };
+  });
+}
+
+/** `[us, them]` from a point log: `U` is a rally we won, `T` one they did. */
+export function pointTally(points) {
+  let us = 0;
+  for (const c of points) if (c === 'U') us += 1;
+  return [us, points.length - us];
+}
+
+/** Records who served the set's first rally. Answering again with the same value is a no-op. */
+export function setServedFirst(s, gameId, n, servedFirst) {
+  return withGame(s, gameId, (g) => {
+    const set = g.sets[n - 1] ?? emptySet();
+    if (set.servedFirst === servedFirst) return g;
+    const sets = g.sets.slice();
+    sets[n - 1] = { ...set, servedFirst };
+    return { ...g, sets };
+  });
+}
+
+/** One rally: `winner` is 'U' or 'T'. Refused (same reference) until servedFirst is answered or
+ * once the log is at MAX_POINTS — the planner would refuse a longer one. Not touched by minus mode. */
+export function tapPoint(s, gameId, n, winner) {
+  if (winner !== 'U' && winner !== 'T') return s;
+  return withGame(s, gameId, (g) => {
+    const set = g.sets[n - 1] ?? emptySet();
+    if (set.servedFirst === null || set.points.length >= MAX_POINTS) return g;
+    const sets = g.sets.slice();
+    sets[n - 1] = { ...set, points: set.points + winner };
+    const history = [...g.history, { kind: 'point', n, winner }].slice(-UNDO_LIMIT);
+    return { ...g, sets, history };
+  });
+}
+
+/** Empties the set's log and forgets who served first; the counts stay. Drops that set's point
+ * entries from history the way clearSet drops by n, so undo can never resurrect a rally. */
+export function clearPoints(s, gameId, n) {
+  return withGame(s, gameId, (g) => {
+    const set = g.sets[n - 1];
+    if (!set || (set.points === '' && set.servedFirst === null)) return g;
+    const sets = g.sets.slice();
+    sets[n - 1] = { ...set, servedFirst: null, points: '' };
+    const history = g.history.filter((h) => !(h.kind === 'point' && h.n === n));
+    return { ...g, sets, history };
   });
 }
 
@@ -414,6 +466,13 @@ export function undo(s, gameId) {
   if (!game || game.history.length === 0) return { session: s, undone: null };
   const last = game.history[game.history.length - 1];
   const session = withGame(s, gameId, (g) => {
+    if (last.kind === 'point') {
+      const set = g.sets[last.n - 1];
+      if (!set || set.points.length === 0) return { ...g, history: g.history.slice(0, -1) };
+      const sets = g.sets.slice();
+      sets[last.n - 1] = { ...set, points: set.points.slice(0, -1) };
+      return { ...g, sets, history: g.history.slice(0, -1) };
+    }
     const reverted = applyDelta(g, last.n, last.playerId, last.stat, last.side, -last.delta);
     return { ...reverted, history: g.history.slice(0, -1) };
   });
@@ -422,7 +481,8 @@ export function undo(s, gameId) {
 
 export function setScore(s, gameId, n, score) {
   return withGame(s, gameId, (g) => {
-    const set = g.sets[n - 1] ?? { score: null, counts: {} };
+    const set = g.sets[n - 1] ?? emptySet();
+    if (set.points !== '') return g;
     const sets = g.sets.slice();
     sets[n - 1] = { ...set, score: score === null ? null : [score[0], score[1]] };
     return { ...g, sets };
@@ -441,6 +501,7 @@ export function clearSet(s, gameId, n) {
 export function isSetPlayed(setRecord) {
   if (setRecord === null) return false;
   if (setRecord.score !== null) return true;
+  if (setRecord.points !== '') return true;
   return Object.values(setRecord.counts).some((c) => c.serve.in + c.serve.out + c.return.in + c.return.out > 0);
 }
 
@@ -544,7 +605,10 @@ function parseSetRecord(value) {
     if (parsed === undefined) return undefined;
     counts[playerId] = parsed;
   }
-  return { score, counts };
+  if (value.servedFirst !== null && typeof value.servedFirst !== 'boolean') return undefined;
+  if (typeof value.points !== 'string' || !/^[UT]{0,200}$/.test(value.points)) return undefined;
+  if (value.points !== '' && value.servedFirst === null) return undefined;
+  return { score, counts, servedFirst: value.servedFirst, points: value.points };
 }
 
 // Contract unchanged: { id, name, sub }.
@@ -561,11 +625,16 @@ function parsePlayer(value, seenIds) {
 function parseHistoryEntry(value) {
   if (!isPlainObject(value)) return undefined;
   if (!Number.isInteger(value.n) || value.n < 1 || value.n > MAX_SETS) return undefined;
+  if (value.kind === 'point') {
+    if (value.winner !== 'U' && value.winner !== 'T') return undefined;
+    return { kind: 'point', n: value.n, winner: value.winner };
+  }
+  if (value.kind !== 'count') return undefined;
   if (typeof value.playerId !== 'string') return undefined;
   if (value.stat !== 'serve' && value.stat !== 'return') return undefined;
   if (value.side !== 'in' && value.side !== 'out') return undefined;
   if (typeof value.delta !== 'number' || !Number.isInteger(value.delta)) return undefined;
-  return { n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
+  return { kind: 'count', n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
 }
 
 // v3 game shape: { gameId, opponent, setCount, setPlayerIds, sets, activeSet, history }.
@@ -710,7 +779,8 @@ function parseGameV1(value) {
   if (!Array.isArray(value.sets) || value.sets.length !== 3) return undefined;
   const sets = [];
   for (const raw of value.sets) {
-    const set = parseSetRecord(raw);
+    // A schema-1 set predates the point log, so it is read at "nothing recorded" like a lifted one.
+    const set = parseSetRecord(isPlainObject(raw) ? { servedFirst: null, points: '', ...raw } : raw);
     if (set === undefined) return undefined;
     sets.push(set);
   }
@@ -861,6 +931,23 @@ function migrateSchema2(session) {
   };
 }
 
+/** One game lifted from schema 3 to 4: every non-null set gains the log fields at their
+ * "nothing recorded" values and every history entry becomes a count entry (a schema-3 save can
+ * hold no other kind). Tolerant of malformed input — parseDay rejects, this only lifts. */
+function liftGameToSchema4(g) {
+  if (!isPlainObject(g)) return g;
+  const sets = Array.isArray(g.sets) ? g.sets.map((set) => (isPlainObject(set) ? { servedFirst: null, points: '', ...set } : set)) : g.sets;
+  const history = Array.isArray(g.history) ? g.history.map((h) => (isPlainObject(h) && h.kind === undefined ? { kind: 'count', ...h } : h)) : g.history;
+  return { ...g, sets, history };
+}
+
+/** A schema-3 saved day lifted to schema 4, in the raw, before `parseDay` — the same shape of
+ * lift as `migrateSchema2`. */
+function migrateSchema3(session) {
+  if (!isPlainObject(session) || !Array.isArray(session.games)) return session;
+  return { ...session, games: session.games.map(liftGameToSchema4) };
+}
+
 export function parseSession(text) {
   const MALFORMED = { ok: false, error: 'saved session is malformed' };
   let envelope;
@@ -870,20 +957,31 @@ export function parseSession(text) {
     return MALFORMED;
   }
   if (!isPlainObject(envelope)) return MALFORMED;
-  if (envelope.schema !== 1 && envelope.schema !== 2 && envelope.schema !== 3) return MALFORMED;
+  if (envelope.schema !== 1 && envelope.schema !== 2 && envelope.schema !== 3 && envelope.schema !== 4) return MALFORMED;
   const session = envelope.session;
   if (!isPlainObject(session)) return MALFORMED;
 
-  if (envelope.schema === 3) {
+  if (envelope.schema === 4) {
     const result = parseDay(session);
     if (result === undefined) return MALFORMED;
     return { ok: true, value: result.day, dropped: result.dropped, schema: envelope.schema };
   }
 
+  if (envelope.schema === 3) {
+    // Wrapped like the schema-2 leg: this ships to phones holding a schema-3 save; boot must never throw.
+    try {
+      const result = parseDay(migrateSchema3(session));
+      if (result === undefined) return MALFORMED;
+      return { ok: true, value: result.day, dropped: result.dropped, schema: envelope.schema };
+    } catch {
+      return MALFORMED;
+    }
+  }
+
   if (envelope.schema === 2) {
     // Wrapped because this ships to phones holding a schema-2 save; boot must never throw.
     try {
-      const result = parseDay(migrateSchema2(session));
+      const result = parseDay(migrateSchema3(migrateSchema2(session)));
       if (result === undefined) return MALFORMED;
       return { ok: true, value: result.day, dropped: result.dropped, schema: envelope.schema };
     } catch {
@@ -898,7 +996,9 @@ export function parseSession(text) {
     if (legacy === undefined) return MALFORMED;
     const migrated = migrateSchema1(legacy.session);
     if (migrated === undefined) return MALFORMED;
-    return { ok: true, value: migrated.day, dropped: legacy.dropped, droppedDays: migrated.droppedDays, schema: envelope.schema };
+    // migrateSchema1 hands back an already-parsed day, so lift its games with the per-game helper.
+    const day = { ...migrated.day, games: migrated.day.games.map(liftGameToSchema4) };
+    return { ok: true, value: day, dropped: legacy.dropped, droppedDays: migrated.droppedDays, schema: envelope.schema };
   } catch {
     return MALFORMED;
   }

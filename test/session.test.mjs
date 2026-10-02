@@ -206,7 +206,7 @@ test('a merge retiring a set slot prunes that slot out of history too, so undo c
 
   // Undo now reverses the last SURVIVING entry (set 1), not a phantom set-4 replay.
   const u = S.undo(res.session, 'g');
-  assert.deepEqual(u.undone, { n: 1, playerId: 'p0', stat: 'serve', side: 'in', delta: 1 });
+  assert.deepEqual(u.undone, { kind: 'count', n: 1, playerId: 'p0', stat: 'serve', side: 'in', delta: 1 });
   assert.equal(S.getCount(u.session.games[0], 4, 'p0').serve.in, 0, 'set 4 stays at zero -- no phantom reactivation');
 });
 
@@ -310,7 +310,7 @@ test('tap clamps to 0..999 and records history; undo reverses', () => {
   assert.ok(s.games[0].history.length <= S.UNDO_LIMIT);
   const u = S.undo(s, 'game-1');
   assert.equal(S.getCount(u.session.games[0], 1, 'grace').serve.in, 998);
-  assert.deepEqual(u.undone, { n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 });
+  assert.deepEqual(u.undone, { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 });
 });
 
 test('a no-op tap (subtract at 0) pushes no history', () => {
@@ -829,4 +829,132 @@ test('a schema-1 union over 24 players is refused, not truncated', () => {
   const g3 = mk('g3', 'C', 'c', p('c', 3));
   const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'g1', games: [g1, g2, g3] } };
   assert.equal(S.parseSession(JSON.stringify(envelope)).ok, false);
+});
+
+test('schema 4: a fresh set record carries servedFirst null and empty points', () => {
+  const s = S.tap(open(), 'game-1', 1, 'grace', 'serve', 'in', 1);
+  assert.deepEqual(s.games[0].sets[0], { score: null, counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '' });
+  assert.deepEqual(s.games[0].history[0], { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 });
+});
+
+test('tapPoint is refused until servedFirst is answered, then appends and records history', () => {
+  let s = open();
+  const refused = S.tapPoint(s, 'game-1', 1, 'U');
+  assert.equal(refused, s, 'same reference: no log without a serve-first answer');
+  s = S.setServedFirst(s, 'game-1', 1, true);
+  assert.equal(s.games[0].sets[0].servedFirst, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  s = S.tapPoint(s, 'game-1', 1, 'T');
+  assert.equal(s.games[0].sets[0].points, 'UT');
+  assert.deepEqual(s.games[0].history.slice(-2), [{ kind: 'point', n: 1, winner: 'U' }, { kind: 'point', n: 1, winner: 'T' }]);
+  assert.deepEqual(S.pointTally('UUTUT'), [3, 2]);
+});
+
+test('tapPoint stops at MAX_POINTS and stays a no-op there', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, false);
+  for (let i = 0; i < 205; i++) s = S.tapPoint(s, 'game-1', 1, 'U');
+  assert.equal(s.games[0].sets[0].points.length, 200);
+  assert.equal(S.tapPoint(s, 'game-1', 1, 'T'), s);
+});
+
+test('undo reverses its own kind across a mixed history', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  s = S.tap(s, 'game-1', 1, 'zoie', 'return', 'out', 1);
+  let u = S.undo(s, 'game-1');
+  assert.deepEqual(u.undone, { kind: 'count', n: 1, playerId: 'zoie', stat: 'return', side: 'out', delta: 1 });
+  assert.equal(S.getCount(u.session.games[0], 1, 'zoie').return.out, 0);
+  assert.equal(u.session.games[0].sets[0].points, 'U');
+  u = S.undo(u.session, 'game-1');
+  assert.deepEqual(u.undone, { kind: 'point', n: 1, winner: 'U' });
+  assert.equal(u.session.games[0].sets[0].points, '');
+  assert.equal(u.session.games[0].sets[0].servedFirst, true, 'undoing the last point does not forget who served first');
+  u = S.undo(u.session, 'game-1');
+  assert.equal(S.getCount(u.session.games[0], 1, 'grace').serve.in, 0);
+  assert.equal(u.session.games[0].history.length, 0);
+});
+
+test('UNDO_LIMIT is 400 and still bounds the stack', () => {
+  assert.equal(S.UNDO_LIMIT, 400);
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  for (let i = 0; i < 150; i++) s = S.tapPoint(s, 'game-1', 1, 'U');
+  for (let i = 0; i < 300; i++) s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  assert.equal(s.games[0].history.length, 400);
+});
+
+test('clearPoints empties the log, forgets serve-first, and drops that set\'s point history only', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  s = S.tap(s, 'game-1', 2, 'grace', 'serve', 'in', 1);
+  s = S.clearPoints(s, 'game-1', 1);
+  assert.deepEqual([s.games[0].sets[0].points, s.games[0].sets[0].servedFirst], ['', null]);
+  assert.equal(S.getCount(s.games[0], 1, 'grace').serve.in, 1, 'counts survive');
+  assert.deepEqual(s.games[0].history.map((h) => [h.kind, h.n]), [['count', 1], ['count', 2]]);
+  assert.equal(S.clearPoints(s, 'game-1', 1), s, 'no-op on an unlogged set');
+});
+
+test('setScore is a no-op on a logged set; the tally is the score', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  assert.equal(S.setScore(s, 'game-1', 1, [25, 21]), s);
+  assert.equal(S.isSetPlayed(s.games[0].sets[0]), true, 'a set with only a log is played');
+});
+
+test('clearSet also clears the log, and the log survives a round-trip', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, false);
+  s = S.tapPoint(s, 'game-1', 1, 'T');
+  const parsed = S.parseSession(S.serialiseSession(s));
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.value, s);
+  s = S.clearSet(s, 'game-1', 1);
+  assert.equal(s.games[0].sets[0], null);
+});
+
+test('a schema-3 save migrates: sets gain the log fields, history entries gain kind, and re-commits at 4', () => {
+  const schema3 = JSON.stringify({
+    schema: 3, savedAt: '2026-09-19T20:00:00Z',
+    session: {
+      date: '2026-09-19', team: 'Thunder',
+      players: [{ id: 'grace', name: 'Grace', sub: false }],
+      games: [{ gameId: 'game-1', opponent: 'Lions', setCount: 3, setPlayerIds: [['grace'], ['grace'], ['grace'], [], []],
+        sets: [{ score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } } }, null, null, null, null],
+        activeSet: 1, history: [{ n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 }] }],
+      activeGameId: 'game-1', importedAt: '2026-09-19T09:00:00Z', lastExportedAt: null, lastChangedAt: null,
+    },
+  });
+  const migrated = S.parseSession(schema3);
+  assert.equal(migrated.ok, true);
+  assert.equal(migrated.schema, 3);
+  const g = migrated.value.games[0];
+  assert.deepEqual(g.sets[0], { score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '' });
+  assert.deepEqual(g.history, [{ kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 }]);
+  assert.equal(S.SESSION_SCHEMA, 4);
+  assert.match(S.serialiseSession(migrated.value), /"schema":4/);
+});
+
+test('schema 4 parsing refuses a log without a serve-first answer, or with bad characters', () => {
+  const logged = (day) => {
+    const s = S.setServedFirst(day, 'game-1', 1, true);
+    return JSON.parse(S.serialiseSession(S.tapPoint(s, 'game-1', 1, 'U')));
+  };
+  const corruptions = [
+    (e) => { e.session.games[0].sets[0].servedFirst = null; },
+    (e) => { e.session.games[0].sets[0].points = 'UX'; },
+    (e) => { e.session.games[0].history = [{ kind: 'point', n: 1, winner: 'Z' }]; },
+  ];
+  for (const corrupt of corruptions) {
+    // A one-game day: parseDay salvage-drops the bad game, leaves none, and refuses the whole day.
+    const one = logged(open());
+    corrupt(one);
+    assert.equal(S.parseSession(JSON.stringify(one)).ok, false, JSON.stringify(one.session.games[0].sets[0]));
+    // A two-game day: only the bad game is dropped (existing salvage policy), the other survives.
+    const two = logged(openV2());
+    corrupt(two);
+    const r = S.parseSession(JSON.stringify(two));
+    assert.equal(r.ok, true);
+    assert.equal(r.dropped, 1);
+    assert.deepEqual(r.value.games.map((g) => g.gameId), ['game-2']);
+  }
 });

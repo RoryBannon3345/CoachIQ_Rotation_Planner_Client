@@ -347,7 +347,7 @@ test('a tap lands in the set actually shown, not a hidden slot beyond a shrunk s
 // (nothing salvage-dropped). Boot never re-committed it, so every single boot re-ran migrateSchema2
 // against the same stale schema-2 envelope on disk until the coach's first tap or tick happened to
 // trigger a save. The fix widens the flag to any envelope read below the current SESSION_SCHEMA.
-test('a clean schema-2 save (nothing dropped) is still re-committed at schema 3 on the very first boot', async () => {
+test('a clean schema-2 save (nothing dropped) is still re-committed at schema 4 on the very first boot', async () => {
   const env = freshEnv();
   const schema2 = JSON.stringify({
     schema: 2, savedAt: '2026-09-19T20:00:00Z',
@@ -366,7 +366,7 @@ test('a clean schema-2 save (nothing dropped) is still re-committed at schema 3 
 
   const raw = env.store.get(STORAGE_KEY);
   assert.ok(raw, 'a session is on disk after boot');
-  assert.equal(JSON.parse(raw).schema, 3, 'the schema-2 envelope was re-committed at the current schema on first boot');
+  assert.equal(JSON.parse(raw).schema, 4, 'the schema-2 envelope was re-committed at the current schema on first boot');
   // Nothing was actually unreadable, so no "could not be read" banner should show.
   assert.doesNotMatch(env.document.getElementById('app').innerHTML, /could not be read/);
 });
