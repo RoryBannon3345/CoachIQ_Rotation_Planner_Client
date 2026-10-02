@@ -22,6 +22,7 @@ const state = {
   selfCheckOk: true,
   exportData: null, // null | { summary, text, payload } — set when the export screen is showing
   exportStatus: null, // null | { kind: 'ok'|'err', text }
+  serveFirstAt: 0, // Date.now() of the last serve-first answer; see onTapPoint
 };
 
 function esc(value) {
@@ -589,8 +590,8 @@ function renderRecord() {
     strip = `<button type="button" class="pt typed" data-action="open-score" aria-label="Set ${n} score, typed">${setRecord.score[0]}–${setRecord.score[1]}<small>typed</small></button>`;
   } else if (asked) {
     const [us, them] = pointTally(setRecord.points);
-    strip = `<button type="button" class="pt us" data-action="tap-point" data-winner="U" aria-label="Us scored">Us <span class="big">${us}</span></button>
-    <button type="button" class="pt them" data-action="tap-point" data-winner="T" aria-label="Them scored"><span class="big">${them}</span> Them</button>`;
+    strip = `<button type="button" class="pt us" data-action="tap-point" data-winner="U" aria-label="Us scored, ${us}">Us <span class="big">${us}</span></button>
+    <button type="button" class="pt them" data-action="tap-point" data-winner="T" aria-label="Them scored, ${them}"><span class="big">${them}</span> Them</button>`;
   } else {
     strip = `<button type="button" class="pt ask" data-action="serve-first" data-us="1">We serve<small>first</small></button>
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
@@ -657,12 +658,16 @@ function onServeFirst(btn) {
   const game = currentGame();
   if (!game) return;
   const n = clampedActiveSet(game);
+  state.serveFirstAt = Date.now();
   commit({ ...setServedFirst(state.session, game.gameId, n, btn.dataset.us === '1'), lastChangedAt: new Date().toISOString() });
 }
 
 // Not subject to minus mode: a mis-tapped point is undone with Undo, and the "−" button stays
 // armed for the count it was pressed for.
 function onTapPoint(btn) {
+  // The serve-first buttons sit exactly where Us/Them appear, so a double tap would answer and then
+  // log a phantom rally; 300ms is a double-tap, not a rally.
+  if (Date.now() - state.serveFirstAt < 300) return;
   const game = currentGame();
   if (!game) return;
   const n = clampedActiveSet(game);

@@ -46,6 +46,7 @@ const CASES = [
   // Six players must not leave the rows squashed at the top with dead space below them:
   // the same rule that compresses twelve has to expand six.
   { label: 'X-class browser, 6 players', w: 375, h: 652, n: 6, allVisible: true, minTarget: 60 },
+  { label: 'iPhone SE 1st gen, 6 players', w: 320, h: 568, n: 6, allVisible: true, minTarget: 44 },
 ];
 
 if (!existsSync(SHIPPED)) {
@@ -78,6 +79,13 @@ try {
     await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => /open day/i.test(b.textContent)).click());
     await page.waitForSelector('.row');
 
+    // The strip must keep its height from the ask state to the live state, or the rows jump.
+    const barH = () => page.evaluate(() => +document.querySelector('.setbar').getBoundingClientRect().height.toFixed(1));
+    const askH = await barH();
+    await page.evaluate(() => document.querySelector('[data-action="serve-first"][data-us="1"]').click());
+    await page.waitForSelector('[data-action="tap-point"]');
+    const liveH = await barH();
+
     const m = await page.evaluate(() => {
       const rows = document.querySelector('.rows');
       const all = [...document.querySelectorAll('.row')];
@@ -102,10 +110,11 @@ try {
     } else if (c.allVisible && !m.allVisible) {
       problems.push(`rows hit the ${ROW_FLOOR}px floor and the roster no longer fits`);
     }
+    if (Math.abs(askH - liveH) > 0.5 || askH > 60 || liveH > 60) problems.push(`set bar is ${askH}px asking and ${liveH}px live; it must match within 0.5px and stay at or under 60px`);
     if (m.target < c.minTarget) problems.push(`tap target ${m.target}px is under the ${c.minTarget}px this case requires`);
 
     const status = problems.length ? 'FAIL' : 'ok  ';
-    console.log(`${status} ${c.label.padEnd(30)} ${c.n} players | row ${String(m.rowH).padStart(5)}px | target ${String(m.target).padStart(5)}px | all visible: ${m.allVisible ? 'yes' : 'no'}`);
+    console.log(`${status} ${c.label.padEnd(30)} ${c.n} players | row ${String(m.rowH).padStart(5)}px | target ${String(m.target).padStart(5)}px | all visible: ${m.allVisible ? 'yes' : 'no'} | strip ${askH}px ask / ${liveH}px live`);
     for (const p of problems) console.error(`       ${p}`);
     if (problems.length) failed = true;
     await ctx.close();

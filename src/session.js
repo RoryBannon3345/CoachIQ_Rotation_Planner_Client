@@ -6,7 +6,7 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.0.0';
+export const APP_VERSION = '4.0.1';
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 400;
 
@@ -429,6 +429,7 @@ export function setServedFirst(s, gameId, n, servedFirst) {
     const set = g.sets[n - 1] ?? emptySet();
     if (typeof servedFirst !== 'boolean') return g;
     if (set.servedFirst === servedFirst) return g;
+    if (set.points === '' && set.score !== null) return g; // typed and logged stay exclusive from every writer
     const sets = g.sets.slice();
     sets[n - 1] = { ...set, servedFirst };
     return { ...g, sets };
@@ -470,7 +471,8 @@ export function undo(s, gameId) {
   const session = withGame(s, gameId, (g) => {
     if (last.kind === 'point') {
       const set = g.sets[last.n - 1];
-      if (!set || set.points.length === 0) return { ...g, history: g.history.slice(0, -1) };
+      // A letter that does not match the log's last one can only come from corrupt storage: drop the entry, leave the log alone.
+      if (!set || set.points.length === 0 || set.points[set.points.length - 1] !== last.winner) return { ...g, history: g.history.slice(0, -1) };
       const sets = g.sets.slice();
       sets[last.n - 1] = { ...set, points: set.points.slice(0, -1) };
       return { ...g, sets, history: g.history.slice(0, -1) };

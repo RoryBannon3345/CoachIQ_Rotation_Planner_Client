@@ -456,3 +456,53 @@ test('the export screen names the rally count of a logged set', async () => {
   click(document, '[data-action="export"]');
   assert.match(document.getElementById('app').innerHTML, /Set 1 2–1 · 3 rallies/);
 });
+
+test('a tap on Us within 300ms of answering serve-first is ignored; a later one counts', async () => {
+  const roster = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] };
+  const { store, document } = freshEnv();
+  store.set(STORAGE_KEY, serialiseSession(newDayFromRoster(roster, '2026-09-19T09:00:00Z')));
+  await bootUi();
+  click(document, '[data-action="serve-first"][data-us="1"]');
+  click(document, '[data-action="tap-point"][data-winner="U"]');
+  assert.equal(parseSession(store.get(STORAGE_KEY)).value.games[0].sets[0].points, '', 'swallowed as a double tap');
+  await new Promise((r) => setTimeout(r, 350));
+  click(document, '[data-action="tap-point"][data-winner="U"]');
+  assert.equal(parseSession(store.get(STORAGE_KEY)).value.games[0].sets[0].points, 'U');
+});
+test('the point buttons announce the running count', async () => {
+  let day = setServedFirst(newDayFromRoster({ v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] }, '2026-09-19T09:00:00Z'), 'g1', 1, true);
+  day = tapPoint(day, 'g1', 1, 'U');
+  const html = await renderWith(day, 'g1');
+  assert.match(html, /aria-label="Us scored, 1"/);
+  assert.match(html, /aria-label="Them scored, 0"/);
+});
+test('a clean schema-3 save is re-committed at schema 4 on the very first boot, nothing dropped', async () => {
+  const env = freshEnv();
+  const schema3 = JSON.stringify({
+    schema: 3, savedAt: '2026-09-19T20:00:00Z',
+    session: {
+      date: '2026-09-19', team: 'Thunder',
+      players: [{ id: 'grace', name: 'Grace', sub: false }],
+      games: [{
+        gameId: 'game-1', opponent: 'Lions', setCount: 1, setPlayerIds: [['grace'], [], [], [], []],
+        sets: [{ score: [25, 20], counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } } }, null, null, null, null],
+        activeSet: 1, history: [{ n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 }],
+      }],
+      activeGameId: 'game-1', importedAt: '2026-09-19T09:00:00Z', lastExportedAt: null, lastChangedAt: null,
+    },
+  });
+  env.store.set(STORAGE_KEY, schema3);
+  await bootUi();
+
+  const raw = env.store.get(STORAGE_KEY);
+  assert.ok(raw, 'a session is on disk after boot');
+  const saved = JSON.parse(raw);
+  assert.equal(saved.schema, 4, 'the schema-3 envelope was re-committed at the current schema on first boot');
+  const game = saved.session.games[0];
+  assert.equal(game.sets[0].servedFirst, null);
+  assert.equal(game.sets[0].points, '');
+  assert.deepEqual(game.sets[0].score, [25, 20]);
+  assert.equal(game.history[0].kind, 'count');
+  assert.equal(game.history.length, 1);
+  assert.doesNotMatch(env.document.getElementById('app').innerHTML, /set aside/);
+});

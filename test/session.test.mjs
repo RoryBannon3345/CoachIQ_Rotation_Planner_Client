@@ -1038,3 +1038,16 @@ test('migration from schema 2 and schema 1 gives a played set no log and a histo
     assert.equal(g.history[0].kind, 'count');
   }
 });
+
+test('setServedFirst is refused on a set with a typed score and no log', () => {
+  const s = S.setScore(open(), 'game-1', 1, [25, 21]);
+  assert.equal(S.setServedFirst(s, 'game-1', 1, true), s);
+});
+test('undo of a point whose letter does not match the log drops the entry and leaves the log alone', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  const corrupt = { ...s, games: s.games.map((g) => ({ ...g, history: [{ kind: 'point', n: 1, winner: 'T' }] })) };
+  const u = S.undo(corrupt, 'game-1');
+  assert.equal(u.session.games[0].sets[0].points, 'U');
+  assert.equal(u.session.games[0].history.length, 0);
+});
