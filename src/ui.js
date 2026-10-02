@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -432,6 +432,9 @@ function onSwitcherPasteNewDay() {
 function renderMenuSheet() {
   const game = currentGame();
   const n = game ? clampedActiveSet(game) : 1;
+  const set = game ? game.sets[n - 1] : null;
+  const logged = !!set && set.points !== '';
+  const asked = !!set && set.servedFirst !== null;
   // Same backdrop-closes convention as the switcher sheet — see note above.
   return `
 <div class="screen sheet-host" data-action="close-sheet">
@@ -439,6 +442,8 @@ function renderMenuSheet() {
     <h3>Menu</h3>
     <ul class="menu">
       <li><button type="button" data-action="open-players">Players…</button></li>
+      ${asked ? `<li><button type="button" data-action="menu-flip-serve-first">${set.servedFirst ? 'We' : 'They'} served first ✓ <span class="helper-inline">tap to flip</span></button></li>` : ''}
+      ${logged ? `<li><button type="button" data-action="menu-clear-points">Clear points for Set ${n}…</button></li>` : `<li><button type="button" data-action="open-score">Set score…</button></li>`}
       <li><button type="button" data-action="menu-clear-set">Clear Set ${n}…</button></li>
       <li><button type="button" data-action="menu-delete-game">Delete game…</button></li>
       <li><button type="button" data-action="menu-new-day">Start a new day…</button></li>
@@ -472,11 +477,25 @@ function renderConfirmDeleteSheet(sheet) {
 </div>`;
 }
 
+function renderConfirmClearPointsSheet(sheet) {
+  return `
+<div class="screen sheet-host">
+  <div class="sheet">
+    <h3>Clear the points for Set ${sheet.n}?</h3>
+    <p class="helper" style="margin-bottom:16px;">The rally-by-rally log and who served first are forgotten. Serve and return counts stay.</p>
+    <div class="actions">
+      <button type="button" class="btn" data-action="close-sheet">Cancel</button>
+      <button type="button" class="btn danger" data-action="confirm-clear-points">Clear points</button>
+    </div>
+  </div>
+</div>`;
+}
+
 function renderConfirmClearSetSheet(sheet) {
   return `
 <div class="screen sheet-host">
   <div class="sheet">
-    <h3>Clear every count and the score for Set ${sheet.n}?</h3>
+    <h3>Clear every count, the points and the score for Set ${sheet.n}?</h3>
     <div class="actions" style="margin-top:16px;">
       <button type="button" class="btn" data-action="close-sheet">Cancel</button>
       <button type="button" class="btn danger" data-action="confirm-clear-set">Clear</button>
@@ -516,6 +535,7 @@ function renderSheet() {
   if (sheet.kind === 'menu') return renderMenuSheet();
   if (sheet.kind === 'replaceDay') return renderReplaceDaySheet(sheet);
   if (sheet.kind === 'confirmDelete') return renderConfirmDeleteSheet(sheet);
+  if (sheet.kind === 'confirmClearPoints') return renderConfirmClearPointsSheet(sheet);
   if (sheet.kind === 'confirmClearSet') return renderConfirmClearSetSheet(sheet);
   if (sheet.kind === 'confirmNewDay') return renderConfirmNewDaySheet();
   return '';
@@ -562,9 +582,20 @@ function renderRecord() {
     .map((setN) => `<button type="button" class="${setN === n ? 'on' : ''}" aria-label="Set ${setN}" data-action="select-set" data-n="${setN}">${setN}</button>`)
     .join('');
   const setRecord = game.sets[n - 1];
-  const scoreLabel = setRecord && setRecord.score ? `${setRecord.score[0]}–${setRecord.score[1]}` : 'score';
+  const asked = !!setRecord && setRecord.servedFirst !== null;
+  let strip;
+  if (asked) {
+    const [us, them] = pointTally(setRecord.points);
+    strip = `<button type="button" class="pt us" data-action="tap-point" data-winner="U" aria-label="Us scored">Us <span class="big">${us}</span></button>
+    <button type="button" class="pt them" data-action="tap-point" data-winner="T" aria-label="Them scored"><span class="big">${them}</span> Them</button>`;
+  } else if (setRecord && setRecord.score !== null) {
+    strip = `<button type="button" class="pt typed" data-action="open-score" aria-label="Set ${n} score, typed">${setRecord.score[0]}–${setRecord.score[1]}<small>typed</small></button>`;
+  } else {
+    strip = `<button type="button" class="pt ask" data-action="serve-first" data-us="1">We serve<small>first</small></button>
+    <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
+  }
   const top = game.history.length ? game.history[game.history.length - 1] : null;
-  const undoLabel = top ? `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}` : '↶ Undo';
+  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}`;
   const undoDisabled = game.history.length === 0 ? 'disabled' : '';
   const minusPressed = state.minusMode ? 'true' : 'false';
   return `
@@ -580,7 +611,7 @@ function renderRecord() {
   ${topBannerHtml()}
   <div class="setbar">
     <div class="seg" role="group" aria-label="Which set">${seg}</div>
-    <button type="button" class="btn sm" data-action="open-score">${esc(scoreLabel)}</button>
+    ${strip}
   </div>
   <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
   ${rowsHtml}
@@ -592,7 +623,8 @@ function renderRecord() {
 </div>`;
 }
 
-// The five stat-changing handlers (tap, score set, score clear, clear-set, undo) stamp
+// The stat-changing handlers (tap, score set, score clear, clear-set, undo, serve-first, tap-point,
+// flip serve-first, confirm clear-points) stamp
 // lastChangedAt themselves, here in the UI — the pure state functions kept frozen signatures by
 // design and structurally cannot. This is what makes hasUnexportedStats's "exported, then
 // recorded more" branch actually fire. Deliberately NOT done in commit() generally: a mere game
@@ -618,6 +650,49 @@ function onUndo() {
   if (!game || game.history.length === 0) return;
   const result = undo(state.session, game.gameId);
   commit({ ...result.session, lastChangedAt: new Date().toISOString() });
+}
+
+function onServeFirst(btn) {
+  const game = currentGame();
+  if (!game) return;
+  const n = clampedActiveSet(game);
+  commit({ ...setServedFirst(state.session, game.gameId, n, btn.dataset.us === '1'), lastChangedAt: new Date().toISOString() });
+}
+
+// Not subject to minus mode: a mis-tapped point is undone with Undo, and the "−" button stays
+// armed for the count it was pressed for.
+function onTapPoint(btn) {
+  const game = currentGame();
+  if (!game) return;
+  const n = clampedActiveSet(game);
+  const tapped = tapPoint(state.session, game.gameId, n, btn.dataset.winner);
+  if (tapped === state.session) return;
+  commit({ ...tapped, lastChangedAt: new Date().toISOString() });
+}
+
+function onMenuFlipServeFirst() {
+  const game = currentGame();
+  if (!game) return;
+  const n = clampedActiveSet(game);
+  const set = game.sets[n - 1];
+  if (!set || set.servedFirst === null) return;
+  state.sheet = null;
+  commit({ ...setServedFirst(state.session, game.gameId, n, !set.servedFirst), lastChangedAt: new Date().toISOString() });
+}
+
+function onMenuClearPoints() {
+  const game = currentGame();
+  if (!game) return;
+  state.sheet = { kind: 'confirmClearPoints', gameId: game.gameId, n: clampedActiveSet(game) };
+  render();
+}
+
+function onConfirmClearPoints() {
+  const sheet = state.sheet;
+  if (!sheet || sheet.kind !== 'confirmClearPoints') return;
+  const session = clearPoints(state.session, sheet.gameId, sheet.n);
+  state.sheet = null;
+  commit({ ...session, lastChangedAt: new Date().toISOString() });
 }
 
 function onSelectSet(n) {
@@ -768,7 +843,7 @@ function renderExport() {
   const gameLines = data.payload.games.map((g) => {
     const game = state.session.games.find((x) => x.gameId === g.gameId);
     const label = game ? gameLabel(game, state.session.games.indexOf(game)) : g.gameId;
-    const setsText = g.sets.map((s) => `Set ${s.n} ${s.score ? `${s.score[0]}–${s.score[1]}` : 'no score'}`).join(' · ');
+    const setsText = g.sets.map((s) => `Set ${s.n} ${s.score ? `${s.score[0]}–${s.score[1]}` : 'no score'}${s.points ? ` · ${s.points.length} rallies` : ''}`).join(' · ');
     return `<p class="summary-line">${esc(label)} · ${esc(setsText)}</p>`;
   }).join('');
   return `
@@ -911,6 +986,11 @@ function runAction(btn) {
   if (action === 'tap-count') return onTapCount(btn);
   if (action === 'toggle-minus') { state.minusMode = !state.minusMode; return render(); }
   if (action === 'undo') return onUndo();
+  if (action === 'serve-first') return onServeFirst(btn);
+  if (action === 'tap-point') return onTapPoint(btn);
+  if (action === 'menu-flip-serve-first') return onMenuFlipServeFirst();
+  if (action === 'menu-clear-points') return onMenuClearPoints();
+  if (action === 'confirm-clear-points') return onConfirmClearPoints();
   if (action === 'open-switcher') return onOpenSwitcher();
   if (action === 'open-menu') return onOpenMenu();
   if (action === 'open-players') return onOpenPlayers();

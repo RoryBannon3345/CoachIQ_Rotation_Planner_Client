@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, setServedFirst, tapPoint, setScore } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -369,4 +369,78 @@ test('a clean schema-2 save (nothing dropped) is still re-committed at schema 4 
   assert.equal(JSON.parse(raw).schema, 4, 'the schema-2 envelope was re-committed at the current schema on first boot');
   // Nothing was actually unreadable, so no "could not be read" banner should show.
   assert.doesNotMatch(env.document.getElementById('app').innerHTML, /could not be read/);
+});
+
+test('the set bar asks who serves first on a fresh set, shows the live score once answered, and the typed score on an unlogged scored set', async () => {
+  const roster = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1, 1] }] };
+  let day = newDayFromRoster(roster, '2026-09-19T09:00:00Z');
+  let html = await renderWith(day, 'g1');
+  assert.match(html, /data-action="serve-first" data-us="1"[^>]*>We serve<small>first<\/small>/);
+  assert.match(html, /data-action="serve-first" data-us="0"/);
+  assert.doesNotMatch(html, /data-action="open-score"/, 'the score button is gone from the bar');
+
+  day = setServedFirst(day, 'g1', 1, true);
+  day = tapPoint(day, 'g1', 1, 'U'); day = tapPoint(day, 'g1', 1, 'U'); day = tapPoint(day, 'g1', 1, 'T');
+  html = await renderWith(day, 'g1');
+  assert.match(html, /data-action="tap-point" data-winner="U"[^>]*>Us <span class="big">2<\/span>/);
+  assert.match(html, /data-action="tap-point" data-winner="T"[^>]*><span class="big">1<\/span> Them/);
+  assert.match(html, /↶ Undo point Them/);
+
+  day = setScore(newDayFromRoster(roster, '2026-09-19T09:00:00Z'), 'g1', 1, [25, 21]);
+  html = await renderWith(day, 'g1');
+  assert.match(html, /data-action="open-score"[^>]*>25–21<small>typed<\/small>/);
+  assert.doesNotMatch(html, /data-action="tap-point"/);
+});
+
+test('tapping Us records a rally and stamps lastChangedAt; minus mode is not consumed', async () => {
+  const { store, document } = freshEnv();
+  const day = setServedFirst(newDayFromRoster({ v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] }, '2026-09-19T09:00:00Z'), 'g1', 1, true);
+  store.set(STORAGE_KEY, serialiseSession(day));
+  await bootUi();
+  click(document, '[data-action="toggle-minus"]');
+  click(document, '[data-action="tap-point"][data-winner="U"]');
+  const saved = parseSession(store.get(STORAGE_KEY)).value;
+  assert.equal(saved.games[0].sets[0].points, 'U');
+  assert.ok(saved.lastChangedAt);
+  assert.match(document.getElementById('app').innerHTML, /aria-pressed="true"/, 'minus mode still armed');
+});
+
+test('the menu offers the serve-first flip and Clear points only for a logged set, and Set score only for an unlogged one', async () => {
+  const roster = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] };
+  let day = newDayFromRoster(roster, '2026-09-19T09:00:00Z');
+  const { store, document } = freshEnv();
+  store.set(STORAGE_KEY, serialiseSession(day));
+  await bootUi();
+  click(document, '[data-action="open-menu"]');
+  let html = document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="open-score"[^>]*>Set score…/);
+  assert.doesNotMatch(html, /menu-clear-points/);
+  assert.doesNotMatch(html, /menu-flip-serve-first/);
+
+  day = tapPoint(setServedFirst(day, 'g1', 1, true), 'g1', 1, 'U');
+  const env2 = freshEnv();
+  env2.store.set(STORAGE_KEY, serialiseSession(day));
+  await bootUi();
+  click(env2.document, '[data-action="open-menu"]');
+  html = env2.document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="menu-flip-serve-first"[^>]*>We served first ✓/);
+  assert.match(html, /data-action="menu-clear-points"[^>]*>Clear points for Set 1…/);
+  assert.doesNotMatch(html, /Set score…/);
+  click(env2.document, '[data-action="menu-flip-serve-first"]');
+  assert.equal(parseSession(env2.store.get(STORAGE_KEY)).value.games[0].sets[0].servedFirst, false);
+  click(env2.document, '[data-action="open-menu"]');
+  click(env2.document, '[data-action="menu-clear-points"]');
+  click(env2.document, '[data-action="confirm-clear-points"]');
+  assert.equal(parseSession(env2.store.get(STORAGE_KEY)).value.games[0].sets[0].points, '');
+});
+
+test('the export screen names the rally count of a logged set', async () => {
+  const roster = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] };
+  let day = setServedFirst(newDayFromRoster(roster, '2026-09-19T09:00:00Z'), 'g1', 1, true);
+  for (const c of 'UUT') day = tapPoint(day, 'g1', 1, c);
+  const { store, document } = freshEnv();
+  store.set(STORAGE_KEY, serialiseSession(day));
+  await bootUi();
+  click(document, '[data-action="export"]');
+  assert.match(document.getElementById('app').innerHTML, /Set 1 2–1 · 3 rallies/);
 });
