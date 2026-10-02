@@ -90,6 +90,46 @@ export const ROSTER_V3_VECTOR = {
 };
 
 /**
+ * The v3 stats vector: byte-for-byte the v2 sheet with its version digit moved, which is the
+ * whole of what v3 does to the stats half of the contract. Key order stays exactly
+ * `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`, `players`, `games`.
+ */
+const STATS_V3_PAYLOAD = {
+  ...STATS_V2_PAYLOAD,
+  kind: 'stats',
+  v: 3,
+  games: STATS_V2_PAYLOAD.games,
+};
+
+/** Set 2 vs Falcons from `docs/points-on-court-mockup.html`: we served first, 46 rallies, 25–21. */
+export const POINTS_46 = 'UUTUTTUUUTTUTTUUTUTTTUUUTUTTUUTUTTUUUTTUTUUTUU';
+
+const STATS_V4_PAYLOAD = {
+  ...STATS_V3_PAYLOAD,
+  v: 4,
+  games: [
+    {
+      gameId: 'game-1',
+      sets: [
+        { ...STATS_V3_PAYLOAD.games[0].sets[0], servedFirst: true, points: POINTS_46 },
+        STATS_V3_PAYLOAD.games[0].sets[1],
+      ],
+    },
+    STATS_V3_PAYLOAD.games[1],
+  ],
+};
+
+export const STATS_V4_VECTOR = {
+  payload: STATS_V4_PAYLOAD,
+  encoded: 'CIQS4.eyJ2Ijo0LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIn0seyJuIjoyLCJzY29yZSI6bnVsbCwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo0LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6Mn19XX1dfSx7ImdhbWVJZCI6ImdhbWUtMiIsInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMThdLCJwbGF5ZXJzIjpbeyJpZCI6ImN4LThmMmsxcSIsInNlcnZlIjp7ImluIjo2LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6MH19XX1dfV19.876bfbe7',
+};
+
+export const STATS_V3_VECTOR = {
+  payload: STATS_V3_PAYLOAD,
+  encoded: 'CIQS3.eyJ2IjozLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.89cc6a1f',
+};
+
+/**
  * `ROSTER_V1_AS_DAY` — the day shape `normaliseRosterV1`/`decodeDayRoster` must produce from
  * `ROSTER_VECTOR.payload` at v3. A v1 roster is a one-game day whose directory is that game's
  * players, so its single set names every one of them: two players, indices 0 and 1, mask 3.
@@ -116,11 +156,11 @@ export const ROSTER_V2_AS_V3 = {
 
 /**
  * `STATS_V1_AS_DAY` — the day shape `normaliseStatsV1`/`decodeDayStats` must produce from
- * `STATS_VECTOR.payload`. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
+ * `STATS_VECTOR.payload` at v4. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
  * matches `normaliseStatsV1`'s own literal order (v, kind, recordedAt, players, games).
  */
 export const STATS_V1_AS_DAY = {
-  v: 2, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
+  v: 4, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
   players: [{ id: 'grace', name: 'Grace' }, { id: 'cx-8f2k1q', name: 'Ava' }],
   games: [{ gameId: 'game-1', sets: [
     { n: 1, score: [25, 21], players: [
@@ -131,11 +171,6 @@ export const STATS_V1_AS_DAY = {
   ] }],
 };
 
-/**
- * `STATS_V2_AS_V3` — the day shape `decodeDayStats` must produce from `STATS_V2_VECTOR.payload`.
- * Byte-for-byte the v2 sheet with its version digit moved: the stats payload shape did not change
- * at contract v3, so normalising a v2 body is nothing more than reporting it at the current
- * version. Key order matches `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`,
- * `players`, `games`.
- */
-export const STATS_V2_AS_V3 = { ...STATS_V2_PAYLOAD, v: 3 };
+/** The day shape `decodeDayStats` produces from a v2 or v3 body now: the same sheet reported at 4, no log. */
+export const STATS_V2_AS_V4 = { ...STATS_V2_PAYLOAD, v: 4 };
+export const STATS_V3_AS_V4 = { ...STATS_V2_PAYLOAD, v: 4 };

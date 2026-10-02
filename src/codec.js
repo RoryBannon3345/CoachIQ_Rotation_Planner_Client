@@ -1,9 +1,9 @@
 // codec.js — verbatim port of the CoachIQ stats contract codec.
-// Source: reference/stats-contract-v3-client-guide.md (the v3 migration guide) and
-// reference/statsContract.ts (constants, validators, v1-v3 functions), with TypeScript type syntax stripped.
+// Source: reference/stats-contract-v4-client-guide.md (the v4 migration guide) and
+// reference/statsContract.ts (constants, validators, v1-v4 functions), with TypeScript type syntax stripped.
 // Do not edit; re-copy from those sources if the contract changes.
 
-export const CONTRACT_VERSION = 3;
+export const CONTRACT_VERSION = 4;
 export const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 export function fnv1a32(bytes) {
@@ -166,6 +166,7 @@ export const MAX_GAMES_PER_DAY = 8;
 export const MAX_DAY_PLAYERS = 24;
 export const MAX_RECORDED_AT_LENGTH = 32;
 export const MAX_SETS = 5;
+export const MAX_POINTS = 200;
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const CLIENT_ID_PATTERN = /^cx-[A-Za-z0-9_-]{4,32}$/;
 
@@ -368,8 +369,8 @@ export function validateStatsPayload(value) {
   };
 }
 
-/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 3 now, and
- * without it this would emit a `CIQR3.` prefix around a body saying `"v":1`, which
+/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 4 now, and
+ * without it this would emit a `CIQR4.` prefix around a body saying `"v":1`, which
  * `decodePayload`'s own cross-check refuses as corruption. */
 export function encodeRoster(payload) {
   return encodePayload('roster', payload, 1);
@@ -380,19 +381,17 @@ export function encodeStats(payload) {
   return encodePayload('stats', payload, 1);
 }
 
-/** Encodes a day roster at the current contract version — no pin, because a v3 payload's `v` and
- * `CONTRACT_VERSION` are the same number by definition. */
+/** Encodes a day roster pinned to **3**. The roster shape did not change at contract v4 — only the
+ * stats half gained the point log — and an un-updated Client must keep reading `CIQR3.`.
+ * `decodePayload` treats a body `v` that differs from the prefix as corruption, so the pin and
+ * `DayRosterPayload.v` move together or not at all. */
 export function encodeDayRoster(payload) {
-  return encodePayload('roster', payload);
+  return encodePayload('roster', payload, 3);
 }
 
-/** Encodes a day stats sheet. Pinned to `2`, unlike `encodeDayRoster`: the stats payload shape is
- * unchanged at contract v3, and the Planner accepts a `v: 2` stats body indefinitely, so there is
- * nothing for a v3 stats payload to mean yet. Without this pin, bumping `CONTRACT_VERSION` to 3
- * would silently start stamping stats sheets `CIQS3.` too — the exact "both halves move together"
- * mistake this contract's version split exists to avoid. */
+/** Encodes a day stats sheet at the current contract version. */
 export function encodeDayStats(payload) {
-  return encodePayload('stats', payload, 2);
+  return encodePayload('stats', payload);
 }
 
 export function decodeRoster(text) {
@@ -414,9 +413,9 @@ export function decodeStats(text) {
 // ---------------------------------------------------------------------------------------------
 
 /** The one version detail every day validator and both day decoders report. Deliberately names
- * *all three* versions this app reads rather than only the one being validated: a coach who pasted
+ * *all four* versions this app reads rather than only the one being validated: a coach who pasted
  * the wrong thing needs to know what is acceptable, not which branch refused her. */
-const NOT_A_KNOWN_VERSION = 'its version is not 1, 2 or 3';
+const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3 or 4';
 
 /**
  * The day directory shared by both v2 payloads: 1..`MAX_DAY_PLAYERS` entries, unique legal ids,
@@ -585,13 +584,20 @@ export function validateDayRosterPayload(value) {
   return { ok: true, value: { v: 3, kind: 'roster', date: value.date, team: value.team, players, games } };
 }
 
+/** `[us, them]` from a point log. Zero imports, so the domain's `rallyReplay.ts` has its own copy. */
+function tallyPoints(points) {
+  let us = 0;
+  for (const c of points) if (c === 'U') us += 1;
+  return [us, points.length - us];
+}
+
 export function validateDayStatsPayload(value) {
   if (!isRecord(value)) return malformed('stats', 'it is not an object');
-  // Both, not just 3: the stats shape did not change at v3, and an un-updated Client still sends
-  // v2 bodies. Refusing them would take the coach's whole day of stats down over a version digit
-  // that means nothing on this path — and stats flow Client -> planner, so accepting the older
-  // number cannot break anything the Client does.
-  if (value.v !== 2 && value.v !== 3) return malformed('stats', NOT_A_KNOWN_VERSION);
+  // v2 and v3 too, not just 4: the stats shape only grew an optional field, and an un-updated
+  // Client still sends v2 or v3 bodies. Refusing them would take the coach's whole day of stats
+  // down over a version digit that means nothing on this path — and stats flow Client -> planner,
+  // so accepting the older number cannot break anything the Client does.
+  if (value.v !== 2 && value.v !== 3 && value.v !== 4) return malformed('stats', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'stats') return malformed('stats', 'its kind is not "stats"');
   if (!isNonEmptyString(value.recordedAt)) return malformed('stats', 'it has no recorded time');
   if (value.recordedAt.length > MAX_RECORDED_AT_LENGTH) {
@@ -638,6 +644,24 @@ export function validateDayStatsPayload(value) {
       const score = parseScore(rawSet.score);
       if (score === undefined) return malformed('stats', `game "${gid}" set ${n} has a malformed score`);
 
+      const hasPoints = rawSet.points !== undefined;
+      const hasServedFirst = rawSet.servedFirst !== undefined;
+      if ((hasPoints && typeof rawSet.points !== 'string') || (hasServedFirst && typeof rawSet.servedFirst !== 'boolean')) {
+        return malformed('stats', `game "${gid}" set ${n} has a malformed point log`);
+      }
+      if (hasPoints !== hasServedFirst) return malformed('stats', `game "${gid}" set ${n} has half a point log`);
+      let log = null;
+      if (hasPoints) {
+        const points = rawSet.points;
+        if (points.length === 0) return malformed('stats', `game "${gid}" set ${n} has an empty point log; leave it out instead`);
+        if (points.length > MAX_POINTS) return malformed('stats', `game "${gid}" set ${n} records more than ${MAX_POINTS} rallies`);
+        if (!/^[UT]+$/.test(points)) return malformed('stats', `game "${gid}" set ${n} has a point log with a character other than U or T`);
+        if (score === null) return malformed('stats', `game "${gid}" set ${n} has a point log but no score`);
+        const [us, them] = tallyPoints(points);
+        if (score[0] !== us || score[1] !== them) return malformed('stats', `game "${gid}" set ${n} has a score that disagrees with its point log`);
+        log = { servedFirst: rawSet.servedFirst, points };
+      }
+
       if (!Array.isArray(rawSet.players)) return malformed('stats', `game "${gid}" set ${n} has no player list`);
       const lines = [];
       const seenInSet = new Set();
@@ -652,15 +676,12 @@ export function validateDayStatsPayload(value) {
         if (!isLegalStatCount(rawLine.return)) return malformed('stats', `player "${id}" has a malformed return count in game "${gid}" set ${n}`);
         lines.push({ id, serve: buildStatCount(rawLine.serve), return: buildStatCount(rawLine.return) });
       }
-      sets.push({ n, score, players: lines });
+      sets.push(log === null ? { n, score, players: lines } : { n, score, players: lines, servedFirst: log.servedFirst, points: log.points });
     }
     games.push({ gameId: gid, sets });
   }
 
-  // `v` is echoed, not normalised to a fixed number: buildDayStatsPayload re-validates the v2
-  // object it is about to encode through this same function, and encodeDayStats's pin to 2 must
-  // see that same 2 come back, or the re-encoded body and its CIQS2. prefix would disagree.
-  return { ok: true, value: { v: value.v, kind: 'stats', recordedAt: value.recordedAt, players, games } };
+  return { ok: true, value: { v: 4, kind: 'stats', recordedAt: value.recordedAt, players, games } };
 }
 
 /**
@@ -673,7 +694,7 @@ export function validateDayStatsPayload(value) {
  */
 export function normaliseStatsV1(p) {
   return {
-    v: 2,
+    v: 4,
     kind: 'stats',
     recordedAt: p.recordedAt,
     players: p.players,
@@ -760,6 +781,6 @@ export function decodeDayStats(text) {
     if (!v1.ok) return v1;
     return { ok: true, value: normaliseStatsV1(v1.value) };
   }
-  if (version === 2 || version === 3) return validateDayStatsPayload(decoded.value);
+  if (version === 2 || version === 3 || version === 4) return validateDayStatsPayload(decoded.value);
   return malformed('stats', NOT_A_KNOWN_VERSION);
 }

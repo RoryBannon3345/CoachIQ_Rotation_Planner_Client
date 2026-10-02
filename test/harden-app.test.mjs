@@ -136,9 +136,9 @@ out.transcript = (function () {
   //     reading one of these strings back through the obfuscated bundle, a mangled
   //     label (e.g. a key renamed but not its lookup, or vice versa) would ship as
   //     "undefined" in a coach-facing error message and nothing here would catch it.
-  //     "CIQR4." is a version above CONTRACT_VERSION (3) -- decodePayload refuses it
+  //     "CIQR5." is a version above CONTRACT_VERSION (4) -- decodePayload refuses it
   //     before it ever checks the checksum, so garbage after the version is fine.
-  const tooNew = decodeDayRoster('CIQR4.x.00000000');
+  const tooNew = decodeDayRoster('CIQR5.x.00000000');
   rec('decodeDayRoster.tooNew', tooNew);
   //     A roster-prefixed payload handed to the stats decoder: the kind check runs
   //     before the checksum too, so the valid rosterText from step 2 works here as-is.
@@ -223,7 +223,7 @@ test('the real codec/session data path survives hardening unchanged', async () =
   // come back as "undefined" instead of failing to parse; nothing else in this suite
   // reads a coach-facing error string all the way through the obfuscated bundle.
   assert.ok(
-    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 4); this app understands 3."}'),
+    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 5); this app understands 4."}'),
     'AUTHOR_LABEL[expected] resolved correctly for a too-new roster'
   );
   assert.ok(

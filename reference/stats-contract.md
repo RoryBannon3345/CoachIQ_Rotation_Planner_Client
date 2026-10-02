@@ -19,19 +19,23 @@ This app's implementation lives in `src/contract/statsContract.ts`, deliberately
 imports** — the Client is plain HTML/JS on iOS Safari and copies that file's logic verbatim
 rather than sharing a build step with it. Keep this document and that file in sync by hand.
 
-The current contract is **version 3**, which replaces `games[].roster` — one index array per
-game, naming everyone who played anywhere in it — with `games[].sets`, one bitmask per set, so a
-roster can say how many sets a game has and who is in each one.
-`docs/stats-contract-v3-client-guide.md` is the companion change brief written for the Client's
-author: what moved, why, and what the Client has to do about it. This document is the reference
-for the format as it ends up, and it keeps the v1 and v2 schemas, because v1 stats payloads are
-still accepted and both legacy roster shapes still decode.
+The current contract is **version 4**, which lets each stats set carry a point log — `servedFirst`
+and `points`, one `U` or `T` per rally — so the Planner can replay who was on court. The roster half
+is unchanged from **version 3**, which replaced `games[].roster` — one index array per game, naming
+everyone who played anywhere in it — with `games[].sets`, one bitmask per set, so a roster can say
+how many sets a game has and who is in each one.
+`docs/stats-contract-v3-client-guide.md` and `docs/stats-contract-v4-client-guide.md` are the
+companion change briefs written for the Client's author: what moved, why, and what the Client has
+to do about it. This document is the reference for the format as it ends up, and it keeps the v1
+and v2 schemas, because v1 stats payloads are still accepted and both legacy roster shapes still
+decode.
 
 ## The encoded form
 
 ```
-CIQR3.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 3
-CIQS3.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 3
+CIQS4.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 4
+CIQR3.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 3 (still what the Planner sends)
+CIQS3.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 3 (accepted)
 CIQR2.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 2 (legacy)
 CIQS2.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 2 (legacy)
 CIQR1.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 1 (legacy)
@@ -41,12 +45,14 @@ CIQS1.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 1 (le
 - `CIQR` / `CIQS` name the payload **kind** (roster / stats). A decoder reads this before
   touching the body, so it can say "this is a roster, not stats" without attempting to parse
   anything.
-- The digit immediately after the kind letters (`3` today) is the **contract major version**
-  (`CONTRACT_VERSION`). A decoder refuses a payload whose version is higher than the one it
-  understands, before attempting to decode the body.
+- The digit immediately after the kind letters (`4` today) is the **contract major version**
+  (`CONTRACT_VERSION`). The roster half is still sent at `3`: it did not change at contract 4, and
+  `encodeDayRoster` is pinned to 3 so that an un-updated Client keeps reading `CIQR3.`. A decoder
+  refuses a payload whose version is higher than the one it understands, before attempting to
+  decode the body.
 - The two literal `.` characters separate three fields: `<prefix+version>.<body>.<checksum>`.
 
-**The algorithm itself is unchanged by the version 2 or version 3 bump.** Same Base64URL, same FNV-1a over the
+**The algorithm itself is unchanged by the version 2, 3 or 4 bump.** Same Base64URL, same FNV-1a over the
 same UTF-8 bytes, same whitespace stripping, same order of checks. Only the JSON inside the
 envelope is different — which is precisely why it earned a major bump rather than passing as a
 widening: fields moved and were renamed, so an older decoder would not merely ignore something new,
@@ -68,10 +74,12 @@ it would be wrong about what it had.
 
 `encodePayload` takes that `version` as a third argument, defaulting to `CONTRACT_VERSION`. It is
 not decoration: the prefix version and the body's own `v` must agree, and `decodePayload` calls any
-disagreement corruption. Now that `CONTRACT_VERSION` is 3, a v1 body encoded with the default would
-go out as `CIQS3.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
+disagreement corruption. Now that `CONTRACT_VERSION` is 4, a v1 body encoded with the default would
+go out as `CIQS4.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
 encoders pass `1` explicitly — which is also what keeps the v1 golden vectors below byte-identical.
-A v3 encoder never passes it.
+`encodeDayRoster` passes `3` for the same reason: the roster half did not change at contract 4, so
+its body still says `"v":3`, and a `CIQR4.` prefix around it would be refused as corruption. A stats
+encoder (`encodeDayStats`) never passes it, and sends `"v":4`.
 
 **Decoding** (`decodePayload`), in this exact order:
 
@@ -101,7 +109,8 @@ A v3 encoder never passes it.
    the result into the day shape (via the v2 shape, for a roster — see `normaliseRosterV1`), `2`
    runs the v2 validator and normalises that (a roster's per-game `roster` index array becomes a
    single set mask; a stats body needs no normalising, since its shape hasn't changed), `3` runs
-   the current validator directly — and always hand back a day payload, so nothing downstream has
+   the current roster validator directly (a stats body's `4` runs the current stats validator, which
+also accepts `2` and `3` — see "Stats payload schema") — and always hand back a day payload, so nothing downstream has
    to branch on a version. Dispatching on that `v` is safe because step 7 has already proved it
    equals the prefix version the transport layer vouched for.
 
@@ -135,7 +144,7 @@ One day, the day's player directory, and every game of that day. Validated by
 | `team` | `string` | Display-only. May be empty: `createTeam` does not trim, so a coach who never named her team has a blank one, and refusing it would refuse a real save. |
 | `players` | array | The day's **directory**: 1–24 entries (`MAX_DAY_PLAYERS`), unique ids. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list (`MAX_ROSTER_PLAYERS`) — squads rotate across games and a tournament day can field two teams' worth of names. |
 | `players[].id` | `string` | Matches `ID_PATTERN` (see below). |
-| `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). |
+| `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). The **day display name**: her first name, or `First L.` when two players on the day share a first name (`src/domain/displayName.ts`). It is what the Planner's own Set roster shows, so the phone and the rail agree. The Client displays it verbatim and never parses it. |
 | `players[].jersey` | `number` | Optional — this app's roster panel does not collect jerseys today, so it is usually absent. |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`), at least one. |
 | `games[].gameId` | `string` | Non-empty, unique within the payload. Echoed back in the stats payload to match the game. |
@@ -176,23 +185,24 @@ merely behaves badly in a gym — so they are stated here, where both implementa
 - **`sets.length` is the set count, and it is authoritative.** The Client must build that many set
   tabs rather than assuming three. This is what closes the gap described under "Set count".
 
-## Stats payload schema (contract v2 or v3)
+## Stats payload schema (contract v2, v3 or v4)
 
 One day's recording across every game the Client tracked. Validated by `validateDayStatsPayload`.
 No `date`, `team` or `opponent`: the import matches each game on `gameId` and this app already knows
 the rest, so re-sending them would only create a second source of truth for facts this app owns.
 
-**This shape hasn't changed since contract 2** — only the roster half moved at contract 3 — so
-`validateDayStatsPayload` accepts a body whose `v` is `2` **or** `3`. An un-updated Client still
-producing `v: 2` stats bodies can keep sending a whole day of stats even though it cannot read a
-`CIQR3.` roster.
+**This shape hasn't changed since contract 2 except for the optional point log added at contract
+4** — only the roster half moved at contract 3 — so `validateDayStatsPayload` accepts a body whose
+`v` is `2`, `3` **or** `4`, and always returns `v: 4`. An un-updated Client still producing `v: 2`
+or `v: 3` stats bodies can keep sending a whole day of stats even though it cannot read a newer
+roster.
 
 | Field | Type | Rule |
 |---|---|---|
-| `v` | `2` or `3` | Must equal the version named in the prefix. Either is accepted here, unlike the roster half — see above. |
+| `v` | `2`, `3` or `4` | Must equal the version named in the prefix. Any of the three is accepted here, unlike the roster half — see above. |
 | `kind` | `"stats"` | Fixed. |
 | `recordedAt` | `string` | Non-empty ISO timestamp, from the Client's clock. At most 32 characters (`MAX_RECORDED_AT_LENGTH`). |
-| `players` | array | The day's directory, of `{ id, name }` entries — 1–24 of them (`MAX_DAY_PLAYERS`), unique ids, each `id` matching `ID_PATTERN` and each `name` 1–64 characters (`MAX_NAME_LENGTH`). The set lines refer to it **by id string**, not by bit position the way a roster's `games[].sets` masks do — but the directory itself is objects either way. No `jersey`: a stats sheet has no use for one, so the field is dropped on the way in. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
+| `players` | array | The day's directory, of `{ id, name }` entries — 1–24 of them (`MAX_DAY_PLAYERS`), unique ids, each `id` matching `ID_PATTERN` and each `name` 1–64 characters (`MAX_NAME_LENGTH`). The `name` is the day display name — see the roster payload's field table for full semantics. The set lines refer to it **by id string**, not by bit position the way a roster's `games[].sets` masks do — but the directory itself is objects either way. No `jersey`: a stats sheet has no use for one, so the field is dropped on the way in. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`), at least one. |
 | `games[].gameId` | `string` | Non-empty, unique within the payload. Matched against a saved game's id on import. |
 | `games[].sets` | array | 1–5 entries (`MAX_SETS`) **per game**, `n` ascending and unique **within that game**. A set the team did not play is simply omitted, not sent with empty stats. |
@@ -200,6 +210,12 @@ producing `v: 2` stats bodies can keep sending a whole day of stats even though 
 | `games[].sets[].score` | `[number, number] \| null` | `[us, them]`, or `null` if not recorded. **The key is required**: send it as `null`, never omit it — an absent `score` is refused as `game "<gid>" set <n> has a malformed score`, which rejects the whole paste. Both entries must be finite. |
 | `games[].sets[].players` | array | Stat lines for that set. Every `id` here must appear in the top-level `players`. A player with no line in a set is 0/0 there — not an error. |
 | `…players[].serve` / `.return` | `{ in: number; out: number }` | Both integers, `0`–`999` (`MAX_COUNT`). **Totals are never transmitted** — both apps derive `in + out`. |
+| `games[].sets[].servedFirst` | `boolean` | **Optional, v4.** Present together with `points` or not at all. `true` when the Client's team served the set's first rally. |
+| `games[].sets[].points` | `string` | **Optional, v4.** Present together with `servedFirst` or not at all. Matches `/^[UT]{1,200}$/` (`MAX_POINTS`): one character per rally in order, `U` when the Client's team won it, `T` when the opponent did. |
+
+**Point log (v4).** A set may carry `servedFirst: boolean` and `points: string`, both or neither. `points` is one character per rally in order, `U` when the Client's team won it, `T` when the opponent did; 1 to `MAX_POINTS` characters. When present, `score` is required and must equal the tally of `points` (`U`s, then `T`s). The Planner replays the string against the planned lineup; the Client never sends a lineup. A v2 or v3 body has no log and imports exactly as before.
+
+A logged set's keys go in the order `n`, `score`, `players`, `servedFirst`, `points`. Key order is not part of the contract (see "Golden vectors"), but the frozen vector below is emitted in that order. A set with no log omits both fields entirely; an empty log is never sent as `''` (it is refused — see the v4 additions to the error catalogue).
 
 ## Roster payload schema (contract v1)
 
@@ -242,7 +258,7 @@ day — so exactly one shape reaches saved state and nothing downstream branches
 ## Id rules
 
 - **Player id** (`ID_PATTERN`): `/^[A-Za-z0-9_-]{1,64}$/` — opaque, 1–64 characters, no spaces.
-  This app's own ids (`domain/id.ts`) already match this shape.
+  This app's own ids (`generateId` in `src/store/useAppStore.ts`) already match this shape.
 - **Client-created id** (`CLIENT_ID_PATTERN`): `/^cx-[A-Za-z0-9_-]{4,32}$/`. The Client must use
   this namespace for any player it adds itself (e.g. a sub the coach never entered here), so it
   can never collide with an id this app generates. This app treats an unrecognised id **in the
@@ -310,8 +326,8 @@ it is what lets `composeMailto` (`src/components/openMailto.ts`) be measured dir
 length rather than estimated with padding for escaping that never happens.
 
 `MAILTO_WARN_LENGTH` is **1900**, and it is measured against the composed href, not against the
-payload: above it the Stats dialog warns that the receiving mail client may cut the email off before
-it is ever sent. With masks and a full squad it fires only at the **eight-game cap** (2011) — the
+payload: above it the Stats workspace warns that the receiving mail client may cut the email off
+before it is ever sent. With masks and a full squad it fires only at the **eight-game cap** (2011) — the
 warning line no longer falls inside an ordinary tournament day the way it did under per-set index
 arrays, which would already have warned at four games (1939) and broken the practical ceiling at
 five (2142). Even the eight-game cap sits under the ~2048 ceiling, though narrowly (2011 vs. ~2048)
@@ -326,11 +342,15 @@ app (it just changes who is pre-ticked), but a wrong id in a stats payload is no
 silently attribute one player's serves to another and every validator on both sides would pass it,
 whereas an unrecognised id is caught by the unknown-id refusal in `src/store/importStats.ts`.
 
+A v4 point log changes none of that: stats still travel by clipboard, never `mailto:`, so size is
+not a ceiling for them. `MAX_POINTS` (200) is a sanity cap on one string, not a fit to any medium —
+a log of 46 rallies is 46 characters before Base64URL, about 62 after.
+
 ## Limits
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `CONTRACT_VERSION` | `3` | The contract's major version. |
+| `CONTRACT_VERSION` | `4` | The contract's major version. |
 | `MAX_GAMES_PER_DAY` | `8` | The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It also lands almost exactly on what a `mailto:` roster can carry — see "Payload size" above. |
 | `MAX_DAY_PLAYERS` | `24` | The most players one day payload's directory may name. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list — squads rotate across games and a tournament day can field two teams' worth of names. Must not exceed 31 — see `DayRosterGame.sets`: the arithmetic these helpers use stays correct to 2^53, well past this. Only a reader who reached for a bitwise operator on a mask would break past 31 players — JS's `\|`/`&` coerce to signed 32-bit, so such a reader would silently get a wrong (negative, 32-bit-coerced) result instead of an error. |
 | `MAX_ROSTER_PLAYERS` | `12` | The largest **union** across a game's sets (`games[].sets`) may name — the size of the tick-list the Client shows for the game as a whole, not any single set and not the sum of all of them. In v2, when a game carried one `roster` array, that array *was* this union, so the rule is unchanged, only its expression moved. In v1, when a payload *was* one game, it bounded the whole payload's `players` instead, and it still does on the v1 path. |
@@ -338,6 +358,7 @@ whereas an unrecognised id is caught by the unknown-id refusal in `src/store/imp
 | `MAX_NAME_LENGTH` | `64` | Longest legal `players[].name`, in **both** payloads. An empty name is malformed too. |
 | `MAX_RECORDED_AT_LENGTH` | `32` | Longest legal `recordedAt`. An ISO timestamp with milliseconds and a timezone offset is under 32 characters. |
 | `MAX_SETS` | `5` | Largest legal `sets` length in either payload (a roster's `games[].sets`, a stats sheet's `games[].sets`), and largest legal `sets[].n` on the stats side — **per game** at v2/v3, per payload at v1. The stats-side widening from 3 to 5 was receive-side only — see "Set count" under Versioning policy below. |
+| `MAX_POINTS` | `200` | The most rallies one set's point log may record. A 25-point set that goes to deuce is under 60. A refusal, like every cap here. |
 
 On the v1 path `MAX_ROSTER_PLAYERS` bounds the stats payload's top-level `players` as well: that
 list echoes the roster the Client was handed. `validateRosterPayload` refuses a v1 roster payload
@@ -374,10 +395,10 @@ interpolated at the point of failure, `<id>` a player id and `<gid>` a game id.
 - `This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.`
 - `This is a roster payload, not a stats payload.` (and the reverse)
 - **Newer version, two variants** — the first `<n>` is the version read off the payload's prefix;
-  the second is the reader's own `CONTRACT_VERSION`, which is **3** today, so these render as
-  `(contract 4); this app understands 3.`:
-  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 3.`
-  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 3.`
+  the second is the reader's own `CONTRACT_VERSION`, which is **4** today, so these render as
+  `(contract 5); this app understands 4.`:
+  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 4.`
+  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 4.`
 - **Corrupted, two variants** — each covers a truncated payload, a checksum mismatch, invalid
   Base64URL, unparsable JSON, and a body whose own `v`/`kind` disagrees with the prefix:
   - `This payload is corrupted or incomplete — copy it again from the Rotation Planner.`
@@ -466,12 +487,13 @@ Stats:
 
 Same two forms — `The roster payload is malformed: <detail>.` and
 `The stats payload is malformed: <detail>.` — where `<detail>` is one of. The roster validator only
-accepts `v: 3`; the stats validator accepts `v: 2` or `v: 3` — see "Stats payload schema (contract
-v2 or v3)" above.
+accepts `v: 3`; the stats validator accepts `v: 2`, `v: 3` or `v: 4` — see "Stats payload schema
+(contract v2, v3 or v4)" above. The stats list below is the whole of it apart from the seven point-log
+messages under "Contract v4 stats additions".
 
 Roster:
 - `it is not an object`
-- `its version is not 1, 2 or 3`
+- `its version is not 1, 2, 3 or 4`
 - `its kind is not "roster"`
 - `it has no date`
 - `it has no team name`
@@ -501,7 +523,7 @@ Roster:
 
 Stats:
 - `it is not an object`
-- `its version is not 1, 2 or 3`
+- `its version is not 1, 2, 3 or 4`
 - `its kind is not "stats"`
 - `it has no recorded time`
 - `its recorded time is <n> characters; the limit is 32`
@@ -542,7 +564,7 @@ reproducing these by hand will be tempted to regularise all four:
   `the limit is 12`. Different phrase, different limit, on purpose.
 - A roster `names <n> games; the limit is 8`, while a stats sheet `records more than 8 games`. A
   roster names games it plans; a sheet records games that happened.
-- `its version is not 1, 2 or 3` names **all three** versions this app reads rather than only the
+- `its version is not 1, 2, 3 or 4` names **all four** versions this app reads rather than only the
   one that refused, because a coach who pasted the wrong thing needs to know what is acceptable, not
   which branch said no. The v1 validators still say `its version is not 1`; they are only reachable
   through the day decoders, which have already dispatched on the body's `v`.
@@ -552,6 +574,22 @@ reproducing these by hand will be tempted to regularise all four:
   directory's length is `set <n> names a player outside the directory` instead: `5` over a 2-player
   directory is syntactically a fine mask, just not one this payload's `players` can support.
 
+### Contract v4 stats additions
+
+Same form, `The stats payload is malformed: <detail>.`, and the checks run in the order below, inside
+the per-set loop, after the score is parsed and before the set's player list is read. A set with no
+`points` and no `servedFirst` skips all seven. `<gid>` is a game id, `<n>` the set number or the cap.
+
+- `game "<gid>" set <n> has a malformed point log` — `points` is present and not a string, or
+  `servedFirst` is present and not a boolean.
+- `game "<gid>" set <n> has half a point log` — one of the two fields is present without the other.
+- `game "<gid>" set <n> has an empty point log; leave it out instead` — `points` is `''`.
+- `game "<gid>" set <n> records more than 200 rallies` — `points` is longer than `MAX_POINTS`.
+- `game "<gid>" set <n> has a point log with a character other than U or T`
+- `game "<gid>" set <n> has a point log but no score` — `score` is `null`.
+- `game "<gid>" set <n> has a score that disagrees with its point log` — `score` is not exactly
+  `[count of U, count of T]`.
+
 ### Contract v2 roster (legacy)
 
 Still reachable, and worth its own entry rather than a footnote: `decodeDayRoster` sends a body
@@ -560,7 +598,7 @@ whose `v` is `2` through `validateDayRosterPayloadV2` (not exported — internal
 opens an old `CIQR2.` roster email in an already-updated Client still runs it through this
 validator, so a malformed one still produces these strings, not the v3 ones above.
 
-Its `it is not an object` / `its version is not 1, 2 or 3` / `its kind is not "roster"` / `it has no
+Its `it is not an object` / `its version is not 1, 2, 3 or 4` / `its kind is not "roster"` / `it has no
 date` / `it has no team name` / player-list / `it has no game list` / `it names no games` / `it
 names <n> games; the limit is 8` / `one of its games is malformed` / `one of its games has no id` /
 `game id "<gid>" appears twice` / `game "<gid>" has no opponent name` checks are worded identically
@@ -580,9 +618,10 @@ appears once, in the v3 Roster list above.
 
 - `CONTRACT_VERSION` is the contract's **major** version. Adding an optional field is **not** a
   version bump — an older decoder that has never heard of the field simply ignores it (the shape
-  validators only look for fields they know about and rebuild the value field by field). Renaming
-  or removing a field **is** a breaking change: bump `CONTRACT_VERSION` and ship both apps
-  together.
+  validators only look for fields they know about and rebuild the value field by field). Exception,
+  recorded under contract 4: an optional field whose silent loss would discard data the sender may
+  already have cleared earns a bump. Renaming or removing a field **is** a breaking change: bump
+  `CONTRACT_VERSION` and ship both apps together.
 - A decoder refuses a payload whose prefix version is higher than its own `CONTRACT_VERSION`,
   before attempting to decode the body — "made by a newer version of the stats app" rather than a
   confusing parse failure.
@@ -590,6 +629,12 @@ appears once, in the v3 Roster list above.
   numbers with separate lifetimes**. `SCHEMA_VERSION` versions the file this app saves to its own
   `localStorage`; `CONTRACT_VERSION` versions the payload the two apps exchange by copy/paste.
   Bumping one never implies bumping the other.
+
+### Point logs (contract 4) — 2026-10-01
+
+`CONTRACT_VERSION` goes to **4**. Each stats set may carry `servedFirst` and `points` (see "Stats payload schema"). Optional fields do not normally bump, but a v3 planner handed a logged day would validate it field by field and drop every log without a word; the coach would find out after "New day" on the phone. "Made by a newer version of the stats app (contract 4); this app understands 3" is the better failure, so this bumps on purpose. The roster half is unchanged and `encodeDayRoster` is now pinned to **3**, so an un-updated Client keeps reading `CIQR3.`. The planner accepts stats bodies at `v` 2, 3 or 4. The Client encodes stats at 4. `docs/stats-contract-v4-client-guide.md` is the brief.
+
+The pin is not decoration. `decodePayload` treats a body `v` that differs from the prefix as corruption, and the roster body still says `"v":3`, so a `CIQR4.` prefix around it would refuse itself. The Client's own `encodeDayStats` carried a matching pin to 2; re-copying the Planner's file removes it (the Planner's copy never had one).
 
 ### Per-set rosters (contract 3) — 2026-09-15
 
@@ -645,7 +690,8 @@ legal index. A wrong id is caught instead, by the unknown-id refusal in `src/sto
 Indices where the cost is real and the failure is loud; id strings where the cost is nil and the
 failure would be silent.
 
-**`SCHEMA_VERSION` stayed at 11.** This is the live demonstration of the **last bullet** of this
+**`SCHEMA_VERSION` did not move for this change.** It stood at 11 on the day, and this change left
+it there; it has moved on since, for reasons of its own. That is the live demonstration of the **last bullet** of this
 section's opening list — the one immediately before the dated entries begin — that `SCHEMA_VERSION`
 and `CONTRACT_VERSION` are separate numbers with separate lifetimes. The day
 payload changes what the two apps hand each other across a clipboard; it changes nothing about the
@@ -776,7 +822,7 @@ using TypeScript (e.g. the Client). Shape validation is intentionally omitted he
 transport codec needs to be identical between the two apps.
 
 ```js
-const CONTRACT_VERSION = 3;
+const CONTRACT_VERSION = 4;
 const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 /** Coach-readable name for each kind, used in the kind-mismatch error. */
@@ -826,14 +872,16 @@ function fromBase64Url(text) {
 
 /** `version` defaults to `CONTRACT_VERSION`, and exists because the prefix version and the body's
  *  own `v` must agree — `decodePayload` cross-checks them and calls any disagreement corruption.
- *  A v1 encoder must pass `1` explicitly; a v2 encoder never passes it. */
+ *  A v1 encoder must pass `1` explicitly; the roster encoder passes `3`; the stats encoder never
+ *  passes it. */
 function encodePayload(kind, json, version = CONTRACT_VERSION) {
   const bytes = new TextEncoder().encode(JSON.stringify(json));
   return `${PREFIX[kind]}${version}.${toBase64Url(bytes)}.${fnv1a32(bytes)}`;
 }
 
-// The two encoders a v2 sender calls.
-function encodeDayRoster(payload) { return encodePayload('roster', payload); }
+// The two day encoders. The roster half did not change at contract 4, so its body still says v: 3
+// and the prefix must too (decodePayload calls a body `v` that differs from the prefix corruption).
+function encodeDayRoster(payload) { return encodePayload('roster', payload, 3); }
 function encodeDayStats(payload) { return encodePayload('stats', payload); }
 
 // The two surviving v1 encoders. The explicit `1` is not decoration — see above.
@@ -866,7 +914,8 @@ function decodePayload(text, expected) {
   }
   // Not yet shape-validated. Dispatch on `parsed.v` next: 1 and 2 are legacy payloads to validate
   // and normalise into the day shape (a v2 roster's per-game index array becomes one set mask), 3
-  // is the current day payload. Anything else is `its version is not 1, 2 or 3`.
+  // is the current day roster (the roster is pinned at 3; stats are at 4, which adds the point
+  // log, and still reads 2 and 3). Anything else is `its version is not 1, 2, 3 or 4`.
   return { ok: true, value: parsed };
 }
 ```
@@ -913,6 +962,47 @@ Encoded:
 
 ```
 CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391
+```
+
+### Stats vector (contract v4)
+
+The v3 sheet below with its version digit moved to `4`, and one point log added: `game-1` set 1 was
+served first by the Client's team, 46 rallies (`POINTS_46` in `vectors.ts`), 25 won and 21 lost —
+so `score` is `[25, 21]`, the tally. Set 2 and `game-2` carry no log. Note the key order on the
+logged set: `n`, `score`, `players`, `servedFirst`, `points`.
+
+Payload:
+
+```json
+{
+  "v": 4, "kind": "stats", "recordedAt": "2026-09-19T21:04:00Z",
+  "players": [
+    { "id": "grace", "name": "Grace" },
+    { "id": "cx-8f2k1q", "name": "Ava" }
+  ],
+  "games": [
+    { "gameId": "game-1", "sets": [
+      { "n": 1, "score": [25, 21], "players": [
+        { "id": "grace", "serve": { "in": 8, "out": 2 }, "return": { "in": 5, "out": 1 } },
+        { "id": "cx-8f2k1q", "serve": { "in": 0, "out": 0 }, "return": { "in": 3, "out": 0 } }
+      ], "servedFirst": true, "points": "UUTUTTUUUTTUTTUUTUTTTUUUTUTTUUTUTTUUUTTUTUUTUU" },
+      { "n": 2, "score": null, "players": [
+        { "id": "grace", "serve": { "in": 4, "out": 1 }, "return": { "in": 2, "out": 2 } }
+      ] }
+    ] },
+    { "gameId": "game-2", "sets": [
+      { "n": 1, "score": [25, 18], "players": [
+        { "id": "cx-8f2k1q", "serve": { "in": 6, "out": 1 }, "return": { "in": 2, "out": 0 } }
+      ] }
+    ] }
+  ]
+}
+```
+
+Encoded:
+
+```
+CIQS4.eyJ2Ijo0LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIn0seyJuIjoyLCJzY29yZSI6bnVsbCwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo0LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6Mn19XX1dfSx7ImdhbWVJZCI6ImdhbWUtMiIsInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMThdLCJwbGF5ZXJzIjpbeyJpZCI6ImN4LThmMmsxcSIsInNlcnZlIjp7ImluIjo2LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6MH19XX1dfV19.876bfbe7
 ```
 
 ### Stats vector (contract v3)

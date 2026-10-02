@@ -28,12 +28,19 @@
  * *somewhere* in it; a v3 game says who played each set, and how many sets it has at all, which
  * the Client previously had to hardcode at three. That is a field replaced with a
  * different-shaped one, not an addition, so it earns the bump too. The stats half is unchanged
- * at v3 apart from its version digit — `validateDayStatsPayload` accepts both 2 and 3 — because
+ * at v3 apart from its version digit — `validateDayStatsPayload` accepts 2, 3 and 4 — because
  * an un-updated Client keeps sending v2 stats bodies and the coach must still be able to import
  * her day; stats flow Client -> planner, so accepting the older number cannot break anything the
  * Client does. v2 roster payloads are still read (`decodeDayRoster` normalises them, one set
- * holding the whole v2 roster — see `normaliseRosterV2`); they are no longer produced. */
-export const CONTRACT_VERSION = 3;
+ * holding the whole v2 roster — see `normaliseRosterV2`); they are no longer produced.
+ *
+ * Version 4 adds an optional point log to each stats set — `servedFirst` and `points`, one `U`/`T`
+ * per rally — so the planner can replay who was on court. An optional field would not normally
+ * bump (see `docs/stats-contract.md`, "Versioning policy"), but a v3 planner handed a logged day
+ * would validate it field by field and drop every log without a word, and the coach would find
+ * out after "New day" on the phone. A refusal — "made by a newer version" — is the better failure,
+ * so this bumps on purpose. The roster half is unchanged and `encodeDayRoster` pins it to 3. */
+export const CONTRACT_VERSION = 4;
 
 /**
  * The largest pre-selection one game inside a day payload may name — the **union** across that
@@ -106,12 +113,16 @@ export const MAX_RECORDED_AT_LENGTH = 32;
  */
 export const MAX_SETS = 5;
 
+/** The most rallies one set's point log may record. A 25-point set that goes to deuce is under
+ * 60; 200 is generously above any real one, in the spirit of `MAX_COUNT`. */
+export const MAX_POINTS = 200;
+
 /** Every player id in this app: opaque, non-empty, printable ASCII, capped so a corrupt payload
  * cannot smuggle in a huge string. */
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The namespace a Client-created player id must use, so it can never collide with an id this
- * app generates (`domain/id.ts`'s ids never start with `cx-`). */
+ * app generates (ids from `generateId` in `src/store/useAppStore.ts` never start with `cx-`). */
 export const CLIENT_ID_PATTERN = /^cx-[A-Za-z0-9_-]{4,32}$/;
 
 export type PayloadKind = 'roster' | 'stats';
@@ -150,6 +161,11 @@ export interface StatsPayloadSet {
   n: number;
   score: [number, number] | null;
   players: StatsPayloadLine[];
+  /** Present together with `points` or not at all. True when the team served the set's first rally. */
+  servedFirst?: boolean;
+  /** One character per rally, in order: `U` we won it, `T` they did. 1..`MAX_POINTS` characters.
+   *  `score` must equal this string's tally. */
+  points?: string;
 }
 
 export interface StatsPayload {
@@ -224,18 +240,17 @@ export interface DayStatsGame {
 }
 
 /**
- * The v3 stats payload: one day's recording across every game the Client tracked.
+ * The v4 stats payload: one day's recording across every game the Client tracked.
  *
- * Unchanged in shape since v2 — only the version digit moved, and `validateDayStatsPayload` still
- * accepts a v2 body too, since stats flow Client -> planner and an un-updated Client keeps sending
- * one.
+ * v4 adds the optional per-set point log; `validateDayStatsPayload` still accepts v2 and v3
+ * bodies, since stats flow Client -> planner and an un-updated Client keeps sending one.
  *
  * No `date`, `team` or `opponent`: the import matches each game on `gameId` and the planner
  * already knows the rest, so re-sending them would only create a second source of truth for facts
  * the planner owns.
  */
 export interface DayStatsPayload {
-  v: 3;
+  v: 4;
   kind: 'stats';
   recordedAt: string;
   players: { id: string; name: string }[];
@@ -659,8 +674,8 @@ export function validateStatsPayload(value: unknown): ContractResult<StatsPayloa
   };
 }
 
-/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 3 now, and
- * without it this would emit a `CIQR3.` prefix around a body saying `"v":1`, which
+/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 4 now, and
+ * without it this would emit a `CIQR4.` prefix around a body saying `"v":1`, which
  * `decodePayload`'s own cross-check refuses as corruption. */
 export function encodeRoster(payload: RosterPayload): string {
   return encodePayload('roster', payload, 1);
@@ -671,13 +686,15 @@ export function encodeStats(payload: StatsPayload): string {
   return encodePayload('stats', payload, 1);
 }
 
-/** Encodes a day roster at the current contract version — no pin, because a v3 payload's `v` and
- * `CONTRACT_VERSION` are the same number by definition. */
+/** Encodes a day roster pinned to **3**. The roster shape did not change at contract v4 — only the
+ * stats half gained the point log — and an un-updated Client must keep reading `CIQR3.`.
+ * `decodePayload` treats a body `v` that differs from the prefix as corruption, so the pin and
+ * `DayRosterPayload.v` move together or not at all. */
 export function encodeDayRoster(payload: DayRosterPayload): string {
-  return encodePayload('roster', payload);
+  return encodePayload('roster', payload, 3);
 }
 
-/** Encodes a day stats sheet at the current contract version. See `encodeDayRoster`. */
+/** Encodes a day stats sheet at the current contract version. */
 export function encodeDayStats(payload: DayStatsPayload): string {
   return encodePayload('stats', payload);
 }
@@ -701,9 +718,9 @@ export function decodeStats(text: string): ContractResult<StatsPayload> {
 // ---------------------------------------------------------------------------------------------
 
 /** The one version detail every day validator and both day decoders report. Deliberately names
- * *all three* versions this app reads rather than only the one being validated: a coach who pasted
+ * *all four* versions this app reads rather than only the one being validated: a coach who pasted
  * the wrong thing needs to know what is acceptable, not which branch refused her. */
-const NOT_A_KNOWN_VERSION = 'its version is not 1, 2 or 3';
+const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3 or 4';
 
 /**
  * The day directory shared by both v2 payloads: 1..`MAX_DAY_PLAYERS` entries, unique legal ids,
@@ -810,7 +827,7 @@ function validateDayRosterPayloadV2(value: unknown): ContractResult<DayRosterPay
  *
  * The per-game cap is checked on the **union** across the game's sets, which is the same rule v2
  * enforced — in v2 `roster` *was* that union. That is deliberate: it keeps `overCapGame` in
- * `StatsDialog.tsx` correct without change, and it is the rule that actually matters, since the
+ * `StatsToolbar.tsx` correct without change, and it is the rule that actually matters, since the
  * Client's tick-list for a game shows everyone the game names across all its sets.
  */
 export function validateDayRosterPayload(value: unknown): ContractResult<DayRosterPayload> {
@@ -877,13 +894,20 @@ export function validateDayRosterPayload(value: unknown): ContractResult<DayRost
   return { ok: true, value: { v: 3, kind: 'roster', date: value.date, team: value.team, players, games } };
 }
 
+/** `[us, them]` from a point log. Zero imports, so the domain's `rallyReplay.ts` has its own copy. */
+function tallyPoints(points: string): [number, number] {
+  let us = 0;
+  for (const c of points) if (c === 'U') us += 1;
+  return [us, points.length - us];
+}
+
 export function validateDayStatsPayload(value: unknown): ContractResult<DayStatsPayload> {
   if (!isRecord(value)) return malformed('stats', 'it is not an object');
-  // Both, not just 3: the stats shape did not change at v3, and an un-updated Client still sends
-  // v2 bodies. Refusing them would take the coach's whole day of stats down over a version digit
-  // that means nothing on this path — and stats flow Client -> planner, so accepting the older
-  // number cannot break anything the Client does.
-  if (value.v !== 2 && value.v !== 3) return malformed('stats', NOT_A_KNOWN_VERSION);
+  // v2 and v3 too, not just 4: the stats shape only grew an optional field, and an un-updated
+  // Client still sends v2 or v3 bodies. Refusing them would take the coach's whole day of stats
+  // down over a version digit that means nothing on this path — and stats flow Client -> planner,
+  // so accepting the older number cannot break anything the Client does.
+  if (value.v !== 2 && value.v !== 3 && value.v !== 4) return malformed('stats', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'stats') return malformed('stats', 'its kind is not "stats"');
   if (!isNonEmptyString(value.recordedAt)) return malformed('stats', 'it has no recorded time');
   if (value.recordedAt.length > MAX_RECORDED_AT_LENGTH) {
@@ -930,6 +954,24 @@ export function validateDayStatsPayload(value: unknown): ContractResult<DayStats
       const score = parseScore(rawSet.score);
       if (score === undefined) return malformed('stats', `game "${gid}" set ${n} has a malformed score`);
 
+      const hasPoints = rawSet.points !== undefined;
+      const hasServedFirst = rawSet.servedFirst !== undefined;
+      if ((hasPoints && typeof rawSet.points !== 'string') || (hasServedFirst && typeof rawSet.servedFirst !== 'boolean')) {
+        return malformed('stats', `game "${gid}" set ${n} has a malformed point log`);
+      }
+      if (hasPoints !== hasServedFirst) return malformed('stats', `game "${gid}" set ${n} has half a point log`);
+      let log: { servedFirst: boolean; points: string } | null = null;
+      if (hasPoints) {
+        const points = rawSet.points as string;
+        if (points.length === 0) return malformed('stats', `game "${gid}" set ${n} has an empty point log; leave it out instead`);
+        if (points.length > MAX_POINTS) return malformed('stats', `game "${gid}" set ${n} records more than ${MAX_POINTS} rallies`);
+        if (!/^[UT]+$/.test(points)) return malformed('stats', `game "${gid}" set ${n} has a point log with a character other than U or T`);
+        if (score === null) return malformed('stats', `game "${gid}" set ${n} has a point log but no score`);
+        const [us, them] = tallyPoints(points);
+        if (score[0] !== us || score[1] !== them) return malformed('stats', `game "${gid}" set ${n} has a score that disagrees with its point log`);
+        log = { servedFirst: rawSet.servedFirst as boolean, points };
+      }
+
       if (!Array.isArray(rawSet.players)) return malformed('stats', `game "${gid}" set ${n} has no player list`);
       const lines: StatsPayloadLine[] = [];
       const seenInSet = new Set<string>();
@@ -944,12 +986,12 @@ export function validateDayStatsPayload(value: unknown): ContractResult<DayStats
         if (!isLegalStatCount(rawLine.return)) return malformed('stats', `player "${id}" has a malformed return count in game "${gid}" set ${n}`);
         lines.push({ id, serve: buildStatCount(rawLine.serve), return: buildStatCount(rawLine.return) });
       }
-      sets.push({ n, score, players: lines });
+      sets.push(log === null ? { n, score, players: lines } : { n, score, players: lines, servedFirst: log.servedFirst, points: log.points });
     }
     games.push({ gameId: gid, sets });
   }
 
-  return { ok: true, value: { v: 3, kind: 'stats', recordedAt: value.recordedAt, players, games } };
+  return { ok: true, value: { v: 4, kind: 'stats', recordedAt: value.recordedAt, players, games } };
 }
 
 /**
@@ -966,7 +1008,7 @@ export function validateDayStatsPayload(value: unknown): ContractResult<DayStats
  */
 export function normaliseStatsV1(p: StatsPayload): DayStatsPayload {
   return {
-    v: 3,
+    v: 4,
     kind: 'stats',
     recordedAt: p.recordedAt,
     players: p.players,
@@ -1056,6 +1098,6 @@ export function decodeDayStats(text: string): ContractResult<DayStatsPayload> {
     if (!v1.ok) return v1;
     return { ok: true, value: normaliseStatsV1(v1.value) };
   }
-  if (version === 2 || version === 3) return validateDayStatsPayload(decoded.value);
+  if (version === 2 || version === 3 || version === 4) return validateDayStatsPayload(decoded.value);
   return malformed('stats', NOT_A_KNOWN_VERSION);
 }

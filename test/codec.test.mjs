@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CONTRACT_VERSION, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, MAX_RECORDED_AT_LENGTH,
+  CONTRACT_VERSION, MAX_POINTS, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, MAX_RECORDED_AT_LENGTH,
   fnv1a32, encodePayload, decodePayload, decodeRoster, decodeStats, encodeRoster, encodeStats,
   encodeDayRoster, encodeDayStats, decodeDayRoster, decodeDayStats,
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
   normaliseRosterV1, normaliseStatsV1, maskHas, maskOf, maskMembers, maskCount, maskUnion,
 } from '../src/codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V2_AS_V3 } from '../src/vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V4_VECTOR, STATS_V2_AS_V4, STATS_V3_AS_V4 } from '../src/vectors.js';
 
 test('fnv1a32 reference values', () => {
   assert.equal(fnv1a32(new Uint8Array()), '811c9dc5');
@@ -77,11 +77,11 @@ test('legacy rosters normalise to exactly one set holding the whole roster', () 
   for (const g of decodeDayRoster(ROSTER_V2_VECTOR.encoded).value.games) assert.equal(g.sets.length, 1);
 });
 
-test('a CIQR4 roster is refused as newer, naming the Rotation Planner', () => {
-  const future = ROSTER_V3_VECTOR.encoded.replace('CIQR3.', 'CIQR4.');
+test('a CIQR5 roster is refused as newer, naming the Rotation Planner', () => {
+  const future = ROSTER_V3_VECTOR.encoded.replace('CIQR3.', 'CIQR5.');
   assert.deepEqual(decodeDayRoster(future), {
     ok: false,
-    error: 'This payload was made by a newer version of the Rotation Planner (contract 4); this app understands 3.',
+    error: 'This payload was made by a newer version of the Rotation Planner (contract 5); this app understands 4.',
   });
 });
 
@@ -126,30 +126,44 @@ test('v3 roster catalogue', () => {
   // A mask of 0 is legal: the coach sent the day before picking that set.
   assert.equal(validateDayRosterPayload(game([0])).ok, true);
   assert.equal(validateDayRosterPayload(game([3, 0, 1])).ok, true);
-  // A v2 body reaching the v3 validator directly is a version fault, named with all three.
+  // A v2 body reaching the v3 validator directly is a version fault, named with all four.
   assert.equal(
     validateDayRosterPayload({ v: 2, kind: 'roster', date: 'd', team: 't', players: manyPlayers(2), games: [] }).error,
-    'The roster payload is malformed: its version is not 1, 2 or 3.',
+    'The roster payload is malformed: its version is not 1, 2, 3 or 4.',
   );
 });
-test('golden v2 stats vector round-trips byte-exact; the encode side stays pinned to v2', () => {
-  // The stats payload shape did not change at contract v3, and the Planner accepts a v2 stats
-  // body indefinitely, so nothing here may ever emit a `CIQS3.` prefix.
-  assert.equal(encodeDayStats(STATS_V2_VECTOR.payload), STATS_V2_VECTOR.encoded);
-  assert.ok(STATS_V2_VECTOR.encoded.startsWith('CIQS2.'), 'encodeDayStats must keep emitting a CIQS2. prefix');
-  assert.deepEqual(decodeDayStats(STATS_V2_VECTOR.encoded), { ok: true, value: STATS_V2_VECTOR.payload });
+test('golden v4 stats vector round-trips byte-exact; the encode side is at v4 now', () => {
+  assert.equal(encodeDayStats(STATS_V4_VECTOR.payload), STATS_V4_VECTOR.encoded);
+  assert.ok(STATS_V4_VECTOR.encoded.startsWith('CIQS4.'));
+  assert.deepEqual(decodeDayStats(STATS_V4_VECTOR.encoded), { ok: true, value: STATS_V4_VECTOR.payload });
 });
-test('decodeDayStats also accepts a v3-tagged stats body (NOT_A_KNOWN_VERSION promises 1, 2 or 3)', () => {
-  const encoded = encodePayload('stats', STATS_V2_AS_V3, 3);
-  assert.ok(encoded.startsWith('CIQS3.'));
-  assert.deepEqual(decodeDayStats(encoded), { ok: true, value: STATS_V2_AS_V3 });
+test('v2 and v3 stats bodies still decode, reported at v4 with no log', () => {
+  const STATS_V3_AS_V4_BODY = { ...STATS_V2_VECTOR.payload, v: 3 };
+  assert.deepEqual(decodeDayStats(STATS_V2_VECTOR.encoded), { ok: true, value: STATS_V2_AS_V4 });
+  assert.deepEqual(decodeDayStats(encodePayload('stats', STATS_V3_AS_V4_BODY, 3)), { ok: true, value: STATS_V3_AS_V4 });
+});
+test('the roster stays pinned to 3', () => {
+  assert.equal(encodeDayRoster(ROSTER_V3_VECTOR.payload), ROSTER_V3_VECTOR.encoded);
+});
+test('point-log refusals match the planner catalogue', () => {
+  const base = STATS_V4_VECTOR.payload;
+  const withSet = (o) => ({ ...base, games: [{ gameId: 'game-1', sets: [{ ...base.games[0].sets[0], ...o }] }, base.games[1]] });
+  const fault = (o) => validateDayStatsPayload(withSet(o)).error;
+  assert.equal(fault({ servedFirst: 'yes' }), 'The stats payload is malformed: game "game-1" set 1 has a malformed point log.');
+  assert.equal(fault({ servedFirst: undefined }), 'The stats payload is malformed: game "game-1" set 1 has half a point log.');
+  assert.equal(fault({ points: '', score: [0, 0] }), 'The stats payload is malformed: game "game-1" set 1 has an empty point log; leave it out instead.');
+  assert.equal(fault({ points: 'U'.repeat(201), score: [201, 0] }), 'The stats payload is malformed: game "game-1" set 1 records more than 200 rallies.');
+  assert.equal(fault({ points: 'UUX', score: [2, 1] }), 'The stats payload is malformed: game "game-1" set 1 has a point log with a character other than U or T.');
+  assert.equal(fault({ score: null }), 'The stats payload is malformed: game "game-1" set 1 has a point log but no score.');
+  assert.equal(fault({ score: [25, 20] }), 'The stats payload is malformed: game "game-1" set 1 has a score that disagrees with its point log.');
 });
 test('whitespace and line-wrapping are harmless', () => {
   const wrapped = ROSTER_VECTOR.encoded.replace(/(.{40})/g, '$1\n  ');
   assert.equal(decodeRoster(wrapped).ok, true);
 });
 test('contract constants', () => {
-  assert.equal(CONTRACT_VERSION, 3);
+  assert.equal(CONTRACT_VERSION, 4);
+  assert.equal(MAX_POINTS, 200);
   assert.equal(MAX_SETS, 5);
   assert.equal(MAX_DAY_PLAYERS, 24);
   assert.equal(MAX_GAMES_PER_DAY, 8);
@@ -159,8 +173,8 @@ test('transport error catalogue', () => {
   assert.equal(decodeRoster('hello').error, 'This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.');
   assert.equal(decodeRoster(STATS_VECTOR.encoded).error, 'This is a stats payload, not a roster payload.');
   assert.equal(decodeStats(ROSTER_VECTOR.encoded).error, 'This is a roster payload, not a stats payload.');
-  assert.equal(decodeRoster('CIQR4.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 4); this app understands 3.');
-  assert.equal(decodeStats('CIQS4.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 4); this app understands 3.');
+  assert.equal(decodeRoster('CIQR5.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 5); this app understands 4.');
+  assert.equal(decodeStats('CIQS5.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 5); this app understands 4.');
   const ROSTER_CORRUPT = 'This payload is corrupted or incomplete — copy it again from the Rotation Planner.';
   const STATS_CORRUPT = 'This payload is corrupted or incomplete — copy it again from the stats app.';
   assert.equal(decodeRoster(ROSTER_VECTOR.encoded.slice(0, -12)).error, ROSTER_CORRUPT);
@@ -169,8 +183,8 @@ test('transport error catalogue', () => {
   assert.equal(decodeStats(STATS_VECTOR.encoded.slice(0, -12)).error, STATS_CORRUPT);
 });
 test('kind-aware transport messages, verbatim', () => {
-  assert.equal(decodeRoster('CIQR4.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 4); this app understands 3.');
-  assert.equal(decodeStats('CIQS4.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 4); this app understands 3.');
+  assert.equal(decodeRoster('CIQR5.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 5); this app understands 4.');
+  assert.equal(decodeStats('CIQS5.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 5); this app understands 4.');
   assert.equal(decodeRoster(ROSTER_VECTOR.encoded.slice(0, -12)).error, 'This payload is corrupted or incomplete — copy it again from the Rotation Planner.');
   assert.equal(decodeStats(STATS_VECTOR.encoded.slice(0, -12)).error, 'This payload is corrupted or incomplete — copy it again from the stats app.');
   // the not-a-CoachIQ-payload message names the stats app for BOTH kinds — it fires before the

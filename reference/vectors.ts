@@ -113,7 +113,7 @@ const ROSTER_V3_PAYLOAD: DayRosterPayload = {
  * else). Both overrides land on keys the spread already carries, so the key order stays exactly
  * `STATS_V2_PAYLOAD`'s: `v` first, then `kind`, `recordedAt`, `players`, `games`.
  */
-const STATS_V3_PAYLOAD: DayStatsPayload = {
+const STATS_V3_PAYLOAD: Omit<DayStatsPayload, 'v'> & { v: 3 } = {
   ...STATS_V2_PAYLOAD,
   kind: 'stats' as const,
   v: 3,
@@ -123,6 +123,29 @@ const STATS_V3_PAYLOAD: DayStatsPayload = {
 export const ROSTER_V3_VECTOR = {
   payload: ROSTER_V3_PAYLOAD,
   encoded: 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391',
+};
+
+/** Set 2 vs Falcons from `docs/points-on-court-mockup.html`: we served first, 46 rallies, 25–21. */
+export const POINTS_46 = 'UUTUTTUUUTTUTTUUTUTTTUUUTUTTUUTUTTUUUTTUTUUTUU';
+
+const STATS_V4_PAYLOAD: DayStatsPayload = {
+  ...STATS_V3_PAYLOAD,
+  v: 4,
+  games: [
+    {
+      gameId: 'game-1',
+      sets: [
+        { ...STATS_V3_PAYLOAD.games[0]!.sets[0]!, servedFirst: true, points: POINTS_46 },
+        STATS_V3_PAYLOAD.games[0]!.sets[1]!,
+      ],
+    },
+    STATS_V3_PAYLOAD.games[1]!,
+  ],
+};
+
+export const STATS_V4_VECTOR = {
+  payload: STATS_V4_PAYLOAD,
+  encoded: 'CIQS4.eyJ2Ijo0LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIn0seyJuIjoyLCJzY29yZSI6bnVsbCwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo0LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6Mn19XX1dfSx7ImdhbWVJZCI6ImdhbWUtMiIsInNldHMiOlt7Im4iOjEsInNjb3JlIjpbMjUsMThdLCJwbGF5ZXJzIjpbeyJpZCI6ImN4LThmMmsxcSIsInNlcnZlIjp7ImluIjo2LCJvdXQiOjF9LCJyZXR1cm4iOnsiaW4iOjIsIm91dCI6MH19XX1dfV19.876bfbe7',
 };
 
 export const STATS_V3_VECTOR = {
