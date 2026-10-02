@@ -182,12 +182,11 @@ test('a successful share stamps lastExportedAt', async () => {
   assert.ok(typeof stamped === 'string' && stamped.length > 0, 'a genuinely successful share stamps lastExportedAt');
 });
 
-// iOS is the only platform this app ships on, and WebKit's share sheet drops `title` outright
-// whenever `text` is non-empty (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray
-// count])`). The single item it does carry a title on is the URL provider, which hangs the title
-// off LPLinkMetadata -- which is what Mail reads to pre-fill the subject. So the share must carry
-// a `url` alongside the payload, or the coach gets a subject-less email.
-test('the share carries a url so iOS Mail can pre-fill the subject from the title', async () => {
+// WebKit's share sheet drops `title` whenever anything else is shared, so iOS Mail never sees it;
+// a shared file's name is what gives the email a subject. The payload goes as a named .txt file,
+// and the app's URL never rides along (it put the app link in every email and still left the
+// subject blank).
+test('the share sends the payload as a .txt file named for the day, with no url', async () => {
   const { document, navigatorObj } = freshEnv();
   Object.defineProperty(globalThis, 'location', {
     value: { protocol: 'https:', href: 'https://example.test/stats/' },
@@ -195,28 +194,37 @@ test('the share carries a url so iOS Mail can pre-fill the subject from the titl
     writable: true,
   });
   let shared = null;
+  navigatorObj.canShare = (data) => Array.isArray(data.files);
   navigatorObj.share = async (data) => {
     shared = data;
   };
   await bootUi();
   openDayAndRecordACount(document);
   click(document, '[data-action="export"]');
+  const payloadText = document.getElementById('exportPayload').value;
 
   click(document, '[data-action="export-share"]');
   await flushAsync();
 
   assert.ok(shared, 'navigator.share was called');
-  assert.ok(typeof shared.title === 'string' && shared.title.length > 0, 'a non-empty subject line is offered');
-  assert.equal(shared.url, 'https://example.test/stats/', 'the app URL rides along so the title reaches Mail as a subject');
-  assert.ok(shared.text.length > 0, 'the payload itself is still the shared text');
+  assert.ok(!('url' in shared), 'the app URL is not shared');
+  assert.ok(!('text' in shared), 'the payload is not duplicated as text');
+  assert.equal(shared.title, 'CoachIQ stats · Thunder · 19 Sep', 'the title names the app, team and day');
+  assert.equal(shared.files.length, 1);
+  assert.equal(shared.files[0].name, 'CoachIQ stats - Thunder - 19 Sep.txt', 'the file name doubles as the Mail subject');
+  assert.equal(shared.files[0].type, 'text/plain');
+  assert.equal(await shared.files[0].text(), payloadText, 'the file holds exactly the exported payload');
 });
 
-// Off https the app is being opened straight from Files, where `location.href` is a file: URL
-// that no share target can do anything useful with -- and Safari rejects the whole share() call
-// rather than dropping just the url, which would cost the coach the payload too.
-test('no url is shared when the app is not on https', async () => {
+test('where files cannot be shared, the payload goes as text with the same title and no url', async () => {
   const { document, navigatorObj } = freshEnv();
+  Object.defineProperty(globalThis, 'location', {
+    value: { protocol: 'https:', href: 'https://example.test/stats/' },
+    configurable: true,
+    writable: true,
+  });
   let shared = null;
+  navigatorObj.canShare = () => false;
   navigatorObj.share = async (data) => {
     shared = data;
   };
@@ -228,8 +236,10 @@ test('no url is shared when the app is not on https', async () => {
   await flushAsync();
 
   assert.ok(shared, 'navigator.share was called');
-  assert.ok(!('url' in shared), 'no file: URL is handed to the share sheet');
-  assert.ok(shared.text.length > 0, 'the payload is still shared');
+  assert.ok(!('url' in shared), 'the app URL is not shared');
+  assert.ok(!('files' in shared), 'no file is offered to a browser that cannot share one');
+  assert.equal(shared.title, 'CoachIQ stats · Thunder · 19 Sep');
+  assert.ok(shared.text.length > 0, 'the payload is shared as text');
 });
 
 test('the export screen shows the save-failed banner (finding 6)', async () => {

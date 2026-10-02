@@ -20,7 +20,7 @@ const state = {
   pasteText: '',
   saveFailed: false,
   selfCheckOk: true,
-  exportData: null, // null | { summary, text, payload } — set when the export screen is showing
+  exportData: null, // null | { summary, subject, text, payload } — set when the export screen is showing
   exportStatus: null, // null | { kind: 'ok'|'err', text }
   serveFirstAt: 0, // Date.now() of the last serve-first answer; see onTapPoint
 };
@@ -883,7 +883,7 @@ function onExport() {
   // the same decoder the planner uses. This is a dev-only guard, never shown to the coach.
   const decoded = decodeDayStats(result.value.text);
   console.assert(decoded.ok && JSON.stringify(decoded.value) === JSON.stringify(result.value.payload), 'exported stats payload failed to round-trip through decodeDayStats');
-  state.exportData = { summary: result.value.summary, text: result.value.text, payload: result.value.payload };
+  state.exportData = { summary: result.value.summary, subject: `CoachIQ stats · ${dayLabel(day)}`, text: result.value.text, payload: result.value.payload };
   state.exportStatus = null;
   state.screen = 'export';
   // lastExportedAt is stamped only once the payload genuinely leaves the device — in
@@ -910,21 +910,22 @@ async function onExportCopy() {
 // can be relied on to carry. Do not add a mailto share option here; Share… uses navigator.share
 // (which has no such size ceiling) and Copy relies on the clipboard.
 //
-// The `url` is not decoration, and dropping it costs the coach her email subject line. iOS is the
-// only platform this ships on, and WebKit's share sheet discards `title` outright whenever `text`
-// is non-empty — it appends the title only when nothing else is being shared at all
-// (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray count])`). Nothing in that sheet
-// implements `activityViewControllerSubjectForActivityType:`, so the single route a title has to
-// Mail's subject is `WKShareSheetURLItemProvider`, which hangs the title off `LPLinkMetadata` —
-// and that is what Mail reads to pre-fill the subject. Share without a url and the subject is
-// always blank. Off https the app was opened straight from Files and `location.href` is a file:
-// URL no target can use, so the key is omitted rather than risking a rejected share() that would
-// cost the payload too.
+// The payload goes as a .txt file named for the day, not as `text`, so that iOS Mail has a
+// subject. WebKit's share sheet discards `title` outright whenever anything else is shared
+// (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray count])`), so the title never
+// reaches Mail; a shared file's name does. Sharing the app's url as a title carrier was tried and
+// left the subject blank on a real iPhone while putting the app link in every email — do not
+// bring it back. Where the browser cannot share files, fall back to the payload as text.
+function exportFileName(subject) {
+  return `${subject.replace(/ · /g, ' - ').replace(/[\\/:*?"<>|]/g, '-')}.txt`;
+}
+
 function onExportShare() {
   const data = state.exportData;
   if (!data) return;
-  const share = { title: data.summary, text: data.text };
-  if (location.protocol === 'https:') share.url = location.href;
+  const file = typeof File === 'function' ? new File([data.text], exportFileName(data.subject), { type: 'text/plain' }) : null;
+  const canShareFile = file && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+  const share = canShareFile ? { title: data.subject, files: [file] } : { title: data.subject, text: data.text };
   navigator.share(share).then(() => {
     state.exportStatus = { kind: 'ok', text: 'Shared.' };
     commit({ ...state.session, lastExportedAt: new Date().toISOString() });
