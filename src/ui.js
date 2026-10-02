@@ -910,23 +910,15 @@ async function onExportCopy() {
 // can be relied on to carry. Do not add a mailto share option here; Share… uses navigator.share
 // (which has no such size ceiling) and Copy relies on the clipboard.
 //
-// The payload goes as a .txt file named for the day, not as `text`, so that iOS Mail has a
-// subject. WebKit's share sheet discards `title` outright whenever anything else is shared
-// (WKShareSheet.mm: `if (!title.isEmpty() && ![shareDataArray count])`), so the title never
-// reaches Mail; a shared file's name does. Sharing the app's url as a title carrier was tried and
-// left the subject blank on a real iPhone while putting the app link in every email — do not
-// bring it back. Where the browser cannot share files, fall back to the payload as text.
-function exportFileName(subject) {
-  return `${subject.replace(/ · /g, ' - ').replace(/[\\/:*?"<>|]/g, '-')}.txt`;
-}
-
+// iOS Mail never fills its subject from a web share, so do not chase one here. Both carriers
+// were tried on a real iPhone and both left the subject blank: the app's url (which also put the
+// app link in every email) and the payload as a .txt file named for the day (which also made the
+// coach open an attachment to copy the stats). The `title` is still passed for share targets
+// that do use it. The payload stays as `text` so it can be pasted straight into the planner.
 function onExportShare() {
   const data = state.exportData;
   if (!data) return;
-  const file = typeof File === 'function' ? new File([data.text], exportFileName(data.subject), { type: 'text/plain' }) : null;
-  const canShareFile = file && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
-  const share = canShareFile ? { title: data.subject, files: [file] } : { title: data.subject, text: data.text };
-  navigator.share(share).then(() => {
+  navigator.share({ title: data.subject, text: data.text }).then(() => {
     state.exportStatus = { kind: 'ok', text: 'Shared.' };
     commit({ ...state.session, lastExportedAt: new Date().toISOString() });
   }).catch(() => { /* an AbortError on cancel is not an error */ });

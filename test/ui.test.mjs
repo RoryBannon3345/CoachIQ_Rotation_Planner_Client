@@ -182,11 +182,10 @@ test('a successful share stamps lastExportedAt', async () => {
   assert.ok(typeof stamped === 'string' && stamped.length > 0, 'a genuinely successful share stamps lastExportedAt');
 });
 
-// WebKit's share sheet drops `title` whenever anything else is shared, so iOS Mail never sees it;
-// a shared file's name is what gives the email a subject. The payload goes as a named .txt file,
-// and the app's URL never rides along (it put the app link in every email and still left the
-// subject blank).
-test('the share sends the payload as a .txt file named for the day, with no url', async () => {
+// iOS Mail never fills its subject from a web share -- neither the app url nor a named .txt file
+// did it on a real iPhone. So the payload goes as plain text the coach can paste straight into the
+// planner, titled for any target that uses a title, and the app URL never rides along.
+test('the share sends the payload as text, titled for the day, with no url and no file', async () => {
   const { document, navigatorObj } = freshEnv();
   Object.defineProperty(globalThis, 'location', {
     value: { protocol: 'https:', href: 'https://example.test/stats/' },
@@ -194,7 +193,7 @@ test('the share sends the payload as a .txt file named for the day, with no url'
     writable: true,
   });
   let shared = null;
-  navigatorObj.canShare = (data) => Array.isArray(data.files);
+  navigatorObj.canShare = () => true;
   navigatorObj.share = async (data) => {
     shared = data;
   };
@@ -207,39 +206,9 @@ test('the share sends the payload as a .txt file named for the day, with no url'
   await flushAsync();
 
   assert.ok(shared, 'navigator.share was called');
-  assert.ok(!('url' in shared), 'the app URL is not shared');
-  assert.ok(!('text' in shared), 'the payload is not duplicated as text');
+  assert.deepEqual(Object.keys(shared).sort(), ['text', 'title'], 'only a title and the payload are shared');
   assert.equal(shared.title, 'CoachIQ stats · Thunder · 19 Sep', 'the title names the app, team and day');
-  assert.equal(shared.files.length, 1);
-  assert.equal(shared.files[0].name, 'CoachIQ stats - Thunder - 19 Sep.txt', 'the file name doubles as the Mail subject');
-  assert.equal(shared.files[0].type, 'text/plain');
-  assert.equal(await shared.files[0].text(), payloadText, 'the file holds exactly the exported payload');
-});
-
-test('where files cannot be shared, the payload goes as text with the same title and no url', async () => {
-  const { document, navigatorObj } = freshEnv();
-  Object.defineProperty(globalThis, 'location', {
-    value: { protocol: 'https:', href: 'https://example.test/stats/' },
-    configurable: true,
-    writable: true,
-  });
-  let shared = null;
-  navigatorObj.canShare = () => false;
-  navigatorObj.share = async (data) => {
-    shared = data;
-  };
-  await bootUi();
-  openDayAndRecordACount(document);
-  click(document, '[data-action="export"]');
-
-  click(document, '[data-action="export-share"]');
-  await flushAsync();
-
-  assert.ok(shared, 'navigator.share was called');
-  assert.ok(!('url' in shared), 'the app URL is not shared');
-  assert.ok(!('files' in shared), 'no file is offered to a browser that cannot share one');
-  assert.equal(shared.title, 'CoachIQ stats · Thunder · 19 Sep');
-  assert.ok(shared.text.length > 0, 'the payload is shared as text');
+  assert.equal(shared.text, payloadText, 'the text is exactly the exported payload');
 });
 
 test('the export screen shows the save-failed banner (finding 6)', async () => {
