@@ -390,6 +390,12 @@ test('the set bar asks who serves first on a fresh set, shows the live score onc
   html = await renderWith(day, 'g1');
   assert.match(html, /data-action="open-score"[^>]*>25–21<small>typed<\/small>/);
   assert.doesNotMatch(html, /data-action="tap-point"/);
+
+  // Answered, then a typed score: the typed score shows and Us/Them are not offered.
+  day = setScore(setServedFirst(newDayFromRoster(roster, '2026-09-19T09:00:00Z'), 'g1', 1, true), 'g1', 1, [25, 21]);
+  html = await renderWith(day, 'g1');
+  assert.match(html, /data-action="open-score"[^>]*>25–21<small>typed<\/small>/);
+  assert.doesNotMatch(html, /data-action="tap-point"/);
 });
 
 test('tapping Us records a rally and stamps lastChangedAt; minus mode is not consumed', async () => {
@@ -426,12 +432,18 @@ test('the menu offers the serve-first flip and Clear points only for a logged se
   assert.match(html, /data-action="menu-flip-serve-first"[^>]*>We served first ✓/);
   assert.match(html, /data-action="menu-clear-points"[^>]*>Clear points for Set 1…/);
   assert.doesNotMatch(html, /Set score…/);
+  assert.equal(parseSession(env2.store.get(STORAGE_KEY)).value.lastChangedAt, null, 'seeded with no change stamp');
   click(env2.document, '[data-action="menu-flip-serve-first"]');
-  assert.equal(parseSession(env2.store.get(STORAGE_KEY)).value.games[0].sets[0].servedFirst, false);
+  const afterFlip = parseSession(env2.store.get(STORAGE_KEY)).value;
+  assert.equal(afterFlip.games[0].sets[0].servedFirst, false);
+  assert.match(afterFlip.lastChangedAt, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T/, 'the flip stamps lastChangedAt');
+  await new Promise((r) => setTimeout(r, 15));
   click(env2.document, '[data-action="open-menu"]');
   click(env2.document, '[data-action="menu-clear-points"]');
   click(env2.document, '[data-action="confirm-clear-points"]');
-  assert.equal(parseSession(env2.store.get(STORAGE_KEY)).value.games[0].sets[0].points, '');
+  const afterClear = parseSession(env2.store.get(STORAGE_KEY)).value;
+  assert.equal(afterClear.games[0].sets[0].points, '');
+  assert.notEqual(afterClear.lastChangedAt, afterFlip.lastChangedAt, 'clearing the points stamps lastChangedAt again');
 });
 
 test('the export screen names the rally count of a logged set', async () => {

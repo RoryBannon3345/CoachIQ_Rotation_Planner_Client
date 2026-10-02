@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS2… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS4… stats payloads with the planner by copy and paste, with no server or network required.
 
 Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v4).
 

@@ -583,13 +583,14 @@ function renderRecord() {
     .join('');
   const setRecord = game.sets[n - 1];
   const asked = !!setRecord && setRecord.servedFirst !== null;
+  const typed = !!setRecord && setRecord.points === '' && setRecord.score !== null;
   let strip;
-  if (asked) {
+  if (typed) {
+    strip = `<button type="button" class="pt typed" data-action="open-score" aria-label="Set ${n} score, typed">${setRecord.score[0]}–${setRecord.score[1]}<small>typed</small></button>`;
+  } else if (asked) {
     const [us, them] = pointTally(setRecord.points);
     strip = `<button type="button" class="pt us" data-action="tap-point" data-winner="U" aria-label="Us scored">Us <span class="big">${us}</span></button>
     <button type="button" class="pt them" data-action="tap-point" data-winner="T" aria-label="Them scored"><span class="big">${them}</span> Them</button>`;
-  } else if (setRecord && setRecord.score !== null) {
-    strip = `<button type="button" class="pt typed" data-action="open-score" aria-label="Set ${n} score, typed">${setRecord.score[0]}–${setRecord.score[1]}<small>typed</small></button>`;
   } else {
     strip = `<button type="button" class="pt ask" data-action="serve-first" data-us="1">We serve<small>first</small></button>
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;

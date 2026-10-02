@@ -974,3 +974,67 @@ test('schema 4 parsing refuses a log without a serve-first answer, or with bad c
     assert.deepEqual(r.value.games.map((g) => g.gameId), ['game-2']);
   }
 });
+
+test('tapPoint refuses a set that carries a typed score; setScore resets servedFirst; setServedFirst takes only booleans', () => {
+  let s = open();
+  s = S.setServedFirst(s, 'game-1', 1, true);
+  s = S.setScore(s, 'game-1', 1, [25, 21]);
+  assert.equal(s.games[0].sets[0].servedFirst, null, 'a typed score forgets the serve-first answer');
+  s = S.setServedFirst(s, 'game-1', 1, true);
+  const typed = S.setScore(S.setScore(s, 'game-1', 1, [25, 21]), 'game-1', 1, [25, 21]);
+  const forced = { ...typed, games: [{ ...typed.games[0], sets: [{ ...typed.games[0].sets[0], servedFirst: true }, ...typed.games[0].sets.slice(1)] }] };
+  assert.equal(forced.games[0].sets[0].points, '');
+  assert.deepEqual(forced.games[0].sets[0].score, [25, 21]);
+  assert.equal(S.tapPoint(forced, 'game-1', 1, 'U'), forced);
+  const cleared = S.setScore(typed, 'game-1', 1, null);
+  assert.equal(cleared.games[0].sets[0].servedFirst, null);
+  assert.equal(cleared.games[0].sets[0].points, '');
+  assert.equal(cleared.games[0].sets[0].score, null);
+});
+
+test('setServedFirst refuses null and non-booleans, so a logged set keeps its answer', () => {
+  let s = S.setServedFirst(open(), 'game-1', 1, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  assert.equal(S.setServedFirst(s, 'game-1', 1, null), s);
+  assert.equal(S.setServedFirst(s, 'game-1', 1, 1), s);
+});
+
+test('migration from schema 2 and schema 1 gives a played set no log and a history entry kind count', () => {
+  const counts = { grace: { serve: { in: 3, out: 1 }, return: { in: 0, out: 0 } } };
+  const schema2 = JSON.stringify({
+    schema: 2, savedAt: '2026-09-19T20:00:00Z',
+    session: {
+      date: '2026-09-19', team: 'Thunder',
+      players: [{ id: 'grace', name: 'Grace', sub: false }],
+      games: [{
+        gameId: 'game-1', opponent: 'Lions', playerIds: ['grace'],
+        sets: [{ score: [25, 20], counts }, null, null, null, null], activeSet: 1,
+        history: [{ n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 3 }],
+      }],
+      activeGameId: 'game-1', importedAt: '2026-09-19T09:00:00Z', lastExportedAt: null, lastChangedAt: null,
+    },
+  });
+  const schema1 = JSON.stringify({
+    schema: 1, savedAt: 'x',
+    session: {
+      activeGameId: 'g1',
+      games: [{
+        gameId: 'g1', team: 'Thunder', opponent: 'Lions', date: '2026-09-19', importedAt: '2026-09-19T09:00:00Z',
+        players: [{ id: 'grace', name: 'Grace', sub: false }],
+        sets: [{ score: [25, 20], counts }, null, null], activeSet: 1,
+        history: [{ n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 3 }],
+        lastExportedAt: null,
+      }],
+    },
+  });
+  for (const raw of [schema2, schema1]) {
+    const result = S.parseSession(raw);
+    assert.equal(result.ok, true);
+    assert.equal(result.dropped, 0);
+    const g = result.value.games[0];
+    assert.equal(g.sets[0].servedFirst, null);
+    assert.equal(g.sets[0].points, '');
+    assert.deepEqual(g.sets[0].score, [25, 20]);
+    assert.equal(g.history[0].kind, 'count');
+  }
+});

@@ -1,7 +1,7 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
 import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskMembers, MAX_POINTS } from './codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V4_VECTOR, STATS_V2_AS_V4, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V4_VECTOR, STATS_V2_AS_V4, STATS_V3_VECTOR, STATS_V3_AS_V4, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
@@ -427,6 +427,7 @@ export function pointTally(points) {
 export function setServedFirst(s, gameId, n, servedFirst) {
   return withGame(s, gameId, (g) => {
     const set = g.sets[n - 1] ?? emptySet();
+    if (typeof servedFirst !== 'boolean') return g;
     if (set.servedFirst === servedFirst) return g;
     const sets = g.sets.slice();
     sets[n - 1] = { ...set, servedFirst };
@@ -435,12 +436,13 @@ export function setServedFirst(s, gameId, n, servedFirst) {
 }
 
 /** One rally: `winner` is 'U' or 'T'. Refused (same reference) until servedFirst is answered or
- * once the log is at MAX_POINTS — the planner would refuse a longer one. Not touched by minus mode. */
+ * once the set carries a typed score, or once the log is at MAX_POINTS — the planner would refuse a longer one. Not touched by minus mode. */
 export function tapPoint(s, gameId, n, winner) {
   if (winner !== 'U' && winner !== 'T') return s;
   return withGame(s, gameId, (g) => {
     const set = g.sets[n - 1] ?? emptySet();
     if (set.servedFirst === null || set.points.length >= MAX_POINTS) return g;
+    if (set.points === '' && set.score !== null) return g; // typed and logged are exclusive
     const sets = g.sets.slice();
     sets[n - 1] = { ...set, points: set.points + winner };
     const history = [...g.history, { kind: 'point', n, winner }].slice(-UNDO_LIMIT);
@@ -484,7 +486,9 @@ export function setScore(s, gameId, n, score) {
     const set = g.sets[n - 1] ?? emptySet();
     if (set.points !== '') return g;
     const sets = g.sets.slice();
-    sets[n - 1] = { ...set, score: score === null ? null : [score[0], score[1]] };
+    sets[n - 1] = score === null
+      ? { ...set, score: null }
+      : { ...set, score: [score[0], score[1]], servedFirst: null };
     return { ...g, sets };
   });
 }
@@ -1028,6 +1032,8 @@ export function runSelfCheck() {
     if (!t4.ok || JSON.stringify(t4.value) !== JSON.stringify(STATS_V4_VECTOR.payload)) return { ok: false, error: 'day stats vector decode' };
     const t2 = decodeDayStats(STATS_V2_VECTOR.encoded);
     if (!t2.ok || JSON.stringify(t2.value) !== JSON.stringify(STATS_V2_AS_V4)) return { ok: false, error: 'legacy v2 stats vector decode' };
+    const t3 = decodeDayStats(STATS_V3_VECTOR.encoded);
+    if (!t3.ok || JSON.stringify(t3.value) !== JSON.stringify(STATS_V3_AS_V4)) return { ok: false, error: 'legacy v3 stats vector decode' };
     const r2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
     if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_AS_V3)) return { ok: false, error: 'legacy v2 roster vector decode' };
     const r1 = decodeDayRoster(ROSTER_VECTOR.encoded);

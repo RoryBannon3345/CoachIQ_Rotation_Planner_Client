@@ -7,7 +7,7 @@ import {
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
   normaliseRosterV1, normaliseStatsV1, maskHas, maskOf, maskMembers, maskCount, maskUnion,
 } from '../src/codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V4_VECTOR, STATS_V2_AS_V4, STATS_V3_AS_V4 } from '../src/vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V4_VECTOR, STATS_V2_AS_V4, STATS_V3_AS_V4, STATS_V3_VECTOR } from '../src/vectors.js';
 
 test('fnv1a32 reference values', () => {
   assert.equal(fnv1a32(new Uint8Array()), '811c9dc5');
@@ -138,9 +138,8 @@ test('golden v4 stats vector round-trips byte-exact; the encode side is at v4 no
   assert.deepEqual(decodeDayStats(STATS_V4_VECTOR.encoded), { ok: true, value: STATS_V4_VECTOR.payload });
 });
 test('v2 and v3 stats bodies still decode, reported at v4 with no log', () => {
-  const STATS_V3_AS_V4_BODY = { ...STATS_V2_VECTOR.payload, v: 3 };
   assert.deepEqual(decodeDayStats(STATS_V2_VECTOR.encoded), { ok: true, value: STATS_V2_AS_V4 });
-  assert.deepEqual(decodeDayStats(encodePayload('stats', STATS_V3_AS_V4_BODY, 3)), { ok: true, value: STATS_V3_AS_V4 });
+  assert.deepEqual(decodeDayStats(STATS_V3_VECTOR.encoded), { ok: true, value: STATS_V3_AS_V4 });
 });
 test('the roster stays pinned to 3', () => {
   assert.equal(encodeDayRoster(ROSTER_V3_VECTOR.payload), ROSTER_V3_VECTOR.encoded);
