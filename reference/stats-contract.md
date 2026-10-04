@@ -142,14 +142,14 @@ One day, the day's player directory, and every game of that day. Validated by
 | `kind` | `"roster"` | Fixed. |
 | `date` | `string` | Non-empty. The day this payload is about — the identity of a day payload, so a blank one is refused. |
 | `team` | `string` | Display-only. May be empty: `createTeam` does not trim, so a coach who never named her team has a blank one, and refusing it would refuse a real save. |
-| `players` | array | The day's **directory**: 1–24 entries (`MAX_DAY_PLAYERS`), unique ids. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list (`MAX_ROSTER_PLAYERS`) — squads rotate across games and a tournament day can field two teams' worth of names. |
+| `players` | array | The day's **directory**: 1–32 entries (`MAX_DAY_PLAYERS`), unique ids. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list (`MAX_ROSTER_PLAYERS`) — squads rotate across games and a tournament day can field two teams' worth of names. |
 | `players[].id` | `string` | Matches `ID_PATTERN` (see below). |
 | `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). The **day display name**: her first name, or `First L.` when two players on the day share a first name (`src/domain/displayName.ts`). It is what the Planner's own Set roster shows, so the phone and the rail agree. The Client displays it verbatim and never parses it. |
 | `players[].jersey` | `number` | Optional — this app's roster panel does not collect jerseys today, so it is usually absent. |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`), at least one. |
 | `games[].gameId` | `string` | Non-empty, unique within the payload. Echoed back in the stats payload to match the game. |
 | `games[].opponent` | `string` | Display-only. May be empty, the same way `team` may: a game against an unnamed opponent is a real thing a coach plans, and the Client only ever prints this string. |
-| `games[].sets` | `number[]` | 1–5 entries (`MAX_SETS`), **one bitmask per set, positional** — `sets[0]` is set 1, and `sets.length` is how many sets the game has. Bit `i` set means `players[i]` is in that set. Each entry is a whole number `0 ≤ mask < 2 ** players.length`. A set nobody is picked for is `0`. The **union** across a game's sets may name at most 12 players (`MAX_ROSTER_PLAYERS`). |
+| `games[].sets` | `number[]` | 1–5 entries (`MAX_SETS`), **one bitmask per set, positional** — `sets[0]` is set 1, and `sets.length` is how many sets the game has. Bit `i` set means `players[i]` is in that set. Each entry is a whole number `0 ≤ mask < 2 ** players.length`. A set nobody is picked for is `0`. The **union** across a game's sets may name at most 16 players (`MAX_ROSTER_PLAYERS`). |
 
 ### Reading a set mask
 
@@ -165,6 +165,13 @@ function maskMembers(mask, size) {
 // sets: [3, 1, 2] over a 2-player directory ->
 //   set 1: players 0 and 1   set 2: player 0   set 3: player 1
 ```
+
+This is not a precaution. With the day directory at 32 players (`MAX_DAY_PLAYERS`), the top bit
+(player index 31) is `2 ** 31`, which is exactly the bit JavaScript's bitwise operators turn
+negative, and a full 32-player mask is `2 ** 32 - 1` = `4294967295`. A reader built on `|`, `&`,
+`<<`, `>>`, `>>>`, `~` or `^` would read player 32 as absent or negative and tick the wrong girls
+with no error. Use only the arithmetic helpers (`maskHas`, `maskOf`, `maskMembers`, `maskCount`,
+`maskUnion`); they stay exact to 2^53, so the hard ceiling on the directory size is 53.
 
 ### The four rules about `games[].sets`
 
@@ -202,7 +209,7 @@ roster.
 | `v` | `2`, `3` or `4` | Must equal the version named in the prefix. Any of the three is accepted here, unlike the roster half — see above. |
 | `kind` | `"stats"` | Fixed. |
 | `recordedAt` | `string` | Non-empty ISO timestamp, from the Client's clock. At most 32 characters (`MAX_RECORDED_AT_LENGTH`). |
-| `players` | array | The day's directory, of `{ id, name }` entries — 1–24 of them (`MAX_DAY_PLAYERS`), unique ids, each `id` matching `ID_PATTERN` and each `name` 1–64 characters (`MAX_NAME_LENGTH`). The `name` is the day display name — see the roster payload's field table for full semantics. The set lines refer to it **by id string**, not by bit position the way a roster's `games[].sets` masks do — but the directory itself is objects either way. No `jersey`: a stats sheet has no use for one, so the field is dropped on the way in. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
+| `players` | array | The day's directory, of `{ id, name }` entries — 1–32 of them (`MAX_DAY_PLAYERS`), unique ids, each `id` matching `ID_PATTERN` and each `name` 1–64 characters (`MAX_NAME_LENGTH`). The `name` is the day display name — see the roster payload's field table for full semantics. The set lines refer to it **by id string**, not by bit position the way a roster's `games[].sets` masks do — but the directory itself is objects either way. No `jersey`: a stats sheet has no use for one, so the field is dropped on the way in. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`), at least one. |
 | `games[].gameId` | `string` | Non-empty, unique within the payload. Matched against a saved game's id on import. |
 | `games[].sets` | array | 1–5 entries (`MAX_SETS`) **per game**, `n` ascending and unique **within that game**. A set the team did not play is simply omitted, not sent with empty stats. |
@@ -231,7 +238,7 @@ whose directory is that game's players, so every index `0..n-1` is on its tick-l
 | `team` | `string` | Display-only; the import never reads it back. |
 | `opponent` | `string` | Display-only. |
 | `date` | `string` | Display-only, and **non-empty** — see "Non-empty `date` and `recordedAt`" under Versioning policy. |
-| `players` | array | 1–12 entries (`MAX_ROSTER_PLAYERS`), unique ids (the Planner's own encoder no longer enforces the 1–12 bound — see the exception under Limits below). Alphabetical by name is a **send-side convention, not a rule**: `rosterPayload.ts` sorts that way (tied on id) but `validateRosterPayload` has no ordering check, so a payload in any order is legal and must be accepted. |
+| `players` | array | 1–16 entries (`MAX_ROSTER_PLAYERS`), unique ids (the Planner's own encoder no longer enforces the 1–16 bound — see the exception under Limits below). Alphabetical by name is a **send-side convention, not a rule**: `rosterPayload.ts` sorts that way (tied on id) but `validateRosterPayload` has no ordering check, so a payload in any order is legal and must be accepted. |
 | `players[].id` | `string` | Matches `ID_PATTERN` (see below). |
 | `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). |
 | `players[].jersey` | `number` | Optional — this app's roster panel does not collect jerseys today, so it is usually absent. |
@@ -248,7 +255,7 @@ day — so exactly one shape reaches saved state and nothing downstream branches
 | `kind` | `"stats"` | Fixed. |
 | `gameId` | `string` | Non-empty. Matched against a saved game's id on import. |
 | `recordedAt` | `string` | ISO timestamp, from the Client's clock. **Non-empty**, and at most 32 characters (`MAX_RECORDED_AT_LENGTH`). |
-| `players` | array | The roster the Client actually used: 1–12 entries (`MAX_ROSTER_PLAYERS`), unique ids, each name 1–64 characters (`MAX_NAME_LENGTH`). **At least one** — see "`it names no players` for stats" under Versioning policy. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
+| `players` | array | The roster the Client actually used: 1–16 entries (`MAX_ROSTER_PLAYERS`), unique ids, each name 1–64 characters (`MAX_NAME_LENGTH`). **At least one** — see "`it names no players` for stats" under Versioning policy. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
 | `sets` | array | 1–5 entries (`MAX_SETS`), `n` ascending and unique. A set the team did not play is simply omitted, not sent with empty stats. |
 | `sets[].n` | `number`, 1–5 (`MAX_SETS`) | The set number. |
 | `sets[].score` | `[number, number] \| null` | `[us, them]`, or `null` if not recorded. **The key is required**: send it as `null`, never omit it — an absent `score` is refused as `set <n> has a malformed score`, which rejects the whole paste. Both entries must be finite — see "Finite set scores" under Versioning policy. |
@@ -303,17 +310,48 @@ realistic subject, to:
 
 (⚠ crosses `MAILTO_WARN_LENGTH`, 1900; ❌ crosses the practical ~2048 ceiling.)
 
+That table is the 12-player measurement and stays as it was taken. Since `MAX_ROSTER_PLAYERS` rose
+to 16, the same encoding was measured again for a full 16-player squad (all sixteen in all three
+sets), against a 12-player squad measured the same day with the same fixture, so the two rows can
+be compared with each other. The fixture is the one `StatsToolbar.interaction.test.tsx` builds
+(`seedTournamentDay`): player ids of 24 characters, game ids of 22, the eight opponent names that
+test uses, a team called `Thunder 14U Gold`, an 18-character address and a subject of the form
+`Roster · <team> · <date>`. It is not the fixture of the table above, whose exact opponent names
+and subject were not recorded; the two 12-player series therefore differ by up to 80 characters
+(1164 against 1244 at one game, 2021 against 2011 at eight). Compare a 16-player figure with the
+12-player row beside it, not with the table above.
+
+**16-player squad, measured 2026-10-03:**
+
+| games | 12-player squad (same fixture) | 16-player squad |
+|---|---|---|
+| 1 | 1164 | **1430** |
+| 2 | 1292 | **1562** |
+| 3 | 1410 | **1685** |
+| 4 | 1530 | **1809** |
+| 5 | 1656 | **1938 ⚠** |
+| 6 | 1776 | **2062 ❌** |
+| 7 | 1896 | **2186 ❌** |
+| 8 (the cap) | 2021 ⚠ | **2316 ❌** |
+
+A full 16-player squad reaches the 1,900-character warning at 5 games, and the practical ~2048
+ceiling at 6, so a full-squad Saturday of five or more games now warns where a 12-player one does
+not until the eighth.
+
 **The mask encoding is smaller than the v2 union at every game count, while carrying strictly more
 information** — which one girl played which set, not just which game. That is why per-set
 membership cost no cap changes: naively encoding a per-set breakdown as one index array per set
 (the middle column) is already over the warning length at four games and over the ceiling at five,
-but masks stay under the ceiling through the full eight-game cap and only cross the warning line at
-that cap. One integer per set, not one array, is what makes per-set membership affordable in a
+but masks, for a 12-player squad, stay under the ceiling through the full eight-game cap and only
+cross the warning line at that cap (a 16-player squad crosses the warning line at five games and the
+ceiling at six, per the 16-player table above). One integer per set, not one array, is what makes per-set membership affordable in a
 `mailto:` body at all.
 
-The absolute worst case the schema permits — 8 games against the full 24-player directory — is 3206
-with three sets per game and 3398 with five, against 3600 for the v2 union that carried no set data
-at all. All three are already well past what any `mailto:` client honours; `MAX_GAMES_PER_DAY` and
+The absolute worst case the schema permitted when it was measured — 8 games against the then-full
+24-player directory — was 3206 with three sets per game and 3398 with five, against 3600 for the v2
+union that carried no set data at all. The directory limit is 32 now, so the worst case is larger
+than those figures; it was not re-measured, because it was already well past any `mailto:` limit.
+All three are already well past what any `mailto:` client honours; `MAX_GAMES_PER_DAY` and
 `MAX_DAY_PLAYERS` were never sized to make the worst case fit, only the realistic one.
 
 The `mailto:` overhead on top of the payload is **flat with respect to the body**, so it shifts
@@ -327,10 +365,12 @@ length rather than estimated with padding for escaping that never happens.
 
 `MAILTO_WARN_LENGTH` is **1900**, and it is measured against the composed href, not against the
 payload: above it the Stats workspace warns that the receiving mail client may cut the email off
-before it is ever sent. With masks and a full squad it fires only at the **eight-game cap** (2011) — the
+before it is ever sent. With masks and a full **12-player** squad it fires only at the **eight-game cap** (2011), so the
 warning line no longer falls inside an ordinary tournament day the way it did under per-set index
 arrays, which would already have warned at four games (1939) and broken the practical ceiling at
-five (2142). Even the eight-game cap sits under the ~2048 ceiling, though narrowly (2011 vs. ~2048)
+five (2142). A full **16-player** squad reaches the warning sooner, at five games (1938), and passes
+the ~2048 ceiling at six (2062) — see the 16-player table above. For a 12-player squad even the
+eight-game cap sits under the ~2048 ceiling, though narrowly (2011 vs. ~2048)
 — a longer address or opponent name could still close that gap, which is exactly what the warning
 exists to catch before the mail client does.
 
@@ -351,9 +391,9 @@ a log of 46 rallies is 46 characters before Base64URL, about 62 after.
 | Constant | Value | Meaning |
 |---|---|---|
 | `CONTRACT_VERSION` | `4` | The contract's major version. |
-| `MAX_GAMES_PER_DAY` | `8` | The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It also lands almost exactly on what a `mailto:` roster can carry — see "Payload size" above. |
-| `MAX_DAY_PLAYERS` | `24` | The most players one day payload's directory may name. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list — squads rotate across games and a tournament day can field two teams' worth of names. Must not exceed 31 — see `DayRosterGame.sets`: the arithmetic these helpers use stays correct to 2^53, well past this. Only a reader who reached for a bitwise operator on a mask would break past 31 players — JS's `\|`/`&` coerce to signed 32-bit, so such a reader would silently get a wrong (negative, 32-bit-coerced) result instead of an error. |
-| `MAX_ROSTER_PLAYERS` | `12` | The largest **union** across a game's sets (`games[].sets`) may name — the size of the tick-list the Client shows for the game as a whole, not any single set and not the sum of all of them. In v2, when a game carried one `roster` array, that array *was* this union, so the rule is unchanged, only its expression moved. In v1, when a payload *was* one game, it bounded the whole payload's `players` instead, and it still does on the v1 path. |
+| `MAX_GAMES_PER_DAY` | `8` | The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It also lands almost exactly on what a `mailto:` roster can carry for a 12-player squad (a 16-player squad reaches that limit sooner) — see "Payload size" above. |
+| `MAX_DAY_PLAYERS` | `32` | The most players one day payload's directory may name. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list — squads rotate across games and a tournament day can field two teams' worth of names: two squads of sixteen. Must never exceed 53, and at 32 it already depends on the arithmetic mask helpers — see `DayRosterGame.sets`: at 32 the highest bit is `2 ** 31`, exactly the bit JS's `\|`/`&` coerce to a negative number, so a reader who reached for a bitwise operator on a mask would silently get wrong girls on a tick-list instead of an error. Use only the arithmetic helpers (see "Reading a set mask"); the largest legal mask is `2 ** 32 - 1` = `4294967295`. |
+| `MAX_ROSTER_PLAYERS` | `16` | The largest **union** across a game's sets (`games[].sets`) may name — the size of the tick-list the Client shows for the game as a whole, not any single set and not the sum of all of them. In v2, when a game carried one `roster` array, that array *was* this union, so the rule is unchanged, only its expression moved. In v1, when a payload *was* one game, it bounded the whole payload's `players` instead, and it still does on the v1 path. |
 | `MAX_COUNT` | `999` | Largest legal serve/return count. |
 | `MAX_NAME_LENGTH` | `64` | Longest legal `players[].name`, in **both** payloads. An empty name is malformed too. |
 | `MAX_RECORDED_AT_LENGTH` | `32` | Longest legal `recordedAt`. An ISO timestamp with milliseconds and a timezone offset is under 32 characters. |
@@ -362,25 +402,25 @@ a log of 46 rallies is 46 characters before Base64URL, about 62 after.
 
 On the v1 path `MAX_ROSTER_PLAYERS` bounds the stats payload's top-level `players` as well: that
 list echoes the roster the Client was handed. `validateRosterPayload` refuses a v1 roster payload
-longer than 12 outright, so the Client can never successfully import one — see the Planner-side
-exception below for the one case that produces a roster payload longer than 12 in the first place.
+longer than 16 outright, so the Client can never successfully import one — see the Planner-side
+exception below for the one case that produces a roster payload longer than 16 in the first place.
 Every cap on this page is a refusal, not a truncation — nothing over-long is allowed to reach saved
 state.
 
 > **Planner-side exception (2026-09-14, escalated 2026-09-15).** The Rotation Planner's roster email
 > encodes every player each game names, without enforcing `MAX_ROSTER_PLAYERS` — the coach asked for
 > the whole game in the email, because that is what she asked for. The validators are unchanged and
-> still refuse a game naming more than twelve, so a thirteen-player game produces an email the stats
+> still refuse a game naming more than sixteen, so a seventeen-player game produces an email the stats
 > app will refuse on import.
 >
 > **The blast radius grew with the day payload.** Under v1 an over-cap game spoiled its own email and
 > nothing else: one game, one payload. Under v2 a day is one payload, and
-> `validateDayRosterPayload` refuses **the whole thing** — so a single thirteen-player game takes the
+> `validateDayRosterPayload` refuses **the whole thing** — so a single seventeen-player game takes the
 > day's other games down with it, and the coach loses a Saturday's roster rather than a match's.
 >
 > The remedy is unchanged and still the only one. The payload cannot be hand-edited to fix it
 > afterwards: the body is a single opaque Base64URL token with an FNV-1a checksum appended
-> (`encodePayload`), so any edit — trimming one game back under 12, say — invalidates the checksum
+> (`encodePayload`), so any edit — trimming one game back under 16, say — invalidates the checksum
 > and the whole payload is refused, not just the edit. Fix the roster in the Rotation Planner and
 > send again. Raising the limit here would not help on its own either: the stats app ships its own
 > verbatim copy of `statsContract.ts` and would have to be rebuilt too.
@@ -442,7 +482,7 @@ Roster:
 - `it has no date`
 - `it has no player list`
 - `it names no players`
-- `it names <n> players; the limit is 12`
+- `it names <n> players; the limit is 16`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -461,7 +501,7 @@ Stats:
 - `it has no player list`
 - `it names no players` — **added 2026-09-15**; see the dated entry under Versioning policy for why
   this string was in the roster catalogue and not this one
-- `it names <n> players; the limit is 12`
+- `it names <n> players; the limit is 16`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -499,7 +539,7 @@ Roster:
 - `it has no team name`
 - `it has no player list`
 - `it names no players`
-- `it names <n> players; the day limit is 24`
+- `it names <n> players; the day limit is 32`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -519,7 +559,7 @@ Roster:
 - `game "<gid>" records more than 5 sets`
 - `game "<gid>" set <n> is not a legal roster mask`
 - `game "<gid>" set <n> names a player outside the directory`
-- `game "<gid>" names <n> players; the limit is 12`
+- `game "<gid>" names <n> players; the limit is 16`
 
 Stats:
 - `it is not an object`
@@ -529,7 +569,7 @@ Stats:
 - `its recorded time is <n> characters; the limit is 32`
 - `it has no player list`
 - `it names no players`
-- `it names <n> players; the day limit is 24`
+- `it names <n> players; the day limit is 32`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -560,8 +600,8 @@ Stats:
 Four wording facts worth stating rather than leaving to be discovered by diff, since a Client
 reproducing these by hand will be tempted to regularise all four:
 
-- The **day directory** over-cap says `the day limit is 24`; a **game's** over-cap says
-  `the limit is 12`. Different phrase, different limit, on purpose.
+- The **day directory** over-cap says `the day limit is 32`; a **game's** over-cap says
+  `the limit is 16`. Different phrase, different limit, on purpose.
 - A roster `names <n> games; the limit is 8`, while a stats sheet `records more than 8 games`. A
   roster names games it plans; a sheet records games that happened.
 - `its version is not 1, 2, 3 or 4` names **all four** versions this app reads rather than only the
@@ -610,7 +650,7 @@ since this validator reads an index array rather than a set-mask array:
 - `game "<gid>" names player <n>, but the payload lists only <n>`
 - `game "<gid>" names player <n> twice`
 
-`game "<gid>" names <n> players; the limit is 12` is **not** repeated here: v2 and v3 share that
+`game "<gid>" names <n> players; the limit is 16` is **not** repeated here: v2 and v3 share that
 exact string (both check the same `MAX_ROSTER_PLAYERS` cap on the same kind of count), so it already
 appears once, in the v3 Roster list above.
 
@@ -629,6 +669,15 @@ appears once, in the v3 Roster list above.
   numbers with separate lifetimes**. `SCHEMA_VERSION` versions the file this app saves to its own
   `localStorage`; `CONTRACT_VERSION` versions the payload the two apps exchange by copy/paste.
   Bumping one never implies bumping the other.
+
+### Larger limits: 16 a game, 32 a day (2026-10-03)
+
+`MAX_ROSTER_PLAYERS` rose from 12 to 16 and `MAX_DAY_PLAYERS` from 24 to 32. No field changed,
+so `CONTRACT_VERSION` stays 4 and the prefixes stay `CIQR3.`/`CIQS4.`: a limit is a refusal on
+receive, never carried on the wire. The cost is a mixed pair. A stats app still at 12 refuses a
+13–16 player game from this planner with its existing "names N players; the limit is 12", so
+both apps ship together. At 32 the highest mask bit is `2 ** 31`, which is why every mask reader
+must use the arithmetic helpers.
 
 ### Point logs (contract 4) — 2026-10-01
 

@@ -247,7 +247,8 @@ Nothing in this list needs a line of Client work; it is here so you do not go lo
   still never transmitted. Per-game set numbering, omitted unplayed sets, `score` as a required key.
 - **`MAX_GAMES_PER_DAY` (8), `MAX_DAY_PLAYERS` (24), `MAX_ROSTER_PLAYERS` (12), `MAX_SETS` (5),
   `MAX_COUNT` (999), `MAX_NAME_LENGTH` (64), `MAX_RECORDED_AT_LENGTH` (32).** None of these numbers
-  moved. `MAX_POINTS` (200) is the only new one.
+  moved (they later moved: 16 a game and 32 a day, 2026-10-03 — see the main spec's Versioning
+  policy). `MAX_POINTS` (200) is the only new one.
 - **The `cx-` namespace** for Client-created players: `CLIENT_ID_PATTERN`,
   `/^cx-[A-Za-z0-9_-]{4,32}$/`, and `ID_PATTERN` `/^[A-Za-z0-9_-]{1,64}$/` for every id.
 - **How the stats travel.** By clipboard, never `mailto:`; the `mailto:` rules for the roster are

@@ -72,7 +72,7 @@ export function gameSetCount(game) {
 }
 
 /** Everyone this game names across its live sets, in directory order is the caller's job — this
- * returns first-seen order, which is what the 12-player cap counts. The cap is the union across
+ * returns first-seen order, which is what the 16-player cap counts. The cap is the union across
  * sets, exactly as `validateDayRosterPayload` measures it with `maskCount(union, …)`; a per-set
  * cap would let us build a day the planner then refuses. */
 export function gamePlayerIdsUnion(game) {

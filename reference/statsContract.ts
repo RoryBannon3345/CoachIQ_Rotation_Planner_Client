@@ -53,7 +53,7 @@ export const CONTRACT_VERSION = 4;
  * unchanged — only its expression moved. In v1, when a payload *was* one game, it bounded the
  * whole payload's `players` instead, and it still does on the v1 path.
  */
-export const MAX_ROSTER_PLAYERS = 12;
+export const MAX_ROSTER_PLAYERS = 16;
 
 /** The most games one day payload may carry. A tournament day is a handful of games; eight is
  * generously above any real one, and bounds how much a single paste can push into saved state. */
@@ -64,15 +64,14 @@ export const MAX_GAMES_PER_DAY = 8;
  *
  * A day spans every game of a tournament, so it is legitimately larger than any one game's
  * tick-list (`MAX_ROSTER_PLAYERS`) — squads rotate across games and a tournament day can field
- * two teams' worth of names.
+ * two teams' worth of names: two squads of sixteen.
  *
- * **This number must never exceed 31 without re-reading `maskHas` below.** `DayRosterGame.sets`
- * encodes membership as one bit per directory index, and while the helpers here use arithmetic
- * that is safe to 2^53, any reader who reaches for a bitwise operator inherits JavaScript's
- * signed 32-bit coercion. At 24 the highest bit is `2 ** 23` and there is no way to get this
- * wrong; at 32 there is.
+ * **This number must never exceed 53, and at 32 it already depends on `maskHas` below.**
+ * `DayRosterGame.sets` encodes membership as one bit per directory index. At 32 the highest bit
+ * is `2 ** 31` — exactly the bit JavaScript's bitwise operators coerce to a negative number — so
+ * every mask must go through the arithmetic helpers. The largest legal mask is `2 ** 32 - 1`.
  */
-export const MAX_DAY_PLAYERS = 24;
+export const MAX_DAY_PLAYERS = 32;
 
 /** The largest legal serve/return count. Three digits is generously above any real set. */
 export const MAX_COUNT = 999;
@@ -307,10 +306,11 @@ export function fnv1a32(bytes: Uint8Array): string {
  *
  * **These use arithmetic, never bitwise operators, and that is load-bearing.** JavaScript's `|`,
  * `&` and `<<` coerce to *signed* 32-bit, so `2 ** 31 | 0` is `-2147483648`. At `MAX_DAY_PLAYERS`
- * of 24 the highest bit is `2 ** 23` and either form would work today — but the arithmetic form
- * keeps working to 2^53, so raising that cap later cannot silently corrupt rosters. Anyone
- * "simplifying" these back to bitwise operators reintroduces a bug that only appears once the
- * directory passes 31 players, and appears as wrong girls on a tick-list, not as an error.
+ * of 32 the highest bit is `2 ** 31`, so the bitwise form would already be wrong today:
+ * `maskOf([31])` is 2147483648, and `2147483648 & 2147483648` is -2147483648. The arithmetic form
+ * keeps working to 2^53. Anyone "simplifying" these back to bitwise operators reintroduces a bug
+ * that only appears for the thirty-second player, and appears as wrong girls on a tick-list, not
+ * as an error.
  */
 export function maskHas(mask: number, index: number): boolean {
   return Math.floor(mask / 2 ** index) % 2 === 1;
@@ -1040,7 +1040,7 @@ function normaliseRosterV2(p: DayRosterPayloadV2): DayRosterPayload {
  * has exactly one definition.
  *
  * A v1 roster is a one-game day whose directory is that game's players, so every index `0..n-1` is
- * on its tick-list, and `date`/`team` lift to the top. v1's own 12-player cap lands exactly on
+ * on its tick-list, and `date`/`team` lift to the top. v1's own player cap *is*
  * `MAX_ROSTER_PLAYERS`, so even a full v1 roster normalises to a legal game. The planner does not
  * call `decodeRoster` outside tests, but the Client does, and a coach reaching for last week's
  * roster email is a realistic path worth keeping open.

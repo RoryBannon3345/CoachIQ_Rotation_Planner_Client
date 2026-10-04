@@ -49,11 +49,11 @@ wrong about the payload's identity.
 | `team` | top level, display-only | top level, unchanged |
 | `opponent` | top level, display-only | **moved** into `games[].opponent` |
 | `date` | top level, display-only (and, since 2026-09-15, non-empty at v1 too) | top level, and now **the identity of the payload** — non-empty |
-| `players` | the game's roster, 1–12 | the **day's directory**, 1–24 (`MAX_DAY_PLAYERS`) |
+| `players` | the game's roster, 1–16 | the **day's directory**, 1–32 (`MAX_DAY_PLAYERS`) |
 | `games` | — | **new**, 1–8 entries (`MAX_GAMES_PER_DAY`) |
 | `games[].gameId` | — | **new**, non-empty, unique within the payload |
 | `games[].opponent` | — | **new**, a string; may be empty |
-| `games[].roster` | — | **new**, **indices into the payload's own `players`** — 0–12 of them (`MAX_ROSTER_PLAYERS`), each a whole number in range, no duplicates. May be empty. |
+| `games[].roster` | — | **new**, **indices into the payload's own `players`** — 0–16 of them (`MAX_ROSTER_PLAYERS`), each a whole number in range, no duplicates. May be empty. |
 
 Two things to read twice, because they are the two most likely to be implemented from memory of v1:
 
@@ -70,7 +70,7 @@ Two things to read twice, because they are the two most likely to be implemented
 | `kind` | `"stats"` | `"stats"` — unchanged |
 | `gameId` | top level, non-empty | **moved** into `games[].gameId` |
 | `recordedAt` | top level, ≤ 32 chars (and, since 2026-09-15, non-empty at v1 too) | top level, unchanged |
-| `players` | the roster used, 1–12 (the lower bound newly enforced at v1 since 2026-09-15) | the **day's directory**, 1–24 (`MAX_DAY_PLAYERS`) — still `{ id, name }` objects, still reached **by id string** from the set lines |
+| `players` | the roster used, 1–16 (the lower bound newly enforced at v1 since 2026-09-15) | the **day's directory**, 1–32 (`MAX_DAY_PLAYERS`) — still `{ id, name }` objects, still reached **by id string** from the set lines |
 | `sets` | top level, 1–5 | **moved** into `games[].sets`, 1–5 **per game** |
 | `games` | — | **new**, 1–8 entries (`MAX_GAMES_PER_DAY`) |
 | `games[].gameId` | — | **new**, non-empty, unique within the payload |
@@ -98,14 +98,14 @@ legitimately carries three set-1 lines. The ascending-and-unique rule applies *w
 | `kind` | `"roster"` | Fixed. |
 | `date` | `string` | **Non-empty.** The day this payload is about — the identity of the payload, so a blank one is refused. |
 | `team` | `string` | Display-only. **May be empty**: the Planner does not trim a team name, so a coach who never named her team has a blank one, and refusing it would refuse a real save. |
-| `players` | array | The **day directory**: 1–24 entries (`MAX_DAY_PLAYERS`), unique ids. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list. |
+| `players` | array | The **day directory**: 1–32 entries (`MAX_DAY_PLAYERS`), unique ids. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list. |
 | `players[].id` | `string` | Matches `ID_PATTERN` — `/^[A-Za-z0-9_-]{1,64}$/`. |
 | `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). An empty name is malformed. |
 | `players[].jersey` | `number` | Optional. If present it must be a number; the Planner's roster panel does not collect jerseys today, so it is usually absent. |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`). At least one — a day with no games is not a day. |
 | `games[].gameId` | `string` | Non-empty, and unique across the payload's games. Echoed back in the stats payload to match the game. |
 | `games[].opponent` | `string` | Display-only. **May be empty**: a game against an unnamed opponent is a real thing a coach plans, and the Client only ever prints this string. |
-| `games[].roster` | `number[]` | **Indices into this payload's own `players`**, not ids. 0–12 entries (`MAX_ROSTER_PLAYERS`). Each must be a whole number ≥ 0 and < `players.length`; no index may appear twice. **May be empty** — see section 5. |
+| `games[].roster` | `number[]` | **Indices into this payload's own `players`**, not ids. 0–16 entries (`MAX_ROSTER_PLAYERS`). Each must be a whole number ≥ 0 and < `players.length`; no index may appear twice. **May be empty** — see section 5. |
 
 ### Stats payload schema (contract v2) — `CIQS2`
 
@@ -114,7 +114,7 @@ legitimately carries three set-1 lines. The ascending-and-unique rule applies *w
 | `v` | `2` | Must equal the version named in the prefix. |
 | `kind` | `"stats"` | Fixed. |
 | `recordedAt` | `string` | **Non-empty** ISO timestamp from the Client's clock, at most 32 characters (`MAX_RECORDED_AT_LENGTH`). |
-| `players` | array | The **day directory**: 1–24 `{ id, name }` entries (`MAX_DAY_PLAYERS`), unique ids — the same objects a roster directory carries, minus `jersey`. What differs is how a game reaches them: the set lines below name **id strings, not indices**. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. No `jersey` — a stats sheet has no use for one, and the field is dropped on the way in. |
+| `players` | array | The **day directory**: 1–32 `{ id, name }` entries (`MAX_DAY_PLAYERS`), unique ids — the same objects a roster directory carries, minus `jersey`. What differs is how a game reaches them: the set lines below name **id strings, not indices**. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. No `jersey` — a stats sheet has no use for one, and the field is dropped on the way in. |
 | `players[].id` | `string` | Matches `ID_PATTERN`. |
 | `players[].name` | `string` | Required, 1–64 characters (`MAX_NAME_LENGTH`). |
 | `games` | array | 1–8 entries (`MAX_GAMES_PER_DAY`). At least one. |
@@ -131,8 +131,8 @@ legitimately carries three set-1 lines. The ascending-and-unique rule applies *w
 |---|---|---|
 | `CONTRACT_VERSION` | `2` | The contract's major version. |
 | `MAX_GAMES_PER_DAY` | `8` | **New.** The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It also lands almost exactly on what a `mailto:` roster can carry — see section 4. |
-| `MAX_DAY_PLAYERS` | `24` | **New.** The most players one day payload's directory may name. Squads rotate across games and a tournament day can field two teams' worth of names. |
-| `MAX_ROSTER_PLAYERS` | `12` | **Changed scope.** In v1 it bounded the whole payload's `players`. In v2 it bounds **one game's pre-selection** — `games[].roster` in a roster payload — which is what it was always about: the size of the tick-list the Client shows for a single game. It still bounds a **v1** payload's `players` on the legacy path. |
+| `MAX_DAY_PLAYERS` | `32` | **New.** The most players one day payload's directory may name. Squads rotate across games and a tournament day can field two teams' worth of names. |
+| `MAX_ROSTER_PLAYERS` | `16` | **Changed scope.** In v1 it bounded the whole payload's `players`. In v2 it bounds **one game's pre-selection** — `games[].roster` in a roster payload — which is what it was always about: the size of the tick-list the Client shows for a single game. It still bounds a **v1** payload's `players` on the legacy path. |
 | `MAX_COUNT` | `999` | Unchanged. Largest legal serve/return count. |
 | `MAX_NAME_LENGTH` | `64` | Unchanged. Longest legal `players[].name`, in both payloads. An empty name is malformed too. |
 | `MAX_RECORDED_AT_LENGTH` | `32` | Unchanged. Longest legal `recordedAt`. |
@@ -183,12 +183,14 @@ Three further things the table settles:
   strings. That is the whole difference: one grows a day at a time, the other grows a squad at a
   time.
 - **`MAX_GAMES_PER_DAY` = 8 sits exactly at the medium's limit.** A full eight-game day with a
-  12-player squad composes to 2122 — just over. The cap and the transport genuinely agree rather than
-  the cap being a round number someone picked: the schema stops permitting days at almost precisely
-  the point the email stops carrying them. The absolute worst case the schema permits — 8 games
-  against the full 24-player directory — is **3313**, so the ceiling is real at the extreme and the
-  caps are what keep it out of reach.
-- **The 1900 warning threshold fires at seven games** with a full squad (1990). In other words it
+  12-player squad composes to 2122 — just over. (These are 12-player measurements, taken when the
+  caps were 12 and 24; the caps later rose to 16 a game and 32 a day on 2026-10-03, and a 16-player
+  day reaches the limit sooner — see the main spec's "Payload size".) The cap and the transport
+  genuinely agree rather than the cap being a round number someone picked: the schema stops
+  permitting days at almost precisely the point the email stops carrying them. The absolute worst
+  case the schema permits — 8 games against the then-full 24-player directory — was **3313**, so the
+  ceiling is real at the extreme and the caps are what keep it out of reach.
+- **The 1900 warning threshold fires at seven games** with a full 12-player squad (1990). In other words it
   only speaks up in the region the caps already call extreme, which is what a warning should do.
 
 The stats payload keeps id strings for the opposite reason, and it is worth understanding rather than
@@ -410,7 +412,7 @@ function decodeDayStats(text) {
 }
 
 /** A v1 roster is a one-game day whose directory is that game's players, so every index `0..n-1`
- *  is on its tick-list. v1's own 12-player cap lands exactly on `MAX_ROSTER_PLAYERS` as the v2
+ *  is on its tick-list. v1's own 16-player cap lands exactly on `MAX_ROSTER_PLAYERS` as the v2
  *  per-game cap, so even a full v1 roster normalises to the boundary rather than past it. */
 function normaliseRosterV1(p) {
   return {
@@ -559,7 +561,7 @@ ship both apps together.** There is no version of this rollout where the Planner
 the old Client keeps working.
 
 Note also that a v1 roster normalises cleanly: a v1 roster is a one-game day whose directory is that
-game's players, so every index `0..n-1` is on its tick-list. v1's own 12-player cap lands exactly on
+game's players, so every index `0..n-1` is on its tick-list. v1's own 16-player cap lands exactly on
 `MAX_ROSTER_PLAYERS` as the v2 per-game cap, so even a full v1 roster normalises to the boundary
 rather than past it.
 
@@ -599,7 +601,7 @@ All of the form `The roster payload is malformed: <detail>.`
 - `it has no team name`
 - `it has no player list`
 - `it names no players`
-- `it names <n> players; the day limit is 24`
+- `it names <n> players; the day limit is 32`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -615,7 +617,7 @@ All of the form `The roster payload is malformed: <detail>.`
 - `game id "<gid>" appears twice`
 - `game "<gid>" has no opponent name`
 - `game "<gid>" has no roster`
-- `game "<gid>" names <n> players; the limit is 12`
+- `game "<gid>" names <n> players; the limit is 16`
 - `game "<gid>" has a malformed player reference`
 - `game "<gid>" names player <n>, but the payload lists only <n>`
 - `game "<gid>" names player <n> twice`
@@ -631,7 +633,7 @@ All of the form `The stats payload is malformed: <detail>.`
 - `its recorded time is <n> characters; the limit is 32`
 - `it has no player list`
 - `it names no players`
-- `it names <n> players; the day limit is 24`
+- `it names <n> players; the day limit is 32`
 - `one of its players is malformed`
 - `player id "<id>" is not legal`
 - `player id "<id>" appears twice`
@@ -661,8 +663,8 @@ All of the form `The stats payload is malformed: <detail>.`
 
 Three wording traps, all of them real in the shipped module and none of them worth "tidying":
 
-- The **day** directory over-cap says `the day limit is 24`; the **per-game** over-cap says
-  `the limit is 12`. Different phrases, different limits, both deliberate.
+- The **day** directory over-cap says `the day limit is 32`; the **per-game** over-cap says
+  `the limit is 16`. Different phrases, different limits, both deliberate.
 - The roster payload says `it names <n> games; the limit is 8`; the stats payload says
   `it records more than 8 games`. A roster *names* games it plans; a sheet *records* games it
   happened.

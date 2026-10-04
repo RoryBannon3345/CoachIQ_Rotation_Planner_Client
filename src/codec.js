@@ -23,10 +23,11 @@ export function fnv1a32(bytes) {
  *
  * **These use arithmetic, never bitwise operators, and that is load-bearing.** JavaScript's `|`,
  * `&` and `<<` coerce to *signed* 32-bit, so `2 ** 31 | 0` is `-2147483648`. At `MAX_DAY_PLAYERS`
- * of 24 the highest bit is `2 ** 23` and either form would work today — but the arithmetic form
- * keeps working to 2^53, so raising that cap later cannot silently corrupt rosters. Anyone
- * "simplifying" these back to bitwise operators reintroduces a bug that only appears once the
- * directory passes 31 players, and appears as wrong girls on a tick-list, not as an error.
+ * of 32 the highest bit is `2 ** 31`, so the bitwise form would already be wrong today:
+ * `maskOf([31])` is 2147483648, and `2147483648 & 2147483648` is -2147483648. The arithmetic form
+ * keeps working to 2^53. Anyone "simplifying" these back to bitwise operators reintroduces a bug
+ * that only appears for the thirty-second player, and appears as wrong girls on a tick-list, not
+ * as an error.
  */
 export function maskHas(mask, index) {
   return Math.floor(mask / 2 ** index) % 2 === 1;
@@ -161,9 +162,9 @@ export function decodePayload(text, expected) {
 // Shape validation — ported from reference/statsContract.ts, TypeScript type syntax removed.
 // ---------------------------------------------------------------------------------------------
 
-export const MAX_ROSTER_PLAYERS = 12, MAX_COUNT = 999, MAX_NAME_LENGTH = 64;
+export const MAX_ROSTER_PLAYERS = 16, MAX_COUNT = 999, MAX_NAME_LENGTH = 64;
 export const MAX_GAMES_PER_DAY = 8;
-export const MAX_DAY_PLAYERS = 24;
+export const MAX_DAY_PLAYERS = 32;
 export const MAX_RECORDED_AT_LENGTH = 32;
 export const MAX_SETS = 5;
 export const MAX_POINTS = 200;
@@ -726,7 +727,7 @@ function normaliseRosterV2(p) {
  * has exactly one definition.
  *
  * A v1 roster is a one-game day whose directory is that game's players, so every index `0..n-1` is
- * on its tick-list, and `date`/`team` lift to the top. v1's own 12-player cap lands exactly on
+ * on its tick-list, and `date`/`team` lift to the top. v1's own player cap *is*
  * `MAX_ROSTER_PLAYERS`, so even a full v1 roster normalises to a legal game.
  */
 export function normaliseRosterV1(p) {

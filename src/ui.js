@@ -200,7 +200,7 @@ function onOpenDay() {
     return;
   }
   // kind === 'error' — a same-date merge that would break a cap. The decoder's own error strings
-  // (e.g. `game "<gid>" names 13 players; the limit is 12`) are shown verbatim; the payload can't
+  // (e.g. `game "<gid>" names 17 players; the limit is 16`) are shown verbatim; the payload can't
   // be hand-edited (any edit invalidates the checksum), so her only remedy is fixing it in the
   // planner and re-sending.
   state.pasteError = result.error;

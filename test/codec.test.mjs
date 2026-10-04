@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CONTRACT_VERSION, MAX_POINTS, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, MAX_RECORDED_AT_LENGTH,
+  CONTRACT_VERSION, MAX_POINTS, MAX_SETS, MAX_ROSTER_PLAYERS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, MAX_RECORDED_AT_LENGTH,
   fnv1a32, encodePayload, decodePayload, decodeRoster, decodeStats, encodeRoster, encodeStats,
   encodeDayRoster, encodeDayStats, decodeDayRoster, decodeDayStats,
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
@@ -112,16 +112,21 @@ test('v3 roster catalogue', () => {
     validateDayRosterPayload(game([1, 1, 1, 1, 1, 1])).error,
     'The roster payload is malformed: game "g" records more than 5 sets.',
   );
-  // The 12-cap is the UNION across sets, not any one set's count.
-  const thirteen = { v: 3, kind: 'roster', date: 'd', team: 't', players: manyPlayers(13) };
+  // The 16-cap is the UNION across sets, not any one set's count.
+  const seventeen = { v: 3, kind: 'roster', date: 'd', team: 't', players: manyPlayers(17) };
   assert.equal(
-    validateDayRosterPayload({ ...thirteen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 13 - 1] }] }).error,
-    'The roster payload is malformed: game "g" names 13 players; the limit is 12.',
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 17 - 1] }] }).error,
+    'The roster payload is malformed: game "g" names 17 players; the limit is 16.',
   );
-  // Same 13 players spread one-per-set still trips the union cap.
+  // The same 17 players spread across two sets still trip the union cap.
   assert.equal(
-    validateDayRosterPayload({ ...thirteen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 12 - 1, 2 ** 12] }] }).error,
-    'The roster payload is malformed: game "g" names 13 players; the limit is 12.',
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1, 2 ** 16] }] }).error,
+    'The roster payload is malformed: game "g" names 17 players; the limit is 16.',
+  );
+  // Exactly 16 is legal.
+  assert.equal(
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1] }] }).ok,
+    true,
   );
   // A mask of 0 is legal: the coach sent the day before picking that set.
   assert.equal(validateDayRosterPayload(game([0])).ok, true);
@@ -164,9 +169,19 @@ test('contract constants', () => {
   assert.equal(CONTRACT_VERSION, 4);
   assert.equal(MAX_POINTS, 200);
   assert.equal(MAX_SETS, 5);
-  assert.equal(MAX_DAY_PLAYERS, 24);
+  assert.equal(MAX_ROSTER_PLAYERS, 16);
+  assert.equal(MAX_DAY_PLAYERS, 32);
   assert.equal(MAX_GAMES_PER_DAY, 8);
   assert.equal(MAX_RECORDED_AT_LENGTH, 32);
+});
+test('masks reach the 32nd directory player without bitwise operators', () => {
+  const last = maskOf([31]);
+  assert.equal(last, 2147483648);
+  assert.equal(maskHas(last, 31), true);
+  assert.deepEqual(maskMembers(last, 32), [31]);
+  const all = maskOf([...Array(32).keys()]);
+  assert.equal(all, 4294967295);
+  assert.equal(maskCount(all, 32), 32);
 });
 test('transport error catalogue', () => {
   assert.equal(decodeRoster('hello').error, 'This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.');
@@ -194,7 +209,7 @@ test('kind-aware transport messages, verbatim', () => {
 test('roster shape errors use contract wording', () => {
   const p = (players) => encodePayload('roster', { v: 1, kind: 'roster', gameId: 'g', team: 't', opponent: 'o', date: 'd', players }, 1);
   assert.equal(decodeRoster(p([])).error, 'The roster payload is malformed: it names no players.');
-  assert.equal(decodeRoster(p(Array.from({ length: 13 }, (_, i) => ({ id: `p${i}`, name: 'x' })))).error, 'The roster payload is malformed: it names 13 players; the limit is 12.');
+  assert.equal(decodeRoster(p(Array.from({ length: 17 }, (_, i) => ({ id: `p${i}`, name: 'x' })))).error, 'The roster payload is malformed: it names 17 players; the limit is 16.');
   assert.equal(decodeRoster(p([{ id: 'a b', name: 'x' }])).error, 'The roster payload is malformed: player id "a b" is not legal.');
   assert.equal(decodeRoster(p([{ id: 'a', name: '' }])).error, 'The roster payload is malformed: player "a" has an empty name.');
 });
@@ -227,8 +242,8 @@ test('v2 roster catalogue, reached through the legacy decode path', () => {
   const manyPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: 'x' }));
   const decodeV2 = (body) => decodeDayRoster(encodePayload('roster', { v: 2, kind: 'roster', date: 'd', team: 't', ...body }, 2));
   assert.equal(
-    decodeV2({ players: manyPlayers(25), games: [{ gameId: 'g', opponent: 'o', roster: [] }] }).error,
-    'The roster payload is malformed: it names 25 players; the day limit is 24.',
+    decodeV2({ players: manyPlayers(33), games: [{ gameId: 'g', opponent: 'o', roster: [] }] }).error,
+    'The roster payload is malformed: it names 33 players; the day limit is 32.',
   );
   const manyGames = (n) => Array.from({ length: n }, (_, i) => ({ gameId: `g${i}`, opponent: 'o', roster: [] }));
   assert.equal(
@@ -236,8 +251,8 @@ test('v2 roster catalogue, reached through the legacy decode path', () => {
     'The roster payload is malformed: it names 9 games; the limit is 8.',
   );
   assert.equal(
-    decodeV2({ players: manyPlayers(2), games: [{ gameId: 'g', opponent: 'o', roster: Array(13).fill(0) }] }).error,
-    'The roster payload is malformed: game "g" names 13 players; the limit is 12.',
+    decodeV2({ players: manyPlayers(2), games: [{ gameId: 'g', opponent: 'o', roster: Array(17).fill(0) }] }).error,
+    'The roster payload is malformed: game "g" names 17 players; the limit is 16.',
   );
   for (const bad of [-1, 1.5, '0']) {
     assert.equal(
@@ -325,7 +340,7 @@ test('v1 tightenings', () => {
 test('totality: every v1-accepted payload normalises into a v2-accepted one', () => {
   const rosterCandidates = [
     { v: 1, kind: 'roster', gameId: 'g', team: 't', opponent: 'o', date: 'd', players: [{ id: 'a', name: 'A' }] },
-    { v: 1, kind: 'roster', gameId: 'g2', team: '', opponent: '', date: 'd2', players: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: 'x' })) },
+    { v: 1, kind: 'roster', gameId: 'g2', team: '', opponent: '', date: 'd2', players: Array.from({ length: 16 }, (_, i) => ({ id: `p${i}`, name: 'x' })) },
     ROSTER_VECTOR.payload,
   ];
   for (const candidate of rosterCandidates) {

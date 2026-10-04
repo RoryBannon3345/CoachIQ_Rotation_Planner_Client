@@ -102,18 +102,18 @@ test('un-ticking is guarded by counts in THAT set, not anywhere in the game', ()
   assert.deepEqual(allowed.session.games[0].setPlayerIds[1], []);
 });
 
-test("the 12-player cap is the union across a game's sets", () => {
-  const players = Array.from({ length: 13 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+test("the 16-player cap is the union across a game's sets", () => {
+  const players = Array.from({ length: 17 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
   const roster = {
     v: 3, kind: 'roster', date: '2026-09-19', team: 'T', players,
-    games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 12 - 1, 0] }],
+    games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1, 0] }],
   };
   const day = S.newDayFromRoster(roster, '2026-09-19T09:00:00Z');
-  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 12);
-  // The 13th distinct girl, ticked into a DIFFERENT set, still trips the cap.
-  const r = S.setPlayerTicked(day, 'g', 2, 'p12', true);
+  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 16);
+  // The 17th distinct girl, ticked into a DIFFERENT set, still trips the cap.
+  const r = S.setPlayerTicked(day, 'g', 2, 'p16', true);
   assert.equal(r.ok, false);
-  assert.match(r.error, /12 players/);
+  assert.match(r.error, /16 players/);
   // But re-ticking somebody already in the union into another set is fine.
   assert.equal(S.setPlayerTicked(day, 'g', 2, 'p0', true).ok, true);
 });
@@ -216,8 +216,8 @@ test('the parser is never stricter than the runtime: a day at the cap survives s
   // then refused to load: parseDay drops the game, and a one-game day with no games left is
   // MALFORMED — every count she recorded, gone on the next boot.
   let { day } = shrinkFixture();
-  for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 1, `Sub ${i}`, `cx-sub0000${i}`).session;
-  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 12, 'the app allowed her right up to the cap');
+  for (let i = 0; i < 10; i += 1) day = S.addSub(day, 'g', 1, `Sub ${i}`, `cx-sub0000${i}`).session;
+  assert.equal(S.gamePlayerIdsUnion(day.games[0]).length, 16, 'the app allowed her right up to the cap');
   const reloaded = S.parseSession(S.serialiseSession(day));
   assert.equal(reloaded.ok, true, 'a day the app let her build must read back');
   assert.deepEqual(reloaded.value, day);
@@ -254,7 +254,7 @@ test('a merge still refuses a genuine over-cap, and every name in the refusal is
   for (let i = 0; i < 6; i += 1) day = S.addSub(day, 'g', 1, `Sub ${i}`, `cx-sub0000${i}`).session;
   const refused = S.openDayRoster(day, full, 'now');
   assert.equal(refused.kind, 'error', '12 roster girls across five sets plus six subs really is 18');
-  assert.match(refused.error, /the game limit is 12/);
+  assert.match(refused.error, /the game limit is 16/);
   // Escapable: the only names not in the roster she just pasted are her own six subs, and they
   // are all in set 1 — the tab the game is showing. Taking them off lets the paste through.
   for (let i = 0; i < 6; i += 1) day = S.setPlayerTicked(day, 'g', 1, `cx-sub0000${i}`, false).session;
@@ -437,16 +437,16 @@ test('a score-only day (no counts anywhere) falls back to the whole directory, n
   assert.deepEqual(decoded.value, out.value.payload);
 });
 
-test('setPlayerTicked adds, caps at 12, refuses to untick a counted player, and leaves the directory whole', () => {
+test('setPlayerTicked adds, caps at 16, refuses to untick a counted player, and leaves the directory whole', () => {
   let s = openV2();
-  for (let i = 0; i < 10; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
-  assert.equal(S.gamePlayerIdsUnion(s.games[0]).length, 12);
+  for (let i = 0; i < 14; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
+  assert.equal(S.gamePlayerIdsUnion(s.games[0]).length, 16);
   // a directory member added through game-2, not yet ticked into the (full) game-1
   s = S.addSub(s, 'game-2', 1, 'Ava', 'cx-8f2k1q').session;
 
   const full = S.setPlayerTicked(s, 'game-1', 1, 'cx-8f2k1q', true);
   assert.equal(full.ok, false);
-  assert.equal(full.error, 'This game already has 12 players; the stats app limit is 12.');
+  assert.equal(full.error, 'This game already has 16 players; the stats app limit is 16.');
 
   s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
   const blocked = S.setPlayerTicked(s, 'game-1', 1, 'grace', false);
@@ -486,12 +486,12 @@ test('addSub validates the name and reports the game-not-found case', () => {
   assert.equal(S.addSub(s, 'no-such-game', 1, 'Ava').error, 'That game does not exist.');
 });
 
-test('addSub caps per-game at 12 and per-day at 24, with distinct messages', () => {
+test('addSub caps per-game at 16 and per-day at 32, with distinct messages', () => {
   let s = openV2();
-  for (let i = 0; i < 10; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
-  assert.equal(S.addSub(s, 'game-1', 1, 'One more').error, 'This game already has 12 players; the stats app limit is 12.');
+  for (let i = 0; i < 14; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
+  assert.equal(S.addSub(s, 'game-1', 1, 'One more').error, 'This game already has 16 players; the stats app limit is 16.');
 
-  // Day cap: spread additions across three fresh games so no single game's 12-cap is hit first.
+  // Day cap: spread additions across three games so no single game's 16-cap is hit first.
   let s2 = openV2();
   const extraGames = {
     v: 3, kind: 'roster', date: s2.date, team: s2.team, players: rosterV2AsV3.players,
@@ -502,11 +502,11 @@ test('addSub caps per-game at 12 and per-day at 24, with distinct messages', () 
     ],
   };
   s2 = S.openDayRoster(s2, extraGames, 'x').session;
-  for (let i = 0; i < 10; i++) s2 = S.addSub(s2, 'game-1', 1, `G1 Sub ${i}`).session; // game-1: 2 -> 12
-  for (let i = 0; i < 11; i++) s2 = S.addSub(s2, 'game-2', 1, `G2 Sub ${i}`).session; // game-2: 1 -> 12
+  for (let i = 0; i < 14; i++) s2 = S.addSub(s2, 'game-1', 1, `G1 Sub ${i}`).session; // game-1: 2 -> 16
+  for (let i = 0; i < 15; i++) s2 = S.addSub(s2, 'game-2', 1, `G2 Sub ${i}`).session; // game-2: 1 -> 16
   s2 = S.addSub(s2, 'game-3', 1, 'G3 Sub').session; // one more, via an otherwise-empty game
-  assert.equal(s2.players.length, 24);
-  assert.equal(S.addSub(s2, 'game-3', 1, 'Overflow').error, 'Today already has 24 players; the day limit is 24.');
+  assert.equal(s2.players.length, 32);
+  assert.equal(S.addSub(s2, 'game-3', 1, 'Overflow').error, 'Today already has 32 players; the day limit is 32.');
 });
 
 test('openDayRoster merges a same-date roster in place: refreshes names, keeps counted players, adds games, never deletes a local-only game', () => {
@@ -542,8 +542,8 @@ test('openDayRoster merges a same-date roster in place: refreshes names, keeps c
 
 test('openDayRoster refuses a same-date merge that would push a game over its player cap', () => {
   let s = openV2();
-  for (let i = 0; i < 10; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
-  assert.equal(S.gamePlayerIdsUnion(s.games[0]).length, 12);
+  for (let i = 0; i < 14; i++) s = S.addSub(s, 'game-1', 1, `Sub ${i}`).session;
+  assert.equal(S.gamePlayerIdsUnion(s.games[0]).length, 16);
   const incoming = {
     v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
     players: [{ id: 'grace', name: 'Grace' }, { id: 'zoie', name: 'Zoë' }, { id: 'new1', name: 'New' }],
@@ -552,19 +552,19 @@ test('openDayRoster refuses a same-date merge that would push a game over its pl
   };
   const r = S.openDayRoster(s, incoming, 'x');
   assert.equal(r.kind, 'error');
-  assert.match(r.error, /the game limit is 12/);
+  assert.match(r.error, /the game limit is 16/);
 });
 
 test('openDayRoster refuses a same-date merge that would push the day over its player cap', () => {
   const s = openV2();
   const incoming = {
     v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
-    players: [{ id: 'grace', name: 'Grace' }, ...Array.from({ length: 23 }, (_, i) => ({ id: `n${i}`, name: `N${i}` }))],
+    players: [{ id: 'grace', name: 'Grace' }, ...Array.from({ length: 31 }, (_, i) => ({ id: `n${i}`, name: `N${i}` }))],
     games: [{ gameId: 'game-1', opponent: 'Lions', sets: [1] }], // maskOf([0])
   };
   const r = S.openDayRoster(s, incoming, 'x');
   assert.equal(r.kind, 'error');
-  assert.equal(r.error, 'Updating would make 25 players; the day limit is 24.');
+  assert.equal(r.error, 'Updating would make 33 players; the day limit is 32.');
 });
 
 test('openDayRoster refuses a same-date merge that would push the day over its game cap', () => {
@@ -669,7 +669,7 @@ test('parseSession rejects malformed saved data field by field', () => {
   assert.ok(rejects((m) => { m.session.games[0].sets[0] = { score: null, counts: { grace: { serve: { in: 1000, out: 0 }, return: { in: 0, out: 0 } } } }; }));
   assert.ok(rejects((m) => { m.session.games[0].sets[0] = { score: [25], counts: {} }; }));
   assert.ok(rejects((m) => { m.session.players[0].id = 'a b'; }));
-  assert.ok(rejects((m) => { while (m.session.players.length < 25) m.session.players.push({ id: `p${m.session.players.length}`, name: 'P', sub: true }); }));
+  assert.ok(rejects((m) => { while (m.session.players.length < 33) m.session.players.push({ id: `p${m.session.players.length}`, name: 'P', sub: true }); }));
   assert.ok(rejects((m) => { m.session.games[0].sets = m.session.games[0].sets.slice(0, 4); }));
   assert.ok(rejects((m) => { m.session.games[0].activeSet = 6; }));
   assert.ok(rejects((m) => { m.session.games[0].setCount = 0; }));
@@ -834,17 +834,27 @@ test("migration from schema 1: multiple dates keeps the active game's date and r
   assert.equal(result.droppedDays, 1);
 });
 
-test('a schema-1 union over 24 players is refused, not truncated', () => {
+test('a schema-1 union over 32 players is refused, not truncated', () => {
   const mk = (id, opponent, importedAt, players) => ({
     gameId: id, team: 'T', opponent, date: '2026-09-19', importedAt,
     players, sets: [null, null, null], activeSet: 1, history: [], lastExportedAt: null,
   });
   const p = (prefix, n) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, name: `${prefix}${i}`, sub: false }));
-  const g1 = mk('g1', 'A', 'a', p('a', 12));
-  const g2 = mk('g2', 'B', 'b', p('b', 12));
+  const g1 = mk('g1', 'A', 'a', p('a', 16));
+  const g2 = mk('g2', 'B', 'b', p('b', 16));
   const g3 = mk('g3', 'C', 'c', p('c', 3));
   const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'g1', games: [g1, g2, g3] } };
   assert.equal(S.parseSession(JSON.stringify(envelope)).ok, false);
+});
+
+test('a schema-1 union of exactly 32 players still loads', () => {
+  const mk = (id, opponent, importedAt, players) => ({
+    gameId: id, team: 'T', opponent, date: '2026-09-19', importedAt,
+    players, sets: [null, null, null], activeSet: 1, history: [], lastExportedAt: null,
+  });
+  const p = (prefix, n) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, name: `${prefix}${i}`, sub: false }));
+  const envelope = { schema: 1, savedAt: 'x', session: { activeGameId: 'g1', games: [mk('g1', 'A', 'a', p('a', 16)), mk('g2', 'B', 'b', p('b', 16))] } };
+  assert.equal(S.parseSession(JSON.stringify(envelope)).ok, true);
 });
 
 test('schema 4: a fresh set record carries servedFirst null and empty points', () => {

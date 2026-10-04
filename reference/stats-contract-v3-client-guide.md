@@ -57,7 +57,7 @@ together with) the day you start sending `CIQR3.` roster emails.
 | `kind` | `"roster"` | `"roster"` — unchanged |
 | `date`, `team`, `players` | top level, day-scoped | unchanged |
 | `games[].gameId`, `games[].opponent` | unchanged | unchanged |
-| `games[].roster` | `number[]` — indices into `players`, the **union** of everyone in the game, 0–12 entries | **gone** |
+| `games[].roster` | `number[]` — indices into `players`, the **union** of everyone in the game, 0–16 entries | **gone** |
 | `games[].sets` | — | **new**, `number[]` — one bitmask per set, 1–5 entries (`MAX_SETS`), positional. Bit `i` set means `players[i]` is in that set. |
 
 Two things worth reading twice:
@@ -65,7 +65,7 @@ Two things worth reading twice:
 - **`roster` did not become `sets` by renaming — it changed shape.** A v2 `roster` was one array
   naming the union of a game's players; a v3 `sets` is *several* numbers, one per set, each a
   bitmask rather than an index list. There is no field-for-field rename here to lean on.
-- **The union rule survives, just recomputed.** `MAX_ROSTER_PLAYERS` (12) still bounds "how many
+- **The union rule survives, just recomputed.** `MAX_ROSTER_PLAYERS` (16) still bounds "how many
   different players may this game name across all its sets" — the tick-list size is unchanged, only
   now it is the union of the bits set across `sets` rather than the length of one array. Section 3
   has the exact check.
@@ -84,10 +84,10 @@ breaks.
 
 | Field | Type | Rule |
 |---|---|---|
-| `games[].sets` | `number[]` | 1–5 entries (`MAX_SETS`), **one bitmask per set, positional** — `sets[0]` is set 1, `sets[1]` is set 2, and `sets.length` **is** how many sets this game has. Each entry is a whole number, `0 ≤ mask < 2 ** players.length`. A set nobody has been picked for yet is `0` — legal on purpose (section 6). The **union** of bits set across all of a game's masks may name at most 12 players (`MAX_ROSTER_PLAYERS`) — the same cap v2 applied to the whole `roster` array, because in v2 that array *was* the union. |
+| `games[].sets` | `number[]` | 1–5 entries (`MAX_SETS`), **one bitmask per set, positional** — `sets[0]` is set 1, `sets[1]` is set 2, and `sets.length` **is** how many sets this game has. Each entry is a whole number, `0 ≤ mask < 2 ** players.length`. A set nobody has been picked for yet is `0` — legal on purpose (section 6). The **union** of bits set across all of a game's masks may name at most 16 players (`MAX_ROSTER_PLAYERS`) — the same cap v2 applied to the whole `roster` array, because in v2 that array *was* the union. |
 
-If a game names more players across its sets than the 12-player cap allows, the whole roster
-payload is refused — not just that game — with `game "<gid>" names <n> players; the limit is 12`.
+If a game names more players across its sets than the 16-player cap allows, the whole roster
+payload is refused — not just that game — with `game "<gid>" names <n> players; the limit is 16`.
 That refusal reaches you as a roster email that never decodes; there is nothing to catch or work
 around on the Client side, only something to know so you are not surprised by it.
 
@@ -118,13 +118,14 @@ function maskMembers(mask, size) {
 **Do not read a mask with `|` or `&`, and do not "simplify" these back into bitwise operators.**
 JavaScript's bitwise operators coerce their operands to *signed 32-bit integers* — `2 ** 31 | 0` is
 `-2147483648`, not a large positive number. `maskHas`'s division-and-modulo form stays correct up to
-`2 ** 53`, so it keeps working even if the day directory's cap (`MAX_DAY_PLAYERS`, currently 24)
-were ever raised. At 24 players the highest possible bit is `2 ** 23`, comfortably inside signed
-32-bit range, so a bitwise version would happen to work today — which is exactly what makes it a
-trap: it produces no error, no crash, nothing that shows up in testing. It produces a tick-list with
-the wrong girls checked, and nobody finds out until a coach notices in the gym. Use the arithmetic
-form even though the bitwise one looks like it would pass every test you are likely to write against
-it now.
+`2 ** 53`, so it keeps working for the day directory's cap (`MAX_DAY_PLAYERS`, currently 32). At 32
+players the highest possible bit is `2 ** 31`, exactly the bit that goes negative, and the largest
+legal mask is `2 ** 32 - 1` = `4294967295`; a bitwise version is already wrong for the thirty-second
+player, and the hard ceiling for the arithmetic form is 53. (When this guide was written the cap was
+24, the top bit was `2 ** 23`, and a bitwise version would have happened to work — which is what
+made it a trap.) A bitwise reader produces no error, no crash, nothing that shows up in testing
+unless a test names all 32 players. It produces a tick-list with the wrong girls checked, and nobody
+finds out until a coach notices in the gym. Use only the arithmetic helpers.
 
 (The same file also exports `maskOf` and `maskCount`, which build and count masks. You will not need
 either — the roster travels Planner → Client only, so you only ever read masks, never construct
@@ -290,7 +291,7 @@ New at v3, replacing the v2 per-game `roster` errors:
 - `game "<gid>" set <n> names a player outside the directory` — the value *is* a legal integer, but
   it sets a bit at or beyond `players.length`. `5` over a 2-player directory is a perfectly good
   32-bit integer, just not one that payload's `players` array can support.
-- `game "<gid>" names <n> players; the limit is 12` — unchanged wording and unchanged limit from v2,
+- `game "<gid>" names <n> players; the limit is 16` — unchanged wording and unchanged limit from v2,
   now measured as the union of bits set across the game's `sets` rather than the length of a
   `roster` array.
 
@@ -320,7 +321,7 @@ Nothing in this list needs a line of Client work; it is here so you do not go lo
   around them.
 - **`MAX_GAMES_PER_DAY` (8), `MAX_DAY_PLAYERS` (24), `MAX_ROSTER_PLAYERS` (12), `MAX_SETS` (5),
   `MAX_COUNT` (999), `MAX_NAME_LENGTH` (64), `MAX_RECORDED_AT_LENGTH` (32).** None of these numbers
-  moved.
+  moved (they later moved: 16 a game and 32 a day, 2026-10-03 — see the main spec's Versioning policy).
 - **The `cx-` namespace** for Client-created players: `CLIENT_ID_PATTERN`,
   `/^cx-[A-Za-z0-9_-]{4,32}$/`, and `ID_PATTERN` `/^[A-Za-z0-9_-]{1,64}$/` for every id — unchanged,
   and the rule that `cx-` is only for a player not in the day directory at all is unchanged too, just
