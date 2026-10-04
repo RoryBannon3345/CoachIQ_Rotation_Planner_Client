@@ -1,5 +1,5 @@
 // verify-density.mjs — boots the shipped dist/ bundle at real iPhone viewports and asserts
-// that a full 12-player game fits on one screen, with tap targets that stay hittable.
+// that a full 12-player game fits on one screen, and that a 16-player game keeps full-size rows and scrolls, with tap targets that stay hittable.
 //
 // This exists because the failure it guards is invisible. A roster that overflows by a few
 // pixels looks exactly like one that fits until a coach reaches for the twelfth girl mid-rally
@@ -23,10 +23,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED = join(ROOT, 'dist', APP_HTML);
 
 /** The floor in styles.css (`grid-auto-rows: minmax(38px, 1fr)`). Below this the list is meant
- *  to scroll rather than shrink, so a viewport too short for 12 rows is a pass, not a failure. */
+ *  to scroll rather than shrink, so a game longer than the screen (13–16 players) is a pass, not a failure. */
 const ROW_FLOOR = 38;
 
-const NAMES = ['Addison', 'Brooklyn', 'Brynn', 'Emily', 'Grace', 'Hailey', 'Lexi', 'Lily', 'Melanie', 'Maya', 'Nora', 'Zoie'];
+const NAMES = ['Addison', 'Brooklyn', 'Brynn', 'Emily', 'Grace', 'Hailey', 'Lexi', 'Lily', 'Melanie', 'Maya', 'Nora', 'Zoie', 'Olivia', 'Piper', 'Quinn', 'Ruby'];
 
 /** A one-game day whose single set names every player, so all `n` rows render. */
 function rosterFor(n) {
@@ -47,6 +47,10 @@ const CASES = [
   // the same rule that compresses twelve has to expand six.
   { label: 'X-class browser, 6 players', w: 375, h: 652, n: 6, allVisible: true, minTarget: 60 },
   { label: 'iPhone SE 1st gen, 6 players', w: 320, h: 568, n: 6, allVisible: true, minTarget: 44 },
+  // Sixteen players do not fit one screen at the 38px floor, by design: the rows hold their size
+  // and the list scrolls, rather than shrinking every tap target to make room.
+  { label: 'X-class browser, 16 players', w: 375, h: 652, n: 16, allVisible: false, scrolls: true, minTarget: 35 },
+  { label: 'iPhone 15 Pro home, 16 players', w: 393, h: 774, n: 16, allVisible: false, minTarget: 35 },
 ];
 
 if (!existsSync(SHIPPED)) {
@@ -98,6 +102,7 @@ try {
         // The half-pixel allowance is for sub-pixel layout, not slack: a row hidden by a
         // whole pixel is a row the coach has to scroll for.
         allVisible: last.bottom <= box.bottom + 0.5,
+        scrollable: rows.scrollHeight > rows.clientHeight + 0.5,
       };
     });
 
@@ -110,6 +115,8 @@ try {
     } else if (c.allVisible && !m.allVisible) {
       problems.push(`rows hit the ${ROW_FLOOR}px floor and the roster no longer fits`);
     }
+    if (c.n > 12 && m.rowH < ROW_FLOOR - 0.5) problems.push(`rows shrank to ${m.rowH}px, under the ${ROW_FLOOR}px floor`);
+    if (c.scrolls && !m.scrollable) problems.push('a game too long for the screen did not scroll');
     if (Math.abs(askH - liveH) > 0.5 || askH > 60 || liveH > 60) problems.push(`set bar is ${askH}px asking and ${liveH}px live; it must match within 0.5px and stay at or under 60px`);
     if (m.target < c.minTarget) problems.push(`tap target ${m.target}px is under the ${c.minTarget}px this case requires`);
 
@@ -129,4 +136,5 @@ if (failed) {
   process.exit(1);
 }
 console.log('\nPASS: a full 12-player game fits on one screen on every supported iPhone viewport,');
-console.log('      and a 6-player game expands to fill it rather than squashing to the top.');
+console.log('      a 16-player game keeps full-size rows and scrolls, and a 6-player game expands');
+console.log('      to fill the screen rather than squashing to the top.');

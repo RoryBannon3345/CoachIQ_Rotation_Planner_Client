@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 12 players a game, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS4… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS4… stats payloads with the planner by copy and paste, with no server or network required.
 
 Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v4).
 
@@ -34,7 +34,7 @@ sets/tabs/tick-lists). Run them individually with `npm run verify:build` or
 `npm run verify:golden-vector`.
 
 `scripts/verify-density.mjs` is the third check: it opens the shipped bundle at real iPhone viewports
-and asserts a full 12-player game fits on one screen without scrolling, with tap targets that stay
+and asserts a full 12-player game fits on one screen, and a 16-player game scrolls with full-size rows, with tap targets that stay
 hittable. The failure it guards is invisible — a roster that overflows by a few pixels looks exactly
 like one that fits until a coach reaches for the twelfth girl mid-rally. Anything that grows above
 the rows (`.topbar`, `.setbar`, `.colhead`) spends that budget, including a column header quietly
@@ -171,6 +171,7 @@ Two constants must be bumped for every release, and both are easy to forget:
 
 - [ ] Paste roster from the planner (copy in the planner's Stats dialog, Messages it to the phone, paste) → team/opponent/date/players shown.
 - [ ] 12-row roster: every button hit reliably with a thumb; no double-tap zoom; no rubber-band scroll of the whole page.
+- [ ] 16-row roster scrolls; rows stay full size.
 - [ ] Tap, lock the phone 60 s, unlock → counts intact. Background the app, open five other apps, return → intact. Kill the app, relaunch → intact and on the same game/set.
 - [ ] "−" mode subtracts exactly once then turns off; Undo reverses the last tap and shows what it undid.
 - [ ] Second game in the same session; switch back and forth; counts never bleed.

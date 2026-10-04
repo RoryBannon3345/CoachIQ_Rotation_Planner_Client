@@ -1023,7 +1023,7 @@ function runAction(btn) {
 function render() {
   const app = document.getElementById('app');
   // Preserve the player list's scroll position (and the sheet's, if one is open and scrollable —
-  // essential now, not just polite, since a 24-row players sheet overflows and every tick
+  // essential now, not just polite, since a 32-row players sheet overflows and every tick
   // re-renders the whole DOM) across a re-render, since app.innerHTML rebuilds the whole DOM and
   // would otherwise snap both back to the top on every tap.
   const rowsEl = document.querySelector('.rows');
