@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, setServedFirst, tapPoint, setScore } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, setServedFirst, tapPoint, setScore, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -484,4 +484,46 @@ test('a clean schema-3 save is re-committed at schema 4 on the very first boot, 
   assert.equal(game.history[0].kind, 'count');
   assert.equal(game.history.length, 1);
   assert.doesNotMatch(env.document.getElementById('app').innerHTML, /set aside/);
+});
+
+// The copyright lives on the paste screen only (docs/copyright-mockup.html, option 6). The record
+// screen has no height to spare (scripts/verify-density.mjs), so these pin both halves.
+const COPYRIGHT = '© 2026 Rory Bannon. All rights reserved.';
+
+test('the first-launch paste screen shows the brand card: name, live version, copyright', async () => {
+  const { document } = freshEnv();
+  await bootUi();
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /class="brandcard"/);
+  assert.ok(html.includes('CoachIQ Stats'), 'app name');
+  assert.ok(html.includes(`Version ${APP_VERSION}`), 'version follows APP_VERSION');
+  assert.ok(html.includes(COPYRIGHT), 'exact copyright wording');
+  assert.equal(`© ${COPYRIGHT_YEAR} ${AUTHOR_NAME}. All rights reserved.`, COPYRIGHT, 'constants spell the same line');
+});
+
+test('the paste-again screen shows the brand card too', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }],
+    games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }],
+  }, '2026-09-19T09:00:00Z');
+  const { document } = await bootWithSession(day);
+  click(document, '[data-action="open-switcher"]');
+  click(document, '[data-action="switcher-paste-new-day"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="cancel-paste"/, 'this is the mid-day paste screen');
+  assert.ok(html.includes(COPYRIGHT));
+});
+
+test('the record screen shows no brand card', async () => {
+  const day = newDayFromRoster({
+    v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+    players: [{ id: 'grace', name: 'Grace' }],
+    games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }],
+  }, '2026-09-19T09:00:00Z');
+  const { document } = await bootWithSession(day);
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="tap-count"/, 'this is the record screen');
+  assert.doesNotMatch(html, /brandcard/);
+  assert.ok(!html.includes('©'), 'no copyright on the record screen');
 });

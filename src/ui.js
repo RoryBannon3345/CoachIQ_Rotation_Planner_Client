@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -152,6 +152,12 @@ function renderPaste() {
     : '';
   return `
 <div class="screen screen-pad">
+  <div class="brandcard">
+    <span class="ball" aria-hidden="true"></span>
+    <h1 class="bname">CoachIQ Stats</h1>
+    <div class="bver">Version ${esc(APP_VERSION)}</div>
+    <div class="bcopy">© ${esc(COPYRIGHT_YEAR)} ${esc(AUTHOR_NAME)}. All rights reserved.</div>
+  </div>
   <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open the day</p>
   ${topBannerHtml()}
   ${errorHtml}

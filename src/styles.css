@@ -159,6 +159,15 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 .helper { font-size:11.5px; color:var(--fg-3); margin:8px 0 0; line-height:1.5; }
 .summary-line { font-size:12.5px; color:var(--fg-2); margin:0 0 4px; }
 
+/* brand card at the top of the paste screen — the app's only on-screen copyright. Values from
+   docs/copyright-mockup.html, option 6. Paste screen only: the record screen has no row budget
+   to spare for it (scripts/verify-density.mjs). */
+.brandcard { display:flex; flex-direction:column; align-items:center; text-align:center; padding:22px 0 18px; margin-bottom:14px; border-bottom:1px solid var(--line); flex:none; }
+.brandcard .ball { width:44px; height:44px; margin-bottom:10px; border-radius:50%; background:conic-gradient(from 20deg, var(--warn), var(--accent), var(--warn)); box-shadow:inset 0 0 0 2px rgba(255,255,255,.85); }
+.brandcard .bname { margin:0; font-size:19px; font-weight:650; letter-spacing:-.01em; line-height:1.3; }
+.brandcard .bver { font-size:12px; color:var(--fg-3); }
+.brandcard .bcopy { font-size:11px; color:var(--fg-3); margin-top:8px; }
+
 /* empty tick-list state on the record screen — "No players ticked for this game yet." */
 .rows.empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; padding:32px 24px; color:var(--fg-3); font-size:13px; }
 

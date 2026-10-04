@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copyright Options</title>
+<style>
+/* Tokens and component rules copied from src/styles.css so each frame looks like the shipped app.
+   About-sheet rules (.about-*) adapted from the planner's src/styles/app.css. */
+:root {
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fb98a; --warn:#e8963c; --err:#e0524a;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(16,32,48,.07), 0 6px 20px rgba(16,32,48,.07);
+  --backdrop:rgba(16,32,48,.35);
+  --warn-bg:rgba(232,150,60,.1); --warn-border:rgba(232,150,60,.35);
+  --err-bg:rgba(224,82,74,.1); --err-border:rgba(224,82,74,.4);
+  --info-bg:rgba(47,125,225,.14); --ok-bg:rgba(63,185,138,.16);
+  --hl:#c026d3;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:#e6eaf0; color:var(--fg); font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif; }
+button { font:inherit; color:inherit; cursor:pointer; }
+
+/* ---------- page chrome ---------- */
+.page-head { max-width:1240px; margin:0 auto; padding:28px 16px 8px; }
+.page-head h1 { margin:0 0 6px; font-size:22px; letter-spacing:-.01em; }
+.page-head p { margin:0 0 6px; color:var(--fg-2); max-width:820px; }
+.controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
+.controls label { display:inline-flex; gap:8px; align-items:center; background:var(--bg-2); border:1px solid var(--line-2); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
+.legend { font-size:12.5px; color:var(--fg-2); display:inline-flex; gap:6px; align-items:center; }
+.legend i { width:22px; height:14px; border:2px dashed var(--hl); border-radius:4px; display:inline-block; }
+.grid { max-width:1240px; margin:0 auto; padding:16px 16px 48px; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap:22px; }
+@media (max-width: 420px) { .grid { grid-template-columns:1fr; } }
+.card { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px; min-width:0; }
+.card.rec { border-color:var(--accent); box-shadow:0 0 0 2px var(--info-bg), var(--shadow); }
+.card-head { display:flex; align-items:baseline; gap:10px; }
+.num { flex:none; width:28px; height:28px; border-radius:50%; background:var(--fg); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+.card.rec .num { background:var(--accent); }
+.card-head h2 { margin:0; font-size:15.5px; flex:1; }
+.badge { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); background:var(--info-bg); border-radius:4px; padding:2px 6px; }
+.desc { margin:0; font-size:13px; color:var(--fg-2); }
+.exact { margin:0; font:12px/1.5 ui-monospace,Consolas,"Cascadia Mono",monospace; background:var(--bg-3); border:1px solid var(--line); border-radius:8px; padding:8px 10px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
+.tags { display:flex; flex-wrap:wrap; gap:6px; }
+.tag { font-size:11.5px; border-radius:20px; padding:2px 10px; border:1px solid var(--line-2); background:var(--bg-3); color:var(--fg-2); }
+.tag b { color:var(--fg); font-weight:650; }
+.tag.good { border-color:var(--ok); background:var(--ok-bg); }
+.tag.mid { border-color:var(--warn-border); background:var(--warn-bg); }
+.tag.bad { border-color:var(--err); background:var(--err-bg); color:#a8392f; }
+.tag.bad b { color:#a8392f; }
+.frame-wrap { display:flex; justify-content:center; }
+.replay { align-self:center; }
+
+/* ---------- the highlight ring ---------- */
+.hl { outline:2px dashed var(--hl); outline-offset:2px; border-radius:4px; }
+body.no-hl .hl { outline:none; }
+
+/* ---------- phone frame ---------- */
+.phone { width:393px; height:670px; max-width:100%; position:relative; overflow:hidden; border-radius:30px; border:9px solid #1b232d; background:var(--bg); box-shadow:0 10px 30px rgba(16,32,48,.18); flex:none; }
+.phone .body { position:absolute; inset:0; padding:0 12px; display:flex; flex-direction:column; font-size:14px; -webkit-user-select:none; user-select:none; }
+.phone .screen { position:relative; background:var(--bg); display:flex; flex-direction:column; height:100%; }
+.phone .screen-pad { padding:16px 12px; }
+
+/* ---------- shipped component rules (from src/styles.css) ---------- */
+.seg { display:inline-flex; background:var(--bg-3); border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
+.seg button { background:none; border:0; flex:1; min-width:0; padding:6px 1px; font-size:13px; font-variant-numeric:tabular-nums; min-height:44px; color:var(--fg-2); }
+.seg button.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.setbar { display:flex; align-items:center; gap:6px; padding:6px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.setbar .seg { flex:none; width:150px; min-width:0; display:flex; }
+.setbar .pt { flex:1; min-width:0; min-height:44px; border-radius:8px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; gap:8px; font-weight:700; font-size:13px; padding:0 4px; }
+.setbar .pt .big { font-size:22px; font-variant-numeric:tabular-nums; }
+.setbar .pt.us { background:var(--ok-bg); border-color:var(--ok); color:#237a5a; }
+.setbar .pt.them { background:var(--err-bg); border-color:var(--err); color:#a8392f; }
+.btn { background:var(--bg-4); border:1px solid var(--line-2); border-radius:8px; padding:8px 14px; display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; font-size:13px; }
+.btn.icon { padding:8px 11px; min-width:44px; }
+.btn.sm { padding:6px 12px; min-height:44px; font-size:12.5px; }
+.btn:disabled { opacity:.45; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+.btn.block { width:100%; }
+.topbar { display:flex; align-items:center; gap:6px; padding:5px 10px; min-height:44px; background:var(--bg-2); border-bottom:1px solid var(--line); flex:none; }
+.topbar .btn.sm, .topbar .btn.icon { min-height:38px; }
+.topbar .title-group { flex:1; min-width:0; overflow:hidden; display:flex; flex-direction:column; justify-content:center; }
+.topbar .title { font-weight:650; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.topbar .title-team { font-size:10px; line-height:1.3; color:var(--fg-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.colhead { display:grid; grid-template-columns:96px repeat(4,1fr); gap:4px; padding:4px 10px 3px; font-size:8px; font-weight:700; text-transform:uppercase; white-space:nowrap; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
+.colhead span:first-child { text-align:left; }
+.rows { flex:1; min-height:0; overflow-y:auto; display:grid; grid-auto-rows:minmax(38px, 1fr); align-content:start; }
+.row { display:grid; grid-template-columns:96px repeat(4, 1fr); gap:4px; min-height:0; align-items:center; padding:0 10px; border-bottom:1px solid var(--line); }
+.row:nth-child(even) { background:var(--bg-3); }
+.name { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cnt { min-height:0; height:calc(100% - 2px); font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; border-radius:8px; border:1px solid var(--line-2); background:var(--bg-2); display:flex; align-items:center; justify-content:center; }
+.cnt.in { background:var(--ok-bg); border-color:var(--ok); color:#237a5a; }
+.cnt.out { background:var(--warn-bg); border-color:var(--warn); color:#a15b13; }
+.bottombar { display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; padding:6px 0 6px; background:var(--bg); flex:none; }
+.bottombar .undo { justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bottombar .minus { font-size:18px; font-weight:800; }
+.sheet-host { position:absolute; inset:0; z-index:50; background:var(--backdrop); display:flex; align-items:flex-end; justify-content:center; }
+.sheet { width:100%; background:var(--bg-2); border-radius:16px 16px 0 0; padding:16px 14px 20px; box-shadow:var(--shadow); max-height:calc(100% - 40px); overflow-y:auto; }
+.sheet h3 { margin:0 0 4px; font-size:15px; }
+.sheet .helper { font-size:12px; color:var(--fg-3); margin:2px 0 14px; line-height:1.5; }
+.sheet ul.menu { list-style:none; margin:0 0 4px; padding:0; }
+.sheet ul.menu li { border-bottom:1px solid var(--line); }
+.sheet ul.menu li:last-child { border-bottom:0; }
+.sheet ul.menu button { width:100%; text-align:left; background:none; border:0; padding:12px 4px; font-size:13.5px; display:flex; justify-content:flex-start; min-height:44px; }
+.sheet ul.menu .muted-line { padding:10px 4px; font-size:11.5px; color:var(--fg-3); display:flex; justify-content:space-between; }
+.sheet ul.menu .muted-line.tight { padding-top:0; margin-top:-4px; }
+.glist { list-style:none; margin:0; padding:0; }
+.glist li { display:flex; align-items:center; gap:8px; padding:12px 4px; border-bottom:1px solid var(--line); }
+.glist li:last-child { border-bottom:0; }
+.glist .gmeta { flex:1; font-size:12.5px; }
+.glist .gmeta .gtitle { font-weight:650; font-size:13.5px; display:block; }
+.glist .gmeta .gsub { color:var(--fg-3); font-size:11.5px; }
+.glist .newgame button { width:100%; justify-content:flex-start; color:var(--accent); font-weight:600; background:none; border:1px dashed var(--line-2); }
+.btn.danger { background:var(--err-bg); border-color:var(--err-border); color:var(--err); font-weight:600; }
+.paste-box { width:100%; min-height:120px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; color:var(--fg); font:13px/1.5 inherit; resize:none; }
+.paste-box::placeholder { color:var(--fg-3); }
+.helper { font-size:11.5px; color:var(--fg-3); margin:8px 0 0; line-height:1.5; }
+.summary-line { font-size:12.5px; color:var(--fg-2); margin:0 0 4px; }
+
+/* ---------- proposed pieces ---------- */
+.ball { width:22px; height:22px; border-radius:50%; background:conic-gradient(from 20deg, #e8963c, #2f7de1, #e8963c); box-shadow:inset 0 0 0 2px rgba(255,255,255,.85); flex:none; }
+.about-head { display:flex; align-items:flex-start; gap:10px; }
+.about-brand { display:flex; align-items:center; gap:12px; flex:1; }
+.about-brand .ball { width:34px; height:34px; }
+.about-brand h3 { margin:0; font-size:17px; font-weight:650; letter-spacing:-.01em; line-height:1.2; }
+.about-version { font-size:12px; color:var(--fg-3); margin-top:2px; }
+.about-desc { margin:14px 0 0; font-size:13px; color:var(--fg-2); }
+.about-legal { margin:14px 0 0; font-size:13px; }
+.about-license { margin:8px 0 0; font-size:12px; color:var(--fg-3); }
+.about-contact { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.about-contact-label { flex-basis:100%; font-size:12px; color:var(--fg-3); }
+.about-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 11px 3px 8px; border:1px solid var(--line-2); border-radius:20px; background:var(--bg-3); color:var(--fg); font-size:12.5px; text-decoration:none; }
+.about-actions { display:flex; justify-content:flex-end; margin-top:16px; }
+
+.paste-foot { margin-top:auto; text-align:center; font-size:11px; color:var(--fg-3); padding:10px 0 4px; line-height:1.45; }
+
+.brandcard { display:flex; flex-direction:column; align-items:center; text-align:center; padding:22px 0 18px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+.brandcard .ball { width:44px; height:44px; margin-bottom:10px; }
+.brandcard .bname { font-size:19px; font-weight:650; letter-spacing:-.01em; }
+.brandcard .bver { font-size:12px; color:var(--fg-3); }
+.brandcard .bcopy { font-size:11px; color:var(--fg-3); margin-top:8px; }
+
+.splash { position:absolute; inset:0; z-index:60; background:var(--bg-2); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; animation:splash 2.6s ease forwards; }
+.splash .ball { width:64px; height:64px; margin-bottom:16px; }
+.splash .sname { font-size:22px; font-weight:650; letter-spacing:-.01em; }
+.splash .sver { font-size:12.5px; color:var(--fg-3); }
+.splash .scopy { position:absolute; left:0; right:0; bottom:28px; font-size:11.5px; color:var(--fg-3); line-height:1.5; }
+@keyframes splash { 0%, 55% { opacity:1; } 100% { opacity:0; visibility:hidden; } }
+
+.copy-strip { flex:none; height:14px; margin-top:-4px; padding-bottom:2px; text-align:center; font-size:9.5px; line-height:12px; color:var(--fg-3); }
+.budget-warn { position:absolute; left:12px; right:12px; top:150px; z-index:5; background:var(--err); color:#fff; font-size:11.5px; font-weight:600; border-radius:8px; padding:6px 10px; text-align:center; box-shadow:var(--shadow); }
+body.no-hl .budget-warn { display:none; }
+
+.source { width:393px; max-width:100%; height:670px; flex:none; border-radius:14px; background:#0f1720; color:#cfd8e3; font:11.5px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; padding:16px; overflow:auto; display:flex; flex-direction:column; gap:14px; }
+.source .fname { color:#7f8fa3; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+.source pre { margin:0; white-space:pre-wrap; word-break:break-word; }
+.source .t { color:#7cc4ff; } .source .a { color:#ffc27a; } .source .s { color:#9be29b; } .source .c { color:#8a96a6; }
+.source .hl { outline-color:#f0abfc; }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>CoachIQ Stats: where should the copyright go?</h1>
+  <p>Ten places or treatments, each shown on the screen where it would live. The planner's wording is reused where it fits: <b>© 2026 Rory Bannon. All rights reserved.</b> and <b>Proprietary software. Not for redistribution.</b></p>
+  <p>Option 10 adds nothing on screen, so it can be combined with any of 1–9.</p>
+  <div class="controls">
+    <label><input type="checkbox" id="hlToggle" checked> Show highlight</label>
+    <span class="legend"><i></i> the new copyright element</span>
+  </div>
+</header>
+
+<main class="grid" id="grid"></main>
+
+<script>
+const NAMES = ['Ava','Bella','Chloe','Daisy','Emma','Freya','Grace','Holly','Isla','Jess','Kate','Lily'];
+const COUNTS = [[4,1,3,0],[2,0,5,1],[6,2,1,1],[0,0,2,0],[3,1,4,2],[5,0,0,1],[1,1,3,0],[2,2,2,1],[4,0,1,0],[0,1,5,2],[3,0,2,1],[2,1,0,0]];
+const COPY = '© 2026 Rory Bannon. All rights reserved.';
+const LICENCE = 'Proprietary software. Not for redistribution.';
+
+function recordScreen(extraBottom = '') {
+  const rows = NAMES.map((n, i) => {
+    const c = COUNTS[i];
+    return `<div class="row"><div class="name">${n}</div><div class="cnt in">${c[0]}</div><div class="cnt out">${c[1]}</div><div class="cnt in">${c[2]}</div><div class="cnt out">${c[3]}</div></div>`;
+  }).join('');
+  return `<div class="screen">
+    <div class="topbar">
+      <button class="btn icon sm">Games ▾</button>
+      <span class="title-group"><span class="title-team">Thunder U14</span><span class="title">Game 2 vs Hawks · Sat 3 Oct</span></span>
+      <button class="btn icon sm">⋯</button>
+    </div>
+    <div class="setbar">
+      <div class="seg"><button>1</button><button class="on">2</button><button>3</button></div>
+      <button class="pt us">Us <span class="big">14</span></button>
+      <button class="pt them"><span class="big">11</span> Them</button>
+    </div>
+    <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+    <div class="rows">${rows}</div>
+    <div class="bottombar">
+      <button class="btn sm undo">↶ Undo Emma S in</button>
+      <button class="btn icon sm minus">−</button>
+      <button class="btn sm primary">Export</button>
+    </div>
+    ${extraBottom}
+  </div>`;
+}
+
+function pasteScreen({ top = '', bottom = '' } = {}) {
+  return `<div class="screen screen-pad">
+    ${top}
+    <p class="summary-line" style="margin-bottom:12px;font-weight:650;font-size:15px;">Open the day</p>
+    <textarea class="paste-box" placeholder="Paste the day roster payload here" readonly></textarea>
+    <p class="helper">Paste the day roster copied from CoachIQ Rotation Planner</p>
+    <div style="display:flex;gap:8px;margin-top:14px;"><button class="btn primary block">Open day</button></div>
+    ${bottom}
+  </div>`;
+}
+
+const sheet = (inner) => `<div class="sheet-host"><div class="sheet">${inner}</div></div>`;
+const phone = (inner) => `<div class="phone"><div class="body">${inner}</div></div>`;
+
+function menuSheet(tail, { about = false } = {}) {
+  return sheet(`<h3>Menu</h3><ul class="menu">
+    <li><button>Players…</button></li>
+    <li><button>Clear points for Set 2…</button></li>
+    <li><button>Clear Set 2…</button></li>
+    <li><button>Delete game…</button></li>
+    <li><button>Start a new day…</button></li>
+    ${about ? `<li><button class="hl">About…</button></li>` : ''}
+    <li class="muted-line"><span>Codec self-check: OK</span></li>
+    ${tail}
+  </ul>`);
+}
+
+function aboutSheet(withChips) {
+  const chips = withChips ? `<div class="about-contact hl">
+      <span class="about-contact-label">Email Rory about a…</span>
+      <a class="about-chip" href="#"><span>💡</span>Suggestion</a>
+      <a class="about-chip" href="#"><span>🐞</span>Defect</a>
+      <a class="about-chip" href="#"><span>✉</span>Question</a>
+    </div>` : '';
+  return sheet(`<div class="about-head">
+      <div class="about-brand"><span class="ball"></span><div><h3>CoachIQ Stats</h3><div class="about-version">Version 4.1.0</div></div></div>
+      <button class="btn icon" aria-label="Close About">×</button>
+    </div>
+    <p class="about-desc">Courtside serve and return stats for CoachIQ Rotation Planner. Everything stays on this phone until you export it.</p>
+    <p class="about-legal hl">${COPY}</p>
+    ${chips}
+    <p class="about-license hl">${LICENCE}</p>
+    <div class="about-actions"><button class="btn sm">Close</button></div>`);
+}
+
+const OPTIONS = [
+  {
+    title: 'Menu footer, combined',
+    desc: 'Append the copyright to the existing version line at the bottom of the ⋯ menu. One line changes and nothing new appears.',
+    exact: 'v4.1.0 · © 2026 Rory Bannon',
+    tags: [['Visibility','Low','mid'],['Row budget','None','good'],['Effort','Tiny','good']],
+    frame: () => phone(recordScreen() + menuSheet(`<li class="muted-line"><span class="hl">v4.1.0 · © 2026 Rory Bannon</span></li>`)),
+  },
+  {
+    title: 'Menu footer, full legal',
+    desc: 'Keep the version line and add the planner\'s exact two legal lines under it, muted, at the foot of the ⋯ menu.',
+    exact: `v4.1.0\n${COPY}\n${LICENCE}`,
+    tags: [['Visibility','Low–medium','mid'],['Row budget','None','good'],['Effort','Small','good']],
+    frame: () => phone(recordScreen() + menuSheet(`<li class="muted-line"><span>v4.1.0</span></li>
+      <li class="muted-line" style="flex-direction:column;gap:2px;"><span class="hl">${COPY}</span><span class="hl">${LICENCE}</span></li>`)),
+  },
+  {
+    title: 'About sheet',
+    rec: true,
+    desc: 'An "About…" item in the ⋯ menu opens a bottom sheet that mirrors the planner\'s About dialog: ball, name, version, a description, © line, licence line, Close. The two apps then match.',
+    exact: `CoachIQ Stats · Version 4.1.0\n${COPY}\n${LICENCE}`,
+    tags: [['Visibility','Medium','mid'],['Row budget','None','good'],['Effort','Medium','mid']],
+    frame: () => phone(recordScreen() + aboutSheet(false)),
+  },
+  {
+    title: 'About sheet + contact chips',
+    desc: 'Option 3 plus the planner\'s Suggestion / Defect / Question chips. Each opens the coach\'s email app addressed to rorybannon@outlook.com with the subject "CoachIQ Stats 4.1.0: Defect" (or Suggestion, or Question).',
+    exact: `${COPY}\nEmail Rory about a… [💡 Suggestion] [🐞 Defect] [✉ Question]\n${LICENCE}`,
+    tags: [['Visibility','Medium','mid'],['Row budget','None','good'],['Effort','Medium+','mid']],
+    frame: () => phone(recordScreen() + aboutSheet(true)),
+  },
+  {
+    title: 'Paste screen footer',
+    desc: 'A centred, muted line pinned to the bottom of the "Open the day" screen. Every coach sees it at least once per day, and it never touches the record screen.',
+    exact: `${COPY}`,
+    tags: [['Visibility','Medium','mid'],['Row budget','None','good'],['Effort','Tiny','good']],
+    frame: () => phone(pasteScreen({ bottom: `<div class="paste-foot"><span class="hl">${COPY}</span><br><span style="opacity:.8">CoachIQ Stats · v4.1.0</span></div>` })),
+  },
+  {
+    title: 'Paste screen brand card',
+    desc: 'The paste screen becomes a title page: ball mark, app name, version and © above "Open the day". The empty top of that screen gets a purpose.',
+    exact: `CoachIQ Stats\nVersion 4.1.0\n${COPY}`,
+    tags: [['Visibility','High','good'],['Row budget','None','good'],['Effort','Small','good']],
+    frame: () => phone(pasteScreen({ top: `<div class="brandcard"><span class="ball"></span><div class="bname">CoachIQ Stats</div><div class="bver">Version 4.1.0</div><div class="bcopy hl">${COPY}</div></div>` })),
+  },
+  {
+    title: 'Launch splash',
+    desc: 'A brand-and-© overlay on cold start that fades after about 1.5s, or sooner on a tap. Press Replay to see it again. It adds a moment to every launch, including mid-match relaunches.',
+    exact: `CoachIQ Stats\nVersion 4.1.0\n${COPY}`,
+    tags: [['Visibility','High','good'],['Row budget','None','good'],['Effort','Small','good'],['Launch delay','~1.5s','bad']],
+    replay: true,
+    frame: () => phone(recordScreen() + `<div class="splash"><span class="ball"></span><div class="sname">CoachIQ Stats</div><div class="sver">Version 4.1.0</div><div class="scopy"><span class="hl">${COPY}</span></div></div>`),
+  },
+  {
+    title: 'Games sheet footer',
+    desc: 'A muted © line at the foot of the Games ▾ sheet, under "Paste a new day roster…". Coaches open this sheet several times a day.',
+    exact: `${COPY}`,
+    tags: [['Visibility','Low–medium','mid'],['Row budget','None','good'],['Effort','Tiny','good']],
+    frame: () => phone(recordScreen() + sheet(`<h3>Games</h3>
+      <p class="helper" style="margin:-2px 0 14px;">Thunder U14 · Sat 3 Oct · exported 10:42</p>
+      <ul class="glist">
+        <li><div class="gmeta"><span class="gtitle">Game 1 vs Owls</span><span class="gsub">3 sets · 2–1</span></div><button class="btn danger sm">Delete</button></li>
+        <li><div class="gmeta"><span class="gtitle">Game 2 vs Hawks</span><span class="gsub">Set 2 in progress</span></div><button class="btn danger sm">Delete</button></li>
+        <li class="newgame" style="padding-top:14px;"><button class="btn block">Paste a new day roster…</button></li>
+      </ul>
+      <p style="margin:14px 0 0;text-align:center;font-size:11px;color:var(--fg-3);"><span class="hl">${COPY}</span></p>`)),
+  },
+  {
+    title: 'Record screen strip',
+    desc: 'A hairline line under Undo / − / Export, visible all the time. On the smallest supported phone (375×652) it shrinks the 12 rows from 39.0px to 38.2px, leaving under 1px of slack above the 38px floor. Any later growth above the rows would then make the list scroll. Not recommended.',
+    exact: '© 2026 Rory Bannon',
+    tags: [['Visibility','Always','good'],['Row budget','−14px, 0.8px left','bad'],['Effort','Small','good']],
+    frame: () => phone(recordScreen(`<div class="copy-strip"><span class="hl">© 2026 Rory Bannon</span></div>`) + `<div class="budget-warn">Rows 39.0px → 38.2px: 0.8px above the floor</div>`),
+  },
+  {
+    title: 'Metadata only (combinable)',
+    desc: 'Nothing on screen. Add author and copyright meta tags, a comment the build keeps (html-minifier would otherwise strip it), and a LICENSE file matching the planner\'s. It marks ownership in the shipped file and pairs with any option above.',
+    exact: '<meta name="copyright" content="© 2026 Rory Bannon. All rights reserved.">',
+    tags: [['Visibility','None on screen','mid'],['Row budget','None','good'],['Effort','Small','good']],
+    frame: () => `<div class="source">
+      <div><div class="fname">src/index.html · &lt;head&gt;</div><pre><span class="c hl">&lt;!--! CoachIQ Stats. ${COPY}
+     ${LICENCE} --&gt;</span>
+<span class="t">&lt;meta</span> <span class="a">charset</span>=<span class="s">"utf-8"</span><span class="t">&gt;</span>
+<span class="hl"><span class="t">&lt;meta</span> <span class="a">name</span>=<span class="s">"author"</span> <span class="a">content</span>=<span class="s">"Rory Bannon"</span><span class="t">&gt;</span></span>
+<span class="hl"><span class="t">&lt;meta</span> <span class="a">name</span>=<span class="s">"copyright"</span>
+      <span class="a">content</span>=<span class="s">"${COPY}"</span><span class="t">&gt;</span></span>
+<span class="t">&lt;title&gt;</span>CoachIQ Stats<span class="t">&lt;/title&gt;</span></pre></div>
+      <div><div class="fname">scripts/build-prod.mjs</div><pre><span class="c">// html-minifier: keep the licence comment</span>
+<span class="hl">ignoreCustomComments: [<span class="s">/^!/</span>],</span></pre></div>
+      <div><div class="fname">LICENSE (new, same as the planner's)</div><pre class="hl">Copyright (c) 2026 Rory Bannon &lt;rorybannon@outlook.com&gt;
+All rights reserved.
+
+This software and its source code are proprietary and
+confidential. No part of this software may be reproduced,
+distributed, modified, or transmitted in any form or by
+any means without the prior written permission of the
+copyright holder.</pre></div>
+    </div>`,
+  },
+];
+
+const grid = document.getElementById('grid');
+grid.innerHTML = OPTIONS.map((o, i) => `
+  <section class="card${o.rec ? ' rec' : ''}" id="opt-${i + 1}">
+    <div class="card-head"><span class="num">${i + 1}</span><h2>${o.title}</h2>${o.rec ? '<span class="badge">Recommended</span>' : ''}</div>
+    <div class="frame-wrap" data-i="${i}">${o.frame()}</div>
+    ${o.replay ? `<button class="btn sm replay" data-replay="${i}">↻ Replay splash</button>` : ''}
+    <p class="desc">${o.desc}</p>
+    <pre class="exact">${o.exact.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>
+    <div class="tags">${o.tags.map(([k, v, c]) => `<span class="tag ${c}">${k}: <b>${v}</b></span>`).join('')}</div>
+  </section>`).join('');
+
+document.getElementById('hlToggle').addEventListener('change', (e) => {
+  document.body.classList.toggle('no-hl', !e.target.checked);
+});
+grid.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-replay]');
+  if (!b) return;
+  const i = Number(b.dataset.replay);
+  grid.querySelector(`.frame-wrap[data-i="${i}"]`).innerHTML = OPTIONS[i].frame();
+});
+</script>
+</body>
+</html>

@@ -166,11 +166,12 @@ build.
 
 Two constants must be bumped for every release, and both are easy to forget:
 
-1. `APP_VERSION` in `src/session.js` — what the ⋯ menu reports, so you can tell which build a phone is running.
+1. `APP_VERSION` in `src/session.js` — what the ⋯ menu and the paste-screen card report, so you can tell which build a phone is running.
 2. `CACHE` in `src/sw.js` (e.g. `ciq-stats-v4` → `ciq-stats-v5`) — the only cache-busting mechanism this app has. Nothing is content-hashed (see "Asset filenames"), so a phone that already cached the old build keeps serving it until the cache name changes.
 
 ## Verify on the phone
 
+- [ ] First launch (and Games ▾ → Paste a new day roster…) shows the CoachIQ Stats card: ball, name, the current version (APP_VERSION), © 2026 Rory Bannon. All rights reserved. "Open day" is visible without scrolling.
 - [ ] Paste roster from the planner (copy in the planner's Stats dialog, Messages it to the phone, paste) → team/opponent/date/players shown.
 - [ ] 12-row roster: every button hit reliably with a thumb; no double-tap zoom; no rubber-band scroll of the whole page.
 - [ ] 16-row roster scrolls; rows stay full size.

@@ -6,7 +6,9 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.1.0';
+export const APP_VERSION = '4.2.0';
+export const AUTHOR_NAME = 'Rory Bannon';
+export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 400;
 
