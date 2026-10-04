@@ -34,7 +34,7 @@ sets/tabs/tick-lists). Run them individually with `npm run verify:build` or
 `npm run verify:golden-vector`.
 
 `scripts/verify-density.mjs` is the third check: it opens the shipped bundle at real iPhone viewports
-and asserts a full 12-player game fits on one screen, and a 16-player game scrolls with full-size rows, with tap targets that stay
+and asserts a full 12-player game fits on one screen, and a 16-player game keeps full-size rows and scrolls; tap targets stay
 hittable. The failure it guards is invisible — a roster that overflows by a few pixels looks exactly
 like one that fits until a coach reaches for the twelfth girl mid-rally. Anything that grows above
 the rows (`.topbar`, `.setbar`, `.colhead`) spends that budget, including a column header quietly
@@ -158,6 +158,8 @@ force-pushing rewrites the deployment branch, so it stays a deliberate act:
 git push origin `git subtree split --prefix dist main`:gh-pages --force
 ```
 
+The contract's player caps (16 a game, 32 a day) are a refusal on receive, so the planner and this app ship together. A 4.0.x stats app refuses a 13–16 player game from a current planner, and a planner older than 2026-10-03 refuses a stats day naming 25–32 players. Update both.
+
 Open the app on the phone once while online; the service worker is network-first, so it fetches the
 latest version rather than serving the cached one. The version line in the ⋯ menu shows the current
 build.
@@ -182,7 +184,7 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] One export covers the whole day — a single Export from any game produces one payload naming every game recorded that day, not one payload per game.
 - [ ] Paste the stats string into the roster box → "This is a stats payload, not a roster payload."
 - [ ] Tap We serve first, tap Us twice and Them once → the bar reads Us 2 / 1 Them, Undo reads '↶ Undo point Them'. Export → the planner's Stats page shows the Points on court card.
-- [ ] Airplane mode → launch from Home Screen → app opens (worker cache).
+- [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract
 

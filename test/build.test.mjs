@@ -28,3 +28,13 @@ test('sw.js precaches the emitted html by its real name', () => {
   // fetch fails the install and silently costs the app its offline support.
   assert.ok(!/index\.html/.test(sw), 'no stale index.html reference left behind');
 });
+
+test('sw.js clears old caches and only ever serves its own release offline', () => {
+  const out = mkdtempSync(join(tmpdir(), 'ciq-sw-'));
+  build(out);
+  const sw = readFileSync(join(out, 'sw.js'), 'utf8');
+  assert.ok(/caches\.delete\(/.test(sw) && /k !== CACHE/.test(sw), 'activate deletes every other cache');
+  const matches = sw.match(/caches\.match\([^\r\n]*?\{[^}]*\}/g) || [];
+  assert.equal(matches.length, 2, 'both offline fallbacks are present');
+  for (const m of matches) assert.ok(/cacheName: CACHE/.test(m), `scoped to this release: ${m}`);
+});
