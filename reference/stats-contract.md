@@ -10,7 +10,7 @@ checked against.
 The coach plans lineups here, then sends the Client a roster for a **day** of games so it knows who
 is playing in each of them. During each game the Client records serve and service-return counts per
 set, and the coach switches between the day's games without reloading anything. At the end of the
-day she copies the Client's stats payload back here — one payload covering every game — and pastes
+day she copies the Client's stats payload back here — one payload covering every game it holds — and pastes
 it in. There is no network between the two apps: everything travels as plain text, by copy/paste
 (the roster typically through email, the stats sheet by clipboard — see "Payload size"), so the
 format has to survive a mail client's line-wrapping and quoting.
@@ -133,8 +133,10 @@ Reference values: `fnv1a32([])` = `811c9dc5`; `fnv1a32(utf8("a"))` = `e40c292c`.
 
 ## Roster payload schema (contract v3)
 
-One day, the day's player directory, and every game of that day. Validated by
-`validateDayRosterPayload`.
+One day, the player directory of the games it carries, and those games — every game of the day,
+or the ones the coach ticked (at most three an email, a Planner rule, not a contract limit). A day
+may arrive as several roster payloads with the same `date`; the Client merges each into the day it
+holds. Validated by `validateDayRosterPayload`.
 
 | Field | Type | Rule |
 |---|---|---|
@@ -669,6 +671,17 @@ appears once, in the v3 Roster list above.
   numbers with separate lifetimes**. `SCHEMA_VERSION` versions the file this app saves to its own
   `localStorage`; `CONTRACT_VERSION` versions the payload the two apps exchange by copy/paste.
   Bumping one never implies bumping the other.
+
+### Several roster emails a day (2026-10-04)
+
+No contract change and no version bump. The Planner's Email Roster card lets the coach tick which
+of a day's games one email carries, at most three, so a busy day goes out as two or three roster
+payloads with the same `date`. Each is a well-formed v3 roster on its own, naming only its games
+and the players they name. The Client already merges a same-date roster into the day it holds:
+games it already has keep their sets and stats, new games are added, and nothing is deleted
+(`openDayRoster`/`mergeDayRoster` in the Client's `session.js`). The merged day is still held to
+`MAX_GAMES_PER_DAY` and `MAX_DAY_PLAYERS`. A stats payload covers every game the Client holds for
+the day, and the Planner imports it game by game on `gameId`, so nothing on the way back changes.
 
 ### Larger limits: 16 a game, 32 a day (2026-10-03)
 

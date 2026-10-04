@@ -30,8 +30,10 @@ function clampCount(n) {
   return Math.max(0, Math.min(MAX_COUNT, n));
 }
 
-// The session IS the day: one roster paste in the morning, one stats payload back at night.
-// `date` is the identity of the day — null only for the empty, pre-paste state.
+// The session IS the day: one or more roster pastes in the morning (the Planner sends at most
+// three games an email, and `mergeDayRoster` folds each same-date paste into the day), one stats
+// payload back at night. `date` is the identity of the day — null only for the empty, pre-paste
+// state.
 export function newSession() {
   return {
     date: null,
