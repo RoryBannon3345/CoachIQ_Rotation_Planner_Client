@@ -100,6 +100,30 @@ remove the only cache-busting lever this app has. So `dist/` ships as two files
 deliberately. This costs nothing in practice: users only ever visit the Pages URL,
 and `git subtree push --prefix dist` deploys the folder as a unit.
 
+## Browser tests
+
+`npm run test:browsers` builds `dist/` and runs the Playwright suite in `e2e/` against the shipped bundle on
+seven projects: iPhone 15, iPad, Pixel 7, Firefox at phone width, Chromium, Edge and WebKit. It covers opening a
+day, recording, sheets and menus, export, saving, and whether a full roster fits a phone. Run it from
+PowerShell, not Bash (Bash's sandbox kills the browsers). `npm run test:browsers:live` runs only the `@live`
+test, which installs the published GitHub Pages app and checks that it works offline; it needs internet.
+The phone-fit specs are skipped on the desktop projects (they show as "not run" in the grid).
+
+```
+npm run test:browsers          # build + everything except @live
+npm run build; npx playwright test   # everything, @live included, as one run
+npm run test:browsers:matrix   # then: the pass/fail grid
+```
+
+The grid is `playwright-report/matrix.html` (one row per area, one column per project; known = a `test.fail`
+expected failure, not run = skipped). Playwright clears `test-results/` at the start of every run, so generate
+the grid right after the run you want to see; running `test:browsers:live` alone replaces the results, so for a
+grid with the live row, run everything as one command. The planner's round-trip spec needs this repo's `dist/`
+built first.
+
+Known limits: WebKit stands in for Safari, and emulated iPhone/iPad run on Playwright's WebKit, which has no
+real iOS share sheet.
+
 ## Install on iPhone
 
 The HTML file cannot be opened directly from the iPhone Files app because iOS Quick Look previews HTML with JavaScript disabled, and Safari cannot open local files. Deploy to GitHub Pages and add the app to the home screen, where it runs with full JavaScript support, its own storage, and offline access via the service worker. Nothing about your players or stats ever leaves the phone: the hosted file is static and the app makes no network requests.
