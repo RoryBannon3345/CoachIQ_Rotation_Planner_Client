@@ -45,5 +45,9 @@ test.describe('Saving on the device', () => {
     await expect(page.locator('[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]')).toHaveText('2');
     await expect(page.locator('button.pt.typed')).toContainText('25–20');
     await expect.poll(async () => JSON.parse(await page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)).schema).toBe(4);
+    const saved = JSON.parse(await page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY));
+    expect(saved.session).toMatchObject({ team: 'Thunder', date: '2026-09-19' });
+    expect(saved.session.games[0]).toMatchObject({ gameId: 'game-1', opponent: 'Lions' });
+    expect(saved.session.games[0].sets[0]).toMatchObject({ score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 } } } });
   });
 });
