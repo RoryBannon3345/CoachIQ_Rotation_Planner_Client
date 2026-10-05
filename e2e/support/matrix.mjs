@@ -41,7 +41,7 @@ for (const suite of results.suites) visit(suite, suite.file);
 const cellHtml = (c) => {
   if (c === undefined) return '<td class="none">—</td>';
   if (c.failed > 0) return `<td class="fail">✗ ${c.failed} failed${c.passed ? ` · ${c.passed} passed` : ''}</td>`;
-  if (c.known > 0) return `<td class="known">⚠ ${c.passed} passed · ${c.known} known</td>`;
+  if (c.known > 0) return `<td class="known">⚠ ${c.passed} passed · ${c.known} known${c.notRun ? ` · ${c.notRun} not run` : ''}</td>`;
   if (c.passed === 0) return '<td class="none">not run</td>';
   return `<td class="pass">✓ ${c.passed}${c.notRun ? ` · ${c.notRun} not run` : ''}</td>`;
 };

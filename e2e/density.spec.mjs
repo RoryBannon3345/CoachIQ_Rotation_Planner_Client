@@ -108,7 +108,7 @@ test.describe('Fits a phone', () => {
     expect(m.target).toBeGreaterThanOrEqual(35);
   });
 
-  test('16 players scroll at no less than 38 px a row', async ({ page, openApp }) => {
+  test(`16 players at the device size keep every row at or above the ${ROW_FLOOR} px floor`, async ({ page, openApp }) => {
     await openApp();
     await openDay(page, rosterOf(16));
     const m = await measure(page);
