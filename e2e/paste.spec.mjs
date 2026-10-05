@@ -1,8 +1,14 @@
 import { ROSTER_V3_VECTOR } from '../src/vectors.js';
-import { encodePayload } from '../src/codec.js';
+import { encodePayload, maskOf } from '../src/codec.js';
 import { expect, openDay, rosterPayload, rosterText, test } from './support/fixtures.mjs';
 
 const banner = (page) => page.locator('.banner.err[role=alert]');
+
+/** Players `from` to `to - 1`: ids p<i>, names "Player <i>". */
+const squad = (from, to) => Array.from({ length: to - from }, (_, k) => ({ id: `p${from + k}`, name: `Player ${from + k}` }));
+/** The mask naming payload players `from` to `to - 1`. */
+const span = (from, to) => maskOf(Array.from({ length: to - from }, (_, k) => from + k));
+// Exact texts: session.js mergeDayRoster (the day cap at :210, the game cap at :254).
 
 test.describe('Open the day', () => {
   test('the golden v3 vector opens Lions with three set tabs', async ({ page, openApp }) => {
@@ -79,5 +85,40 @@ test.describe('Open the day', () => {
     await page.locator('[data-action="switcher-paste-new-day"]').click();
     await openDay(page, rosterText(rosterPayload({ games: [{ gameId: 'g9', opponent: 'Extra', sets: [1] }] })));
     await expect(page.getByText('Updating would make 9 games; the day limit is 8.')).toBeVisible();
+  });
+
+  test('a merge past the 16-player game limit is refused and the day is kept', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(rosterPayload({ players: squad(0, 16), games: [{ gameId: 'game-1', opponent: 'Lions', sets: [span(0, 16)] }] })));
+    // Player 0 has a count in Set 1, so a merge keeps her there (session.js mergeDayRoster) …
+    const p0 = page.locator('[data-action="tap-count"][data-pid="p0"][data-stat="serve"][data-side="in"]');
+    await press(p0);
+    await expect(p0).toHaveText('1');
+    await page.locator('[data-action="open-switcher"]').click();
+    await page.locator('[data-action="switcher-paste-new-day"]').click();
+    // … beside the sixteen this roster names for the game: seventeen.
+    await openDay(page, rosterText(rosterPayload({ players: squad(1, 17), games: [{ gameId: 'game-1', opponent: 'Lions', sets: [span(0, 16)] }] })));
+    await expect(banner(page).getByText('Updating "Lions" would make 17 players; the game limit is 16.', { exact: true })).toBeVisible(); // the banner also holds Dismiss
+    await page.locator('[data-action="cancel-paste"]').click();
+    await expect(p0).toHaveText('1');
+    await expect(page.locator('[data-action="tap-count"][data-pid="p16"]')).toHaveCount(0);
+  });
+
+  test('a merge past the 32-player day limit is refused and the day is kept', async ({ page, openApp }) => {
+    await openApp();
+    const games = [
+      { gameId: 'game-1', opponent: 'Lions', sets: [span(0, 16)] },
+      { gameId: 'game-2', opponent: 'Falcons', sets: [span(16, 32)] },
+    ];
+    await openDay(page, rosterText(rosterPayload({ players: squad(0, 32), games })));
+    await expect(page.locator('.rows .row')).toHaveCount(16);
+    await page.locator('[data-action="open-switcher"]').click();
+    await page.locator('[data-action="switcher-paste-new-day"]').click();
+    await openDay(page, rosterText(rosterPayload({ players: squad(32, 33), games: [{ gameId: 'game-3', opponent: 'Hawks', sets: [span(0, 1)] }] })));
+    await expect(banner(page).getByText('Updating would make 33 players; the day limit is 32.', { exact: true })).toBeVisible(); // the banner also holds Dismiss
+    await page.locator('[data-action="cancel-paste"]').click();
+    await page.locator('[data-action="open-switcher"]').click();
+    await expect(page.locator('[data-action="switch-game"]')).toHaveCount(2);
+    await expect(page.locator('[data-action="switch-game"][data-gid="game-3"]')).toHaveCount(0);
   });
 });

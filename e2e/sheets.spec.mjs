@@ -37,6 +37,28 @@ test.describe('Sheets', () => {
     await expect(page.getByText('Grace has counts in Set 1 — clear the set first to take her off.')).toBeVisible();
   });
 
+  test('Players: a 17th player is refused at the 16-player game limit', async ({ page, openApp, press }) => {
+    await openApp();
+    // Seventeen players today: sixteen in Lions' Set 1, the seventeenth only in Falcons.
+    const players = Array.from({ length: 17 }, (_, i) => ({ id: `p${i}`, name: `Player ${i}` }));
+    const lions = 2 ** 16 - 1; // payload players 0..15
+    await openDay(page, rosterText(rosterPayload({
+      players,
+      games: [{ gameId: 'game-1', opponent: 'Lions', sets: [lions] }, { gameId: 'game-2', opponent: 'Falcons', sets: [2 ** 16] }],
+    })));
+    await expect(page.locator('.title')).toContainText('vs Lions');
+    await openMenu(page, press);
+    await press(page.locator('.sheet [data-action="open-players"]'));
+    await expect(page.getByText('16 of 17 in Set 1')).toBeVisible();
+    const p16 = page.locator('li.tick[data-pid="p16"]');
+    await expect(p16.locator('input[type=checkbox]')).not.toBeChecked();
+    await press(p16);
+    // session.js:313 setPlayerTicked
+    await expect(page.locator('.sheet .banner.err[role=alert]')).toHaveText('This game already has 16 players; the stats app limit is 16.');
+    await expect(p16.locator('input[type=checkbox]')).not.toBeChecked();
+    await expect(page.getByText('16 of 17 in Set 1')).toBeVisible();
+  });
+
   test('Add a sub: blank and duplicate names are refused; a new name joins', async ({ page, openApp, press }) => {
     await openApp();
     await openDay(page, rosterText());
