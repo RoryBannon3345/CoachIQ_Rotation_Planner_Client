@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, replaceLogWithScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -307,15 +307,20 @@ function renderScoreSheet(sheet) {
 <div class="screen sheet-host">
   <div class="sheet">
     <h3>Set ${sheet.n} score</h3>
-    <p class="helper" style="margin-bottom:14px;">Enter the final score once the set is over.</p>
+    <p class="helper" style="margin-bottom:14px;">${sheet.replace
+      ? esc(`Replaces the rally log (Us ${sheet.tally[0]} – ${sheet.tally[1]} Them, ${sheet.rallies} ${sheet.rallies === 1 ? 'rally' : 'rallies'}) with the score you type. Serve and return counts stay. Undo can't bring the log back.`)
+      : 'Enter the final score once the set is over.'}</p>
     <div class="score-row">
       <div><label for="scoreUs">Us</label><input id="scoreUs" type="text" inputmode="numeric" pattern="[0-9]*" value="${esc(sheet.us)}"></div>
       <div><label for="scoreThem">Them</label><input id="scoreThem" type="text" inputmode="numeric" pattern="[0-9]*" value="${esc(sheet.them)}"></div>
     </div>
     ${errHtml}
     <div class="actions">
-      <button type="button" class="btn danger" data-action="score-clear">Clear score</button>
-      <button type="button" class="btn primary" data-action="score-done">Done</button>
+      ${sheet.replace
+        ? `<button type="button" class="btn" data-action="close-sheet">Cancel</button>
+      <button type="button" class="btn danger" data-action="score-done">Replace log</button>`
+        : `<button type="button" class="btn danger" data-action="score-clear">Clear score</button>
+      <button type="button" class="btn primary" data-action="score-done">Done</button>`}
     </div>
   </div>
 </div>`;
@@ -479,7 +484,7 @@ function renderMenuSheet() {
     <ul class="menu">
       <li><button type="button" data-action="open-players">Players…</button></li>
       ${asked ? `<li><button type="button" data-action="menu-flip-serve-first">${set.servedFirst ? 'We' : 'They'} served first ✓ <span class="helper-inline">tap to flip</span></button></li>` : ''}
-      ${logged ? `<li><button type="button" data-action="menu-clear-points">Clear points for Set ${n}…</button></li>` : `<li><button type="button" data-action="open-score">Set score…</button></li>`}
+      ${logged ? `<li><button type="button" data-action="open-score">Type the final score…</button></li><li><button type="button" data-action="menu-clear-points">Clear points for Set ${n}…</button></li>` : `<li><button type="button" data-action="open-score">Set score…</button></li>`}
       <li><button type="button" data-action="menu-clear-set">Clear Set ${n}…</button></li>
       <li><button type="button" data-action="menu-delete-game">Delete game…</button></li>
       <li><button type="button" data-action="menu-new-day">Start a new day…</button></li>
@@ -694,6 +699,7 @@ function onTapCount(btn) {
     const top = after.history[after.history.length - 1];
     // The letters tap() actually appended (the MAX_POINTS cap can trim them), with inferTap's reasons.
     if (top && top.kind === 'count' && top.points) showToast(toastText(inferTap(setBefore, stat, side).letters.slice(0, top.points.length), stat));
+    else if (top && top.kind === 'count' && top.delta < 0 && 'pendingBefore' in top) showToast('Open rally cancelled');
   }
   commit({ ...tapped, lastChangedAt: new Date().toISOString() });
 }
@@ -767,8 +773,15 @@ function onOpenScore() {
   if (!game) return;
   const n = clampedActiveSet(game);
   const setRecord = game.sets[n - 1];
-  const score = setRecord && setRecord.score;
-  state.sheet = { kind: 'score', n, us: score ? String(score[0]) : '', them: score ? String(score[1]) : '', error: null };
+  // A set with a rally log opens the sheet in replace mode: prefilled with the tally, and Done swaps
+  // the log for the typed score. Decided once, here, so Done does what the sheet said it would.
+  if (setRecord && setRecord.points !== '') {
+    const tally = pointTally(setRecord.points);
+    state.sheet = { kind: 'score', n, replace: true, tally, rallies: setRecord.points.length, us: String(tally[0]), them: String(tally[1]), error: null };
+  } else {
+    const score = setRecord && setRecord.score;
+    state.sheet = { kind: 'score', n, replace: false, us: score ? String(score[0]) : '', them: score ? String(score[1]) : '', error: null };
+  }
   render();
 }
 
@@ -801,11 +814,13 @@ function onScoreDone() {
   const them = Number(themText);
   const valid = usText !== '' && themText !== '' && Number.isInteger(us) && Number.isInteger(them) && us >= 0 && us <= MAX_SCORE && them >= 0 && them <= MAX_SCORE;
   if (!valid) {
-    state.sheet = { ...sheet, error: 'Enter both scores or clear the score' };
+    state.sheet = { ...sheet, error: sheet.replace ? 'Enter both scores' : 'Enter both scores or clear the score' };
     render();
     return;
   }
-  const session = setScore(state.session, game.gameId, sheet.n, [us, them]);
+  const session = sheet.replace
+    ? replaceLogWithScore(state.session, game.gameId, sheet.n, [us, them])
+    : setScore(state.session, game.gameId, sheet.n, [us, them]);
   state.sheet = null;
   commit({ ...session, lastChangedAt: new Date().toISOString() });
 }

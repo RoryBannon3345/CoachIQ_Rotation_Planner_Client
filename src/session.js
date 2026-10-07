@@ -6,7 +6,7 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.3.0';
+export const APP_VERSION = '4.4.0';
 export const AUTHOR_NAME = 'Rory Bannon';
 export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
@@ -421,6 +421,17 @@ function applyDelta(game, n, playerId, stat, side, delta) {
   return { ...game, sets };
 }
 
+/** The tap that opened set n's open rally: the most recent count entry for that set that raised
+ * a count. While a rally is open no later raising tap or pill tap can exist for that set (each
+ * would have moved or closed `pending`), so this is the opener. Null if the 400-entry cap dropped it. */
+function rallyOpener(history, n) {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const h = history[i];
+    if (h.kind === 'count' && h.n === n && h.delta > 0) return h;
+  }
+  return null;
+}
+
 export function tap(s, gameId, n, playerId, stat, side, delta) {
   return withGame(s, gameId, (g) => {
     const before = getCount(g, n, playerId)[stat][side];
@@ -441,6 +452,15 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
       if (appended !== '') entry.points = appended;
       if (prevSet.servedFirst === null) entry.servedFirstSet = true;
       if (pendingBefore !== inferred.pending) entry.pendingBefore = pendingBefore;
+    } else if (entry.delta < 0 && !isTypedSet(prevSet) && (prevSet.pending ?? null) !== null && side === 'in' && stat === prevSet.pending) {
+      // A minus on the tap that opened the open rally — the "wrong row" correction — cancels that
+      // rally. Undo of this entry re-opens it through pendingBefore.
+      const opener = rallyOpener(g.history, n);
+      if (opener && opener.playerId === playerId && opener.stat === stat && opener.side === 'in') {
+        sets = game.sets.slice();
+        sets[n - 1] = { ...game.sets[n - 1], pending: null };
+        entry.pendingBefore = prevSet.pending;
+      }
     }
     const history = [...game.history, entry].slice(-UNDO_LIMIT);
     return { ...game, sets, history };
@@ -582,6 +602,13 @@ export function setScore(s, gameId, n, score) {
     sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null };
     return { ...g, sets, history: stripInference(g.history, n) };
   });
+}
+
+/** Swaps a set's rally log for a typed final score in one step: the log, the serve-first answer
+ * and any open rally go (clearPoints), then the score is typed (setScore). Counts stay. Like
+ * clearPoints it cannot be undone — the score sheet says so before it runs. */
+export function replaceLogWithScore(s, gameId, n, score) {
+  return setScore(clearPoints(s, gameId, n), gameId, n, score);
 }
 
 export function clearSet(s, gameId, n) {

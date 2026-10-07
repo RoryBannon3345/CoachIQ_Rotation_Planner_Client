@@ -138,4 +138,21 @@ test.describe('Sheets', () => {
     await press(action(page, 'confirm-new-day'));
     await expect(page.locator('#pasteText')).toBeVisible();
   });
+
+  test('Type the final score… replaces a rally log with the typed score', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText());
+    await press(graceServeIn(page)); // answers serve-first, rally open
+    await press(graceServeIn(page)); // rally 1 to Us: the set now has a log
+    await openMenu(page, press);
+    await press(page.locator('.sheet [data-action="open-score"]'));
+    await expect(page.locator('.sheet')).toContainText('Replaces the rally log (Us 1 – 0 Them, 1 rally)');
+    await expect(page.locator('#scoreUs')).toHaveValue('1');
+    await page.locator('#scoreUs').fill('25');
+    await page.locator('#scoreThem').fill('23');
+    await press(page.locator('.sheet [data-action="score-done"]'));
+    await expect(page.locator('button.pt.typed')).toContainText('25–23');
+    await expect(page.locator('[data-action="tap-point"]')).toHaveCount(0);
+    await expect(graceServeIn(page)).toHaveText('2');
+  });
 });

@@ -566,3 +566,67 @@ test('a typed-score set shows no dot, no idle columns and no toast', async () =>
   const html = await renderWith(day, 'g1');
   assert.doesNotMatch(html, /idle|data-serving|data-open|class="toast"/);
 });
+
+test('a minus that cancels the open rally says so, and the pills stop looking open', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // rally open
+  const { document } = await bootWithSession(day);
+  click(document, '[data-action="toggle-minus"]');
+  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /<div class="toast" role="status" aria-live="polite">Open rally cancelled<\/div>/);
+  assert.doesNotMatch(html, /data-open="1"/);
+});
+
+test('a logged set offers Type the final score…; the sheet replaces the log with the typed score', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // log UT
+  const { store, document } = await bootWithSession(day);
+  click(document, '[data-action="open-menu"]');
+  let html = document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="open-score">Type the final score…<\/button><\/li>\s*<li><button type="button" data-action="menu-clear-points"/);
+  click(document, '[data-action="open-score"]');
+  html = document.getElementById('app').innerHTML;
+  assert.match(html, /Replaces the rally log \(Us 1 – 1 Them, 2 rallies\) with the score you type\. Serve and return counts stay\. Undo can&#39;t bring the log back\./);
+  assert.match(html, /id="scoreUs"[^>]*value="1"/);
+  assert.match(html, /id="scoreThem"[^>]*value="1"/);
+  assert.match(html, /<button type="button" class="btn" data-action="close-sheet">Cancel<\/button>/);
+  assert.match(html, /<button type="button" class="btn danger" data-action="score-done">Replace log<\/button>/);
+  assert.doesNotMatch(html, /score-clear/);
+  click(document, '[data-action="score-done"]');
+  const saved = parseSession(store.get(STORAGE_KEY)).value.games[0].sets[0];
+  assert.deepEqual([saved.score, saved.points, saved.servedFirst, saved.pending], [[1, 1], '', null, null]);
+  assert.equal(saved.counts.grace.serve.out, 1);
+});
+
+test('a one-rally log says "1 rally"; an unlogged set keeps the old score sheet', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // log T
+  let env = await bootWithSession(day);
+  click(env.document, '[data-action="open-menu"]');
+  click(env.document, '[data-action="open-score"]');
+  assert.match(env.document.getElementById('app').innerHTML, /\(Us 0 – 1 Them, 1 rally\)/);
+
+  env = await bootWithSession(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'));
+  click(env.document, '[data-action="open-menu"]');
+  click(env.document, '[data-action="open-score"]');
+  const html = env.document.getElementById('app').innerHTML;
+  assert.match(html, /Enter the final score once the set is over\./);
+  assert.match(html, /data-action="score-clear">Clear score<\/button>/);
+  assert.match(html, /data-action="score-done">Done<\/button>/);
+  assert.doesNotMatch(html, /Replace log/);
+});
+
+test('the replace sheet asks for both scores without offering to clear one', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // log T
+  const { document } = await bootWithSession(day);
+  click(document, '[data-action="open-menu"]');
+  click(document, '[data-action="open-score"]');
+  document.getElementById('scoreUs').value = '';
+  click(document, '[data-action="score-done"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /<span>Enter both scores<\/span>/);
+  assert.doesNotMatch(html, /or clear the score/);
+});

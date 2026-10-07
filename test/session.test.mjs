@@ -1141,12 +1141,12 @@ test('Undo of a pill tap that closed an open rally re-opens it', () => {
   assert.deepEqual([set1(u).points, set1(u).pending], ['', 'serve']);
 });
 
-test('minus mode infers nothing, and its Undo leaves the log and open rally alone', () => {
+test('minus mode infers no letters; the opener minus only closes the rally, and its Undo re-opens it', () => {
   let s = t(open(), 'grace', 'serve', 'in');
   s = t(s, 'grace', 'serve', 'in'); // U, rally open
-  s = t(s, 'grace', 'serve', 'in', -1); // a correction
-  assert.deepEqual([set1(s).points, set1(s).pending], ['U', 'serve']);
-  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1 });
+  s = t(s, 'grace', 'serve', 'in', -1); // a correction on the opener: cancels the open rally
+  assert.deepEqual([set1(s).points, set1(s).pending], ['U', null]);
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, pendingBefore: 'serve' });
   const u = S.undo(s, 'game-1').session;
   assert.deepEqual([set1(u).points, set1(u).pending, S.getCount(u.games[0], 1, 'grace').serve.in], ['U', 'serve', 2]);
 });
@@ -1247,4 +1247,67 @@ test('a typed score strips inference, so a later serve-first answer survives Und
   const u = S.undo(s, 'game-1').session;
   assert.equal(set1(u).servedFirst, false);
   assert.equal(set1(u).pending, null);
+});
+
+// ---- minus cancels an open rally; replace a log with a typed score
+// (docs/superpowers/specs/2026-10-07-minus-cancels-and-typed-score-design.md) ----
+
+test('a minus on the tap that opened the rally cancels it: no phantom point', () => {
+  let s = t(open(), 'grace', 'serve', 'in');
+  s = t(s, 'grace', 'serve', 'in'); // rally 1 to Us; Grace's second serve opens a rally — the wrong row
+  s = t(s, 'grace', 'serve', 'in', -1);
+  assert.deepEqual([set1(s).points, set1(s).pending], ['U', null]);
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, pendingBefore: 'serve' });
+  assert.equal(S.parseSession(S.serialiseSession(s)).ok, true);
+  s = t(s, 'zoie', 'serve', 'in'); // the right row opens the rally afresh
+  assert.deepEqual([set1(s).points, set1(s).pending], ['U', 'serve']);
+});
+
+test('Undo of a cancelling minus re-opens the rally and restores the count', () => {
+  let s = t(open(), 'grace', 'serve', 'in');
+  s = t(s, 'grace', 'serve', 'in', -1);
+  assert.equal(set1(s).pending, null);
+  const u = S.undo(s, 'game-1').session;
+  assert.deepEqual([set1(u).pending, S.getCount(u.games[0], 1, 'grace').serve.in], ['serve', 1]);
+});
+
+test('a minus anywhere else leaves the open rally alone', () => {
+  let s = t(open(), 'zoie', 'serve', 'in'); // answers serve-first, rally open
+  s = t(s, 'grace', 'serve', 'out'); // rally to Us, then the Out: nothing open
+  s = t(s, 'grace', 'return', 'in'); // they serve; Grace's return opens a rally
+  s = t(s, 'grace', 'serve', 'in'); // we serve: rally to Us, and Grace's serve opens one
+  assert.deepEqual([set1(s).points, set1(s).pending], ['UTU', 'serve']);
+  const kept = (next, why) => assert.equal(set1(next).pending, 'serve', why);
+  const other = t(s, 'zoie', 'serve', 'in', -1);
+  kept(other, 'another player');
+  assert.equal('pendingBefore' in other.games[0].history.at(-1), false);
+  kept(t(s, 'grace', 'serve', 'out', -1), 'the Out side');
+  kept(t(s, 'grace', 'return', 'in', -1), 'the other stat');
+  kept(t(s, 'grace', 'return', 'out', -1), 'a no-op at 0');
+});
+
+test('replaceLogWithScore swaps the rally log for a typed score in one step; counts stay', () => {
+  let s = t(open(), 'grace', 'serve', 'in');
+  s = t(s, 'grace', 'serve', 'in');
+  s = S.tapPoint(s, 'game-1', 1, 'T');
+  s = S.replaceLogWithScore(s, 'game-1', 1, [25, 23]);
+  assert.deepEqual([set1(s).score, set1(s).points, set1(s).servedFirst, set1(s).pending], [[25, 23], '', null, null]);
+  assert.equal(S.getCount(s.games[0], 1, 'grace').serve.in, 2);
+  assert.deepEqual(s.games[0].history.map((h) => Object.keys(h).sort().join()), ['delta,kind,n,playerId,side,stat', 'delta,kind,n,playerId,side,stat']);
+  assert.equal(S.isSetPlayed(set1(s)), true);
+  assert.equal(S.parseSession(S.serialiseSession(s)).ok, true);
+});
+
+test('a minus with no open rally, or in a typed set, cancels nothing', () => {
+  let s = t(open(), 'grace', 'serve', 'in');
+  s = t(s, 'grace', 'serve', 'out'); // rally to Us, then the Out: nothing open
+  s = t(s, 'grace', 'serve', 'in', -1);
+  assert.deepEqual([set1(s).points, set1(s).pending], ['UT', null]);
+  assert.equal('pendingBefore' in s.games[0].history.at(-1), false, 'no open rally');
+
+  let typed = S.setScore(open(), 'game-1', 1, [25, 20]);
+  typed = t(typed, 'grace', 'serve', 'in');
+  typed = t(typed, 'grace', 'serve', 'in', -1);
+  assert.equal(set1(typed).pending, null);
+  assert.equal('pendingBefore' in typed.games[0].history.at(-1), false, 'typed set');
 });

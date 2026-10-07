@@ -210,6 +210,9 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] Paste the stats string into the roster box → "This is a stats payload, not a roster payload."
 - [ ] Tap We serve first, tap Us twice and Them once → the bar reads Us 2 / 1 Them, Undo reads '↶ Undo point Them'. Export → the planner's Stats page shows the Points on court card.
 - [ ] On a fresh set tap Grace Serve In twice, then Serve Out → the bar reads Us 2 / 1 Them with the dot on Them, the toast says "Us +1 · we serve, then Them +1 · Serve out", and one Undo takes back the Out tap and both of its points (Us 1 / 0 Them, both pills dashed).
+- [ ] Tap Zoë Serve In, then Grace Serve In (the wrong row), then − and Grace Serve In → the toast says "Open rally cancelled" and the pills stop being dashed; Zoë Serve In then opens a fresh rally and the score stays at Us 1.
+  A minus on the counter that opened the current rally always cancels that rally. To fix an older miscount on the player who is serving, wait until the rally is settled (or Undo the minus).
+- [ ] On a set with a rally log, Menu → Type the final score… → the sheet shows the log's tally and warns it replaces the log; Replace log with 25–23 → the bar shows 25–23 typed and the counts are unchanged.
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract

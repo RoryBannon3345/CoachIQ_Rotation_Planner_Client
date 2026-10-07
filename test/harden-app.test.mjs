@@ -215,7 +215,7 @@ test('the real codec/session data path survives hardening unchanged', async () =
   );
   assert.ok(baseline.includes('encodeDayStats.matchesBuilt => true'), 'encodeDayStats agrees with buildDayStatsPayload');
   assert.ok(baseline.includes('decodeDayStats => {"ok":true'), 'day stats payload decoded back');
-  assert.ok(baseline.includes('undo.entry => {"kind":"count","n":1,"playerId":"p2","stat":"return","side":"in","delta":-999}'), 'undo popped the clamped delta');
+  assert.ok(baseline.includes('undo.entry => {"kind":"count","n":1,"playerId":"p2","stat":"return","side":"in","delta":-999,"pendingBefore":"return"}'), 'undo popped the clamped delta (a cancelling minus carries pendingBefore)');
 
   // AUTHOR_LABEL / KIND_LABEL, read through decodePayload's computed-key lookups. If
   // either object literal were mangled by transformObjectKeys -- a key renamed but not

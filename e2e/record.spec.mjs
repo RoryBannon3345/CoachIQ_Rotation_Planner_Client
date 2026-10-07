@@ -101,4 +101,20 @@ test.describe('Recording a set', () => {
     await expect(us).toHaveAttribute('data-open', '1');
     await expect(count(page, 'grace', 'serve', 'out')).toHaveText('0');
   });
+
+  test('a minus on the wrong row cancels the open rally, so the right row starts it afresh', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText());
+    const us = page.locator('[data-action="tap-point"][data-winner="U"]');
+    await press(count(page, 'zoie', 'serve', 'in')); // answers serve-first, rally open
+    await press(count(page, 'grace', 'serve', 'in')); // rally 1 to Us; Grace's tap opens rally 2 — but Zoë served
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
+    await press(page.locator('[data-action="toggle-minus"]'));
+    await press(count(page, 'grace', 'serve', 'in'));
+    await expect(page.locator('.toast')).toHaveText('Open rally cancelled');
+    await expect(us).not.toHaveAttribute('data-open', '1');
+    await press(count(page, 'zoie', 'serve', 'in')); // the right row: a fresh rally, no phantom point
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
+    await expect(us).toHaveAttribute('data-open', '1');
+  });
 });

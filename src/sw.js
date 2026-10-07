@@ -1,6 +1,6 @@
 // `__APP_HTML__` is substituted with the emitted page's filename by scripts/build.mjs
 // (APP_HTML). This file is never served from src/ -- only the built copy runs.
-const CACHE = 'ciq-stats-v12';
+const CACHE = 'ciq-stats-v13';
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./__APP_HTML__']))); });
 // Old caches are deleted on activate, and the offline match below is scoped to CACHE: an unscoped
 // caches.match searches every cache in creation order and could serve the OLDEST build offline, one
