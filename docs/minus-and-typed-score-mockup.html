@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Minus cancels a rally &amp; typing a final score — mockup</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+  --backdrop:rgba(16,32,48,.35);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none;max-width:100%}
+.cap{font-size:11.5px;color:var(--fg-2);margin:8px 0 0;line-height:1.55}
+.cap b{color:var(--fg)}
+.step{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px;background:var(--accent);color:#fff}
+.frame{position:relative;height:470px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3)}
+.title{font-size:12.5px;font-weight:600}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:0 0 78px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg span{flex:1;text-align:center;padding:12px 2px;font-size:13px;color:var(--fg-2)}
+.seg span.on{background:var(--accent);color:#fff;font-weight:600}
+.pt{flex:1;min-width:0;min-height:44px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:13px}
+.pt .big{font-size:22px}
+.pt.us{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.pt.them{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.pt.open{border-style:dashed}
+.pt.serving::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.pt.typed{flex-direction:column;gap:0;line-height:1.2;color:var(--fg-2);font-weight:600}
+.pt small{font-weight:400;color:var(--fg-3);font-size:10.5px}
+.colhead{display:grid;grid-template-columns:86px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8px;font-weight:700;text-transform:uppercase;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.colhead span:first-child{text-align:left}
+.idle{opacity:.5}
+.rows{flex:1;overflow:hidden}
+.row{display:grid;grid-template-columns:86px repeat(4,1fr);gap:4px;height:50px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+.name{font-size:12.5px;font-weight:600}
+.cnt{font-size:18px;font-weight:700;height:44px;border-radius:8px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.minus .cnt{border-color:var(--err)}
+.cnt.hit{box-shadow:0 0 0 3px rgba(47,125,225,.55)}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:12.5px;color:var(--fg)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.danger{background:var(--err-bg);border-color:var(--err-border);color:var(--err);font-weight:600}
+.btn.undo{justify-content:flex-start;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11.5px}
+.btn.minusbtn{font-size:18px;font-weight:800}
+.btn.minusbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.toast{position:absolute;left:10px;right:10px;bottom:68px;background:#16202b;color:#fff;font-size:12.5px;font-weight:600;text-align:center;border-radius:8px;padding:8px 10px;z-index:2}
+.host{position:absolute;inset:0;background:var(--backdrop);display:flex;align-items:flex-end;z-index:3}
+.sheet{width:100%;background:var(--bg-2);border-radius:16px 16px 0 0;padding:16px 14px 18px}
+.sheet h3{margin:0 0 4px;font-size:15px}
+.sheet .helper{font-size:12px;color:var(--fg-3);margin:2px 0 14px;line-height:1.5}
+.sheet .helper b{color:var(--fg-2)}
+.menu{list-style:none;margin:0;padding:0}
+.menu li{border-bottom:1px solid var(--line);padding:12px 4px;font-size:13.5px}
+.menu li:last-child{border-bottom:0}
+.menu li.new{background:var(--info-bg);border-radius:6px;font-weight:600}
+.menu .hint{font-size:11px;color:var(--fg-3);margin-left:6px}
+.score-row{display:flex;gap:12px;margin-bottom:12px}
+.score-row div{flex:1}
+.score-row label{display:block;font-size:11.5px;color:var(--fg-3);margin-bottom:4px}
+.score-row .inp{background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;padding:9px 10px;text-align:center;font-size:20px;font-weight:700}
+.actions{display:flex;gap:8px}
+.actions .btn{flex:1}
+.note{max-width:960px;margin:14px 0 0;padding:11px 13px;border-radius:10px;background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+</style>
+</head>
+<body>
+<h1>Minus cancels a rally &amp; typing a final score — mockup</h1>
+<p class="lede">Two follow-ups to auto-scoring (4.3.0), both answered "yes" by Rory. Static frames of the real record screen; nothing here changes the app.</p>
+
+<h2>1 &middot; A minus on the tap that opened the rally cancels it <span class="sub">the "wrong row" fix</span></h2>
+<div class="strip" id="minus"></div>
+<p class="note"><b>The rule:</b> a minus on the <i>same player's</i> In counter that opened the rally still open closes that rally, and the toast says so. A minus anywhere else only fixes the count, as today. Undo of the minus re-opens the rally. Undo of the original tap still works too and is the quickest fix when you notice straight away.</p>
+
+<h2>2 &middot; Type the final score on a set that already has a rally log</h2>
+<div class="strip" id="typed"></div>
+<p class="note"><b>The rule:</b> a set with a log now offers <b>Type the final score…</b> beside Clear points. The sheet opens on the log's tally, says the log will be replaced, and <b>Replace log</b> swaps it for the typed score in one step (counts stay). Like Clear points, Undo cannot bring the log back, which is why the sheet asks first.</p>
+
+<script>
+const players = ['Addison', 'Brynn', 'Grace', 'Hailey'];
+function rows(counts, opts = {}) {
+  return players.map((p) => {
+    const c = counts[p] || [0, 0, 0, 0];
+    const idleS = opts.idle === 'serve' ? ' idle' : '';
+    const idleR = opts.idle === 'return' ? ' idle' : '';
+    const hit = (i) => (opts.hit && opts.hit[0] === p && opts.hit[1] === i ? ' hit' : '');
+    return `<div class="row"><div class="name">${p}</div><div class="cnt in${idleS}${hit(0)}">${c[0]}</div><div class="cnt out${idleS}${hit(1)}">${c[1]}</div><div class="cnt in${idleR}${hit(2)}">${c[2]}</div><div class="cnt out${idleR}${hit(3)}">${c[3]}</div></div>`;
+  }).join('');
+}
+function frame(o) {
+  const idle = o.idle;
+  const ch = (stat) => (idle === stat ? ' class="idle"' : '');
+  return `<div class="frame${o.minus ? ' minus' : ''}">
+    <div class="topbar"><span class="btn">Games ▾</span><span class="title-group"><span class="title-team">Blizzards</span><span class="title">vs Game 3 · 10 Oct</span></span><span class="btn">⋯</span></div>
+    <div class="setbar"><div class="seg"><span class="on">1</span><span>2</span><span>3</span></div>${o.strip}</div>
+    <div class="colhead"><span>Player</span><span${ch('serve')}>Serve In</span><span${ch('serve')}>Serve Out</span><span${ch('return')}>Return In</span><span${ch('return')}>Return Out</span></div>
+    <div class="rows">${rows(o.counts, o)}</div>
+    ${o.toast ? `<div class="toast">${o.toast}</div>` : ''}
+    <div class="bottombar"><span class="btn undo">${o.undo}</span><span class="btn minusbtn${o.minus ? ' on' : ''}">−</span><span class="btn primary">Export</span></div>
+    ${o.sheet || ''}
+  </div>`;
+}
+const pills = (us, them, serving, open) =>
+  `<span class="pt us${serving === 'U' ? ' serving' : ''}${open ? ' open' : ''}">Us <span class="big">${us}</span></span><span class="pt them${serving === 'T' ? ' serving' : ''}${open ? ' open' : ''}"><span class="big">${them}</span> Them</span>`;
+const phone = (step, cap, fr) => `<div class="phone"><span class="step">${step}</span>${fr}<p class="cap">${cap}</p></div>`;
+
+const base = { Addison: [3, 0, 2, 1], Brynn: [1, 0, 2, 1], Grace: [4, 1, 1, 0], Hailey: [1, 0, 3, 0] };
+const graceWrong = { ...base, Grace: [5, 1, 1, 0] };
+const brynnRight = { ...base, Brynn: [2, 0, 2, 1] };
+
+document.getElementById('minus').innerHTML = [
+  phone('1 · wrong row', '<b>Grace Serve In</b> tapped, but Brynn served. The rally Grace\'s tap opened is open (dashed pills). Score 12–9.',
+    frame({ strip: pills(12, 9, 'U', true), counts: graceWrong, idle: 'return', hit: ['Grace', 0], undo: '↶ Undo Grace S in' })),
+  phone('2 · minus on Grace', '<b>−</b> then Grace Serve In: the count goes back to 4 <b>and the open rally is cancelled</b>. Pills solid again; the score is untouched.',
+    frame({ strip: pills(12, 9, 'U', false), counts: base, idle: 'return', hit: ['Grace', 0], toast: 'Open rally cancelled', undo: '↶ Undo Grace S in' })),
+  phone('3 · the right row', '<b>Brynn Serve In</b> opens the rally afresh. No phantom point: still 12–9. (Before this change it would have read 13–9.)',
+    frame({ strip: pills(12, 9, 'U', true), counts: brynnRight, idle: 'return', hit: ['Brynn', 0], undo: '↶ Undo Brynn S in' })),
+].join('');
+
+const menuSheet = `<div class="host"><div class="sheet"><h3>Menu</h3><ul class="menu">
+  <li>Players…</li>
+  <li>We served first ✓ <span class="hint">tap to flip</span></li>
+  <li class="new">Type the final score…</li>
+  <li>Clear points for Set 1…</li>
+  <li>Clear Set 1…</li>
+  <li>Delete game…</li>
+</ul></div></div>`;
+const scoreSheet = `<div class="host"><div class="sheet"><h3>Set 1 score</h3>
+  <p class="helper">Replaces the rally log (<b>Us 23 – 25 Them, 48 rallies</b>) with the score you type. Serve and return counts stay. Undo can't bring the log back.</p>
+  <div class="score-row"><div><label>Us</label><div class="inp">25</div></div><div><label>Them</label><div class="inp">23</div></div></div>
+  <div class="actions"><span class="btn">Cancel</span><span class="btn danger">Replace log</span></div>
+</div></div>`;
+
+document.getElementById('typed').innerHTML = [
+  phone('1 · menu', 'A set with a log: <b>Type the final score…</b> sits beside Clear points (highlighted here only to show what is new).',
+    frame({ strip: pills(23, 25, 'T', false), counts: base, idle: 'serve', undo: '↶ Undo point Them', sheet: menuSheet })),
+  phone('2 · the sheet', 'Opens on the log\'s tally (23–25); the coach types the real score, 25–23. The warning names what will be replaced.',
+    frame({ strip: pills(23, 25, 'T', false), counts: base, idle: 'serve', undo: '↶ Undo point Them', sheet: scoreSheet })),
+  phone('3 · done', 'The set now shows the typed score, exactly as a typed set does today. Counts are untouched; no idle columns, no dot.',
+    frame({ strip: '<span class="pt typed">25–23<small>typed</small></span>', counts: base, undo: '↶ Undo Hailey R in' })),
+].join('');
+</script>
+</body>
+</html>

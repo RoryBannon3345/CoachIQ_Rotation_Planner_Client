@@ -46,7 +46,7 @@ The rule it rests on: in rally scoring, whoever wins a rally serves the next one
    rally together. Options for Rory: keep this and teach "use Undo for the last tap"; show a
    warning toast on a minus tap while a rally is open; or make a minus tap on the counter that
    opened the rally reverse that rally too. Cost if wrong: an occasional extra point after a
-   minus correction.
+   minus correction. Resolved in 4.4.0: Rory chose the third option — see docs/superpowers/specs/2026-10-07-minus-cancels-and-typed-score-design.md.
 
 ## Definitions
 
