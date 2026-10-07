@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-scoring from serve &amp; return taps — mockup</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+  --radius:10px; --shadow:0 -8px 30px rgba(20,32,45,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+code{background:var(--bg-4);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:12px ui-monospace,Consolas,"Cascadia Mono",monospace}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none;max-width:100%}
+.cap{font-size:11.5px;color:var(--fg-2);margin:8px 0 0;line-height:1.55}
+.cap b{color:var(--fg)}
+.frame{position:relative;height:556px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:0 0 78px;min-width:0;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg button{flex:1;min-width:0;background:none;border:0;padding:6px 2px;min-height:44px;font-size:13px;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.seg button.on{background:var(--accent);color:var(--accent-fg);font-weight:600}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.colhead span:first-child{text-align:left}
+.colhead span.dimh{opacity:.35}
+.colhead span.act{color:var(--accent)}
+.rows{flex:1;overflow-y:auto}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:52px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+.name{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cnt{font:inherit;font-size:20px;font-weight:700;min-height:44px;font-variant-numeric:tabular-nums;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.minusmode .cnt{border-color:var(--err)}
+.cnt.dim{opacity:.3}
+.cnt.act{box-shadow:0 0 0 2px rgba(47,125,225,.45)}
+.btn{font:inherit;cursor:pointer;background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:13px;color:var(--fg)}
+.btn.sm{padding:6px 12px;font-size:12.5px}
+.btn.icon{padding:8px 11px;min-width:44px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.btn:disabled{opacity:.45;cursor:default}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.btn.undo{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:11.5px;padding:6px 8px}
+.badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px}
+.badge.old{background:var(--err-bg);color:#b03636;border:1px solid var(--err-border)}
+.badge.new{background:var(--ok-bg);color:#237a5a;border:1px solid #b6e0cd}
+.badge.rec{background:var(--accent);color:#fff;border:1px solid var(--accent)}
+
+.pt{font:inherit;cursor:pointer;flex:1;min-width:0;min-height:44px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:13px;padding:0 4px;position:relative}
+.pt .big{font-size:22px;font-variant-numeric:tabular-nums}
+.pt.us{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.pt.them{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.pt.ring{box-shadow:0 0 0 3px rgba(207,71,71,.45)}
+.pt.hl{box-shadow:0 0 0 3px rgba(47,125,225,.6)}
+.pt.pulse{animation:pulse 1.1s ease-in-out infinite;border-width:2px}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(47,125,225,.6)}50%{box-shadow:0 0 0 5px rgba(47,125,225,.1)}}
+@media (prefers-reduced-motion:reduce){.pt.pulse{animation:none;box-shadow:0 0 0 3px rgba(47,125,225,.6)}}
+.tag{position:absolute;top:-7px;right:-2px;font-size:9px;font-weight:700;background:var(--err);color:#fff;border-radius:6px;padding:1px 5px}
+.chip{flex:none;font-size:10px;font-weight:700;background:var(--info-bg);color:#1d4e8f;border:1px solid #c3dbf8;border-radius:10px;padding:2px 6px;max-width:72px;text-align:center;line-height:1.2}
+.toast{position:absolute;left:10px;right:10px;bottom:68px;background:#16202b;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:2}
+.toast:empty{display:none}
+
+.sim{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.panel{flex:1;min-width:260px;max-width:520px;background:var(--bg-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.panel h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-2);margin:14px 0 5px}
+.panel h3:first-child{margin-top:0}
+.panel p{margin:0;font-size:13px;color:var(--fg-2);line-height:1.55}
+.panel .v{font-weight:700;color:var(--fg)}
+.log{display:flex;flex-wrap:wrap;gap:5px;min-height:30px;font-family:ui-monospace,Consolas,monospace}
+.lc{display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:3px 8px;font-weight:700;font-size:13px;border:1px solid}
+.lc.U{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.lc.T{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.lc small{font-size:8.5px;font-weight:700;letter-spacing:.04em;background:var(--accent);color:#fff;border-radius:3px;padding:0 3px;text-transform:uppercase}
+.score{font-size:22px;font-weight:700}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.what{margin-top:12px;padding:8px 10px;background:var(--bg-4);border-radius:8px;font-size:12.5px;min-height:34px}
+</style>
+</head>
+<body>
+<h1>Auto-scoring from serve &amp; return taps — mockup</h1>
+<p class="lede">The idea: in rally scoring the side that wins a rally serves the next one, so the coach's own serve and return taps already reveal who won the previous rally. An <b>Out</b> tap always gives Them the point. Nothing here changes the app; this page compares four options and lets you play the recommended one (D).</p>
+<p class="lede">Team <b>Blizzards</b>, set 1, we served first. In section 1 the log so far is <code>U T T T</code> (Us 1, Them 3) and Brynn has just tapped Return Out for the 4th rally.</p>
+
+<h2>1 &middot; The four options at the same moment</h2>
+<div class="strip" id="static1"></div>
+
+<h2>2 &middot; Play option D <span class="sub">tap the counters like the real screen</span></h2>
+<div class="sim">
+  <div class="phone"><div id="simframe"></div></div>
+  <div class="panel">
+    <h3>Serving</h3><p id="p-serving" class="v"></p>
+    <h3>Rally log</h3><div class="log" id="p-log"></div>
+    <h3>Open rally</h3><p id="p-open" class="v"></p>
+    <h3>Score</h3><p class="score" id="p-score"></p>
+    <h3>Taps so far</h3><p><span class="v" id="p-stat">0</span> stat taps / <span class="v" id="p-score-taps">0</span> score taps</p>
+    <div class="btnrow"><button class="btn primary" id="b-replay" type="button">Replay the worked example</button><button class="btn" id="b-reset" type="button">Reset</button></div>
+    <div class="what"><b>What just happened:</b> <span id="p-what">&mdash;</span></div>
+    <h3>About the Us / Them pills</h3>
+    <p>They stay for set point (the last rally has no next tap to resolve it) and for untracked points. A pill tap closes any open rally and adds that letter. They are ignored until the first stat tap tells us who served.</p>
+  </div>
+</div>
+
+<h2>3 &middot; Where D still needs a finger</h2>
+<div class="strip" id="static3"></div>
+
+<script>
+const PLAYERS=['Addison','Brooklyn','Brynn','Emily','Grace','Hailey'];
+const STAT_LABEL={serve:'S',return:'R'};
+const $=id=>document.getElementById(id);
+const cp=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- shared frame renderer (static frames and the simulator) ---------- */
+function frame(o){
+  const counts=o.counts||{}, act=o.active||null;
+  const cell=(p,stat,side)=>{
+    const n=(counts[p]&&counts[p][stat]&&counts[p][stat][side])||0;
+    const cls='cnt '+side+(act===stat?' act':act?' dim':'');
+    return `<button type="button" class="${cls}" data-p="${p}" data-stat="${stat}" data-side="${side}">${n}</button>`;
+  };
+  const head=[['serve','Serve In'],['serve','Serve Out'],['return','Return In'],['return','Return Out']]
+    .map(([s,l])=>`<span class="${act?(act===s?'act':'dimh'):''}">${l}</span>`).join('');
+  const rows=PLAYERS.map(p=>`<div class="row"><div class="name">${p}</div>${cell(p,'serve','in')}${cell(p,'serve','out')}${cell(p,'return','in')}${cell(p,'return','out')}</div>`).join('');
+  let pills;
+  if(o.ask){
+    pills='<button type="button" class="pt us pulse" data-win="U">Won?</button><button type="button" class="pt them pulse" data-win="T">Lost?</button>';
+  }else{
+    pills=`<button type="button" class="pt us ${o.pillUs||''}" data-win="U">Us <span class="big">${o.us}</span></button><button type="button" class="pt them ${o.pillThem||''}" data-win="T">${o.tag?`<span class="tag">${o.tag}</span>`:''}<span class="big">${o.them}</span> Them</button>`;
+  }
+  const chip=o.chip?`<span class="chip">${o.chip}</span>`:'';
+  return `<div class="frame${o.minus?' minusmode':''}">
+  <div class="topbar"><button class="btn icon sm" type="button">Games &#9662;</button><span class="title-group"><span class="title-team">Blizzards</span><span class="title">vs Game 3 &middot; 10 Oct</span></span><button class="btn icon sm" type="button">&ctdot;</button></div>
+  <div class="setbar"><div class="seg"><button type="button" class="on">1</button><button type="button">2</button><button type="button">3</button></div>${pills}${chip}</div>
+  <div class="colhead"><span>Player</span>${head}</div>
+  <div class="rows">${rows}</div>
+  <div class="toast">${o.toast||''}</div>
+  <div class="bottombar"><button class="btn sm undo" type="button" data-id="undo" ${o.undoOff?'disabled':''}>&#8630; ${o.undo}</button><button class="btn icon sm${o.minus?' primary':''}" type="button" data-id="minus">&minus;</button><button class="btn sm primary" type="button">Export</button></div>
+</div>`;
+}
+function phone(badge,cls,cap,fr){return `<div class="phone"><span class="badge ${cls}">${badge}</span>${fr}<p class="cap">${cap}</p></div>`;}
+
+/* ---------- Section 1 (static) ---------- */
+const base={
+  Addison:{serve:{in:3,out:0},return:{in:2,out:1}},Brooklyn:{serve:{in:2,out:1},return:{in:1,out:0}},
+  Brynn:{serve:{in:1,out:0},return:{in:2,out:1}},Emily:{serve:{in:2,out:0},return:{in:0,out:0}},
+  Grace:{serve:{in:4,out:1},return:{in:1,out:0}},Hailey:{serve:{in:1,out:0},return:{in:3,out:0}}};
+const beforeOut=Object.assign(cp(base),{Brynn:{serve:{in:1,out:0},return:{in:2,out:0}}});
+$('static1').innerHTML=
+ phone('A &middot; Today (manual)','old','<b>A. Today (manual).</b> Us 1 / Them 3 only because the coach also tapped Them three times and Us once.<br>2 taps per rally, one stat tap and one score tap.',
+   frame({counts:base,us:1,them:3,undo:'Undo point Them'}))+
+ phone('B &middot; Deterministic only','new','<b>B. Deterministic only.</b> Out taps score themselves: the Them pill flashes a ring and a small +1 auto tag.<br>In taps still need an Us / Them tap.',
+   frame({counts:base,us:1,them:3,pillThem:'ring',tag:'+1 auto',undo:'Undo Brynn R out + Them'}))+
+ phone('C &middot; Pending-rally prompt','new','<b>C. Pending-rally prompt.</b> The moment <i>before</i> the Out: Grace has tapped Serve In, so the pills read Won? / Lost? and pulse until answered.<br>Same taps as B, but the score cannot drift from the sheet.',
+   frame({counts:beforeOut,ask:true,undo:'Undo Grace S in'}))+
+ phone('D &middot; Side-out inference','rec','<b>D. Side-out inference (recommended).</b> Return columns are tinted (they are serving), Serve columns dimmed; the toast says what was scored.<br>Zero extra taps; the next stat tap resolves an open rally. Us / Them stay for set point and untracked points.',
+   frame({counts:base,us:1,them:3,active:'return',chip:'serving: Them',toast:'Them +1 &middot; Return Out',undo:'Undo Brynn R out + Them'}));
+
+/* ---------- Section 3 (static) ---------- */
+$('static3').innerHTML=
+ phone('Set point','old','<b>1. Set point.</b> The log ends with an open rally and nothing follows it, so the coach taps Us or Them.',
+   frame({counts:base,us:4,them:4,pillUs:'hl',pillThem:'hl',active:'serve',chip:'open rally',undo:'Undo Grace S in'}))+
+ phone('Two untracked','old','<b>2. Two untracked points in a row:</b> their serve error (U), then our serve that nobody tapped (lost, T). The next tap sees a consistent server and infers nothing, so the score is two short; the coach taps Us then Them.',
+   frame({counts:base,us:2,them:2,pillUs:'hl',pillThem:'hl',chip:'2 short',undo:'Undo Emily R in'}))+
+ phone('Missed tap','old','<b>3. Coach missed a tap.</b> Same mechanism: the score runs behind by one. The correction is one pill tap, Undo if too many.',
+   frame({counts:base,us:3,them:4,pillUs:'hl',chip:'1 behind',undo:'Undo Hailey R in'}));
+
+/* ---------- Simulator ---------- */
+function newSim(){
+  const counts={};PLAYERS.forEach(p=>counts[p]={serve:{in:0,out:0},return:{in:0,out:0}});
+  return {servedFirst:null,points:'',pending:null,counts,history:[],minus:false,toast:''};
+}
+let S=newSim();
+function server(){
+  if(S.points.length) return S.points[S.points.length-1]==='U'?'Us':'Them';
+  if(S.servedFirst===true) return 'Us';
+  if(S.servedFirst===false) return 'Them';
+  return null;
+}
+function recomputePending(){
+  const l=S.history[S.history.length-1];
+  S.pending=(l&&l.kind==='count'&&l.delta===1&&l.side==='in')?l.stat:null;
+}
+function statTap(player,stat,side){
+  const c=S.counts[player][stat];
+  if(S.minus){
+    if(c[side]>0){
+      c[side]-=1;
+      S.history.push({kind:'count',player,stat,side,delta:-1,points:'',servedFirstSet:false});
+      S.toast='Minus one: '+player+' '+STAT_LABEL[stat]+' '+side+' (score untouched)';
+      S.minus=false;
+    }
+    return;
+  }
+  let added='',sfSet=false;const parts=[];
+  if(S.servedFirst===null){S.servedFirst=(stat==='serve');sfSet=true;}
+  if(S.pending!==null){
+    if(stat==='serve'){added+='U';parts.push('Us +1 &middot; side-out');}
+    else{added+='T';parts.push('Them +1 &middot; rally resolved');}
+  }else if(server()==='Us'&&stat==='return'){added+='T';parts.push('Them +1 &middot; side-out');}
+  else if(server()==='Them'&&stat==='serve'){added+='U';parts.push('Us +1 &middot; side-out');}
+  if(side==='out'){added+='T';parts.push('Them +1 &middot; '+(stat==='serve'?'Serve':'Return')+' Out');}
+  S.pending=(side==='in')?stat:null;
+  c[side]+=1;
+  S.points+=added;
+  S.history.push({kind:'count',player,stat,side,delta:1,points:added,servedFirstSet:sfSet});
+  S.toast=parts.join(', then ');
+}
+function pointTap(w){
+  if(S.servedFirst===null) return;
+  S.points+=w;S.pending=null;
+  S.history.push({kind:'point',winner:w});
+  S.toast=(w==='U'?'Us':'Them')+' +1 &middot; manual tap';
+}
+function undo(){
+  const e=S.history.pop();if(!e) return;
+  if(e.kind==='count'){
+    const c=S.counts[e.player][e.stat];
+    c[e.side]=Math.max(0,c[e.side]-e.delta);
+    if(e.points.length) S.points=S.points.slice(0,S.points.length-e.points.length);
+    if(e.servedFirstSet) S.servedFirst=null;
+  }else{
+    S.points=S.points.slice(0,-1);
+  }
+  recomputePending();
+  S.toast='Undone';
+}
+function undoLabel(){
+  const e=S.history[S.history.length-1];
+  if(!e) return 'Undo';
+  if(e.kind==='point') return 'Undo point '+(e.winner==='U'?'Us':'Them');
+  let t='Undo '+e.player+' '+STAT_LABEL[e.stat]+' '+e.side;
+  if(e.delta<0) t+=' (minus)';
+  else if(e.points.length) t+=' + '+e.points.split('').map(l=>l==='U'?'Us':'Them').join(', ');
+  return t;
+}
+const tally=()=>[[...S.points].filter(l=>l==='U').length,[...S.points].filter(l=>l==='T').length];
+
+function render(){
+  const sv=server(), [us,them]=tally();
+  const act=sv==='Us'?'serve':sv==='Them'?'return':null;
+  $('simframe').innerHTML=frame({counts:S.counts,us,them,active:act,chip:'serving: '+(sv||'?'),toast:S.toast,undo:undoLabel(),undoOff:!S.history.length,minus:S.minus});
+  $('p-serving').textContent=sv?(sv+(S.points===''&&S.history.some(h=>h.servedFirstSet)?' (from first tap)':'')):'not yet known';
+  let chips='';
+  S.history.forEach(h=>{
+    if(h.kind==='count'&&h.delta===1) [...h.points].forEach(l=>chips+=`<span class="lc ${l}">${l}<small>auto</small></span>`);
+    else if(h.kind==='point') chips+=`<span class="lc ${h.winner}">${h.winner}</span>`;
+  });
+  $('p-log').innerHTML=chips;
+  $('p-log').dataset.log=S.points;
+  $('p-open').textContent=S.pending?'Open rally: '+S.pending+'…':'none';
+  $('p-score').textContent='Us '+us+' – Them '+them;
+  $('p-stat').textContent=S.history.filter(h=>h.kind==='count').length;
+  $('p-score-taps').textContent=S.history.filter(h=>h.kind==='point').length;
+  $('p-what').innerHTML=S.toast||'&mdash;';
+}
+$('simframe').addEventListener('click',ev=>{
+  const t=ev.target.closest('button');if(!t) return;
+  if(t.dataset.stat) statTap(t.dataset.p,t.dataset.stat,t.dataset.side);
+  else if(t.dataset.win) pointTap(t.dataset.win);
+  else if(t.dataset.id==='undo') undo();
+  else if(t.dataset.id==='minus') S.minus=!S.minus;
+  else return;
+  render();
+});
+
+/* ---------- Replay ---------- */
+let timer=null;
+const STEPS=[
+ ['tap','Grace','serve','in'],['tap','Grace','serve','in'],['tap','Addison','return','in'],['tap','Brynn','return','out'],
+ ['note'],
+ ['tap','Emily','serve','in'],['tap','Emily','serve','out'],['tap','Hailey','return','in'],
+ ['tap','Brooklyn','serve','in'],['tap','Brooklyn','serve','in'],['pill','T']];
+function resetSim(){clearTimeout(timer);timer=null;S=newSim();render();}
+$('b-reset').onclick=resetSim;
+$('b-replay').onclick=()=>{
+  resetSim();let i=0;
+  const next=()=>{
+    if(i>=STEPS.length) return;
+    const s=STEPS[i++];
+    if(s[0]==='tap') statTap(s[1],s[2],s[3]);
+    else if(s[0]==='pill') pointTap(s[1]);
+    else S.toast='Their serve into the net. Nobody taps.';
+    render();
+    timer=setTimeout(next,900);
+  };
+  timer=setTimeout(next,900);
+};
+render();
+</script>
+</body>
+</html>

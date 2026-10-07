@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-scoring Us / Them from serve and return taps — options</title>
+<style>
+:root{
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5; --line:#dde3ea; --line-2:#c6d0da;
+  --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --accent:#2f7de1; --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --err:#cf4747; --err-bg:#fdecec; --info-bg:#e8f1fd;
+}
+@page{ size:A4; margin:16mm 16mm 18mm 16mm; }
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff;color:var(--fg);font:11pt/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{padding:0}
+@media screen{ body{max-width:860px;margin:0 auto;padding:40px 24px} }
+h1{font-size:22pt;line-height:1.2;margin:0 0 4px}
+.sub{color:var(--fg-2);font-size:11pt;margin:0 0 18px}
+h2{font-size:15pt;margin:26px 0 8px;padding-bottom:4px;border-bottom:1.5px solid var(--line-2)}
+h3{font-size:12pt;margin:18px 0 6px}
+p{margin:0 0 9px}
+ul,ol{margin:0 0 10px;padding-left:22px}
+li{margin:0 0 4px}
+code{background:var(--bg-4);border:1px solid var(--line);border-radius:3px;padding:0 4px;font:9.5pt ui-monospace,Consolas,"Cascadia Mono",monospace}
+.log{font:10.5pt ui-monospace,Consolas,"Cascadia Mono",monospace;letter-spacing:.12em}
+table{border-collapse:collapse;width:100%;margin:8px 0 14px;font-size:9.8pt}
+th,td{border:1px solid var(--line-2);padding:5px 7px;vertical-align:top;text-align:left}
+th{background:var(--bg-4);font-weight:600}
+td.c,th.c{text-align:center}
+tr.hl td{background:var(--info-bg)}
+.box{border:1px solid var(--line-2);border-radius:8px;padding:10px 13px;margin:10px 0 14px;background:var(--bg-3)}
+.box.ok{background:var(--ok-bg);border-color:#bfe6d3}
+.box.warn{background:var(--warn-bg);border-color:#f0d7ad}
+.box.info{background:var(--info-bg);border-color:#c3dbf8}
+.box b.t{display:block;margin-bottom:3px}
+.opt{page-break-inside:avoid}
+.opt h2{display:flex;align-items:baseline;gap:10px}
+.opt h2 .tag{font-size:9pt;font-weight:600;color:#fff;background:var(--accent);border-radius:999px;padding:1px 9px;position:relative;top:-2px}
+.opt h2 .tag.grey{background:var(--fg-3)}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:3px 12px;font-size:10.2pt;margin:6px 0 10px}
+.kv div:nth-child(odd){color:var(--fg-2);font-weight:600}
+.pb{page-break-before:always}
+.small{font-size:9.5pt;color:var(--fg-2)}
+.pill{display:inline-block;border:1.5px solid;border-radius:8px;padding:2px 10px;font-weight:700;font-size:10pt;margin-right:4px}
+.pill.us{color:#1f7a55;background:var(--ok-bg);border-color:#7fcfae}
+.pill.them{color:#a33a3a;background:var(--err-bg);border-color:#e49a9a}
+.pill.ask{color:#1d4e8f;background:var(--info-bg);border-color:#8fb8ea}
+.pill.dim{opacity:.45}
+.chip{display:inline-block;min-width:20px;text-align:center;border-radius:5px;padding:1px 5px;font:600 9.5pt ui-monospace,Consolas,monospace;margin:1px 2px 1px 0;border:1px solid}
+.chip.u{background:var(--ok-bg);border-color:#9fdcc0;color:#1f7a55}
+.chip.t{background:var(--err-bg);border-color:#f0b5b5;color:#a33a3a}
+.chip.auto{box-shadow:inset 0 -2px 0 var(--accent)}
+.chip.open{background:#fff;border-style:dashed;color:var(--fg-3)}
+.legend{font-size:9.3pt;color:var(--fg-2);margin:-6px 0 12px}
+pre{background:var(--bg-4);border:1px solid var(--line);border-radius:6px;padding:9px 11px;font:9.3pt/1.45 ui-monospace,Consolas,"Cascadia Mono",monospace;white-space:pre-wrap;margin:6px 0 12px}
+.sketch{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 12px}
+.sketch .f{border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;background:#fff;font-size:9.5pt;min-width:230px;flex:1}
+.sketch .f b{display:block;margin-bottom:4px;font-size:9.5pt}
+.cols{display:grid;grid-template-columns:62px repeat(4,1fr);gap:3px;font-size:8.5pt;color:var(--fg-2);margin-top:6px}
+.cols span{text-align:center}
+.cols .n{text-align:left;color:var(--fg)}
+.cnt{border:1.5px solid;border-radius:6px;padding:2px 0;text-align:center;font-weight:700;font-size:10pt}
+.cnt.in{color:#1f7a55;background:var(--ok-bg);border-color:#9fdcc0}
+.cnt.out{color:#9a5a12;background:var(--warn-bg);border-color:#ebcf9d}
+.cnt.dim{opacity:.35}
+.toast{display:inline-block;background:#16202b;color:#fff;border-radius:6px;padding:2px 9px;font-size:9pt;margin-top:6px}
+footer{margin-top:30px;font-size:9pt;color:var(--fg-3);border-top:1px solid var(--line);padding-top:8px}
+</style>
+</head>
+<body>
+
+<h1>Can the score follow the stat taps?</h1>
+<p class="sub">Options for driving the <b>Us / Them</b> rally log from Serve In, Serve Out, Return In and Return Out · CoachIQ stats client · 7 October 2026</p>
+
+<h2>1. The question</h2>
+<p>On the Games screen every player has four counters: Serve In, Serve Out, Return In and Return Out. The score sits apart from them: the coach taps <span class="pill us">Us</span> or <span class="pill them">Them</span> after each rally. The question is whether the score could be worked out from the stat taps instead, given three facts about what is and is not recorded:</p>
+<ol>
+  <li>A <b>Serve In</b> by one of our players can still lose the point.</li>
+  <li>A <b>Serve Out</b> by one of our players always gives the point to Them.</li>
+  <li>Nothing is tracked about the other team: whether they served into the net or got it over, or which side won a rally.</li>
+</ol>
+
+<div class="box ok">
+  <b class="t">Short answer</b>
+  More is possible than it looks. The two "Out" taps score themselves, and in rally scoring the side that wins a rally serves the next one, so the coach's <i>own next tap</i> reveals who won an open rally. Only three things stay out of reach without tracking the other team: the last rally of a set, two untracked points in a row, and a rally the coach never tapped. The Us / Them buttons stay for exactly those cases. Option D below gets the score for nothing extra in the common case; option B is the safe, small step if D feels like too much magic.
+</div>
+
+<p class="small">Operating assumption, confirmed: the coach taps a stat for <b>every</b> one of our serves and every one of our receptions, so each rally that starts on our side has exactly one tap.</p>
+
+<h2>2. What the app already knows</h2>
+<ul>
+  <li><b>The score is already a rally log, not a counter.</b> Each Us / Them tap appends one letter (<code>U</code> or <code>T</code>) to <code>set.points</code>. The displayed score is a tally of that string.</li>
+  <li><b>The app already asks who served first.</b> The "We serve first / They serve first" bar fills <code>set.servedFirst</code> before any rally can be logged.</li>
+  <li><b>Stat taps and rally taps share one ordered history</b> per game. Undo pops the last entry whichever kind it is. So the sequence of taps is known, even though the counters themselves are unordered.</li>
+  <li><b>Export is the v4 contract</b> (per-player counts, <code>points</code>, <code>servedFirst</code>). None of the options below change what is exported.</li>
+</ul>
+<p>Put the first two together: with the serve-first answer and the log so far, the app always knows <b>who is serving</b>. Whoever won the last rally serves the next one.</p>
+
+<h2>3. The serving-side rule</h2>
+<p>Because the server is known, every stat tap says two things: something about the rally it belongs to, and something about the rally <i>before</i> it.</p>
+<table>
+  <tr><th style="width:150px">Our tap</th><th>About this rally</th><th>About the previous rally</th></tr>
+  <tr><td><b>Serve Out</b></td><td>Them +1, immediately. Certain.</td><td>We were serving, so we won the one before (or this is the first rally).</td></tr>
+  <tr><td><b>Return Out</b></td><td>Them +1, immediately. Certain.</td><td>They were serving, so they won the one before.</td></tr>
+  <tr><td><b>Serve In</b></td><td>Outcome unknown until the next tap. The rally stays <i>open</i>.</td><td>We were serving.</td></tr>
+  <tr><td><b>Return In</b></td><td>Outcome unknown until the next tap. The rally stays <i>open</i>.</td><td>They were serving.</td></tr>
+  <tr class="hl"><td>Next tap is a <b>Serve</b> while a rally is open</td><td colspan="2">We are serving again, so <b>we won</b> the open rally. Log <code>U</code>.</td></tr>
+  <tr class="hl"><td>Next tap is a <b>Return</b> while a rally is open</td><td colspan="2">They are serving, so <b>they won</b> the open rally. Log <code>T</code>.</td></tr>
+  <tr class="hl"><td>A tap that disagrees with the log's server (no rally open)</td><td colspan="2">We tap a Serve while the log says Them serve, or a Return while it says we serve. A point we never logged happened in between: a side-out. Log one letter for it (<code>U</code> for the first case, <code>T</code> for the second).</td></tr>
+</table>
+<p>That third highlighted row is what covers condition 3. When their server puts the ball into the net, nobody on our bench taps anything, but our next tap is a <b>Serve</b> while the log still says they were serving. The app can insert the missing <code>U</code> at that moment.</p>
+
+<div class="box warn">
+  <b class="t">What no our-side-only scheme can see</b>
+  <ul style="margin:0">
+    <li><b>The last rally of a set.</b> Nothing follows it, so nothing resolves it. One Us / Them tap closes the set.</li>
+    <li><b>Two or more untracked points on the same side in a row.</b> Their serve error (Us +1) followed by our serve that nobody tapped and that we lost (Them +1) leaves the server where the log expects it. The app sees nothing wrong and the score runs two short. The coach taps Us, then Them.</li>
+    <li><b>A rally the coach simply never tapped</b> (same mechanism, one short).</li>
+  </ul>
+</div>
+
+<h2 class="pb">4. The options</h2>
+
+<div class="opt">
+<h2>A. Keep it manual <span class="tag grey">today</span></h2>
+<p>Stat taps and rally taps stay independent. The coach taps a counter and then Us or Them.</p>
+<div class="kv">
+  <div>Taps per rally</div><div>2 for a rally that starts on our side (stat + score), 1 for an untracked one (score only).</div>
+  <div>Gets right</div><div>Everything the coach remembers to tap. No surprises, no inference.</div>
+  <div>Misses</div><div>Nothing by design, but the score and the sheet can drift apart silently when a pill tap is forgotten, and there is no way to see that they disagree.</div>
+  <div>UI change</div><div>None.</div>
+  <div>Data / undo / export</div><div>None.</div>
+  <div>Effort</div><div>None.</div>
+</div>
+</div>
+
+<div class="opt">
+<h2>B. Deterministic only <span class="tag grey">small step</span></h2>
+<p>Serve Out and Return Out append <code>T</code> automatically. Serve In and Return In do nothing to the score. Us / Them stay for every rally that is not an Out.</p>
+<div class="kv">
+  <div>Taps per rally</div><div>1 for an Out rally, 2 for an In rally, 1 for an untracked one.</div>
+  <div>Gets right</div><div>Condition 2 exactly. The two most error-prone moments on the bench (an error by our player, then remembering to give Them the point) become one tap.</div>
+  <div>Misses</div><div>Conditions 1 and 3 entirely. About half the rallies still need a pill tap.</div>
+  <div>Risk</div><div><b>Double counting</b>: the coach taps Return Out and then, from habit, Them. Needs a visible flash on the Them pill with a small "+1 auto" tag, and an Undo that reverses the tap and its point together.</div>
+  <div>UI change</div><div>Flash on the Them pill; Undo label "↶ Undo Brynn R out + Them".</div>
+  <div>Data / undo / export</div><div>The history entry for a count tap records the letter it appended, so one Undo reverses both. Export unchanged.</div>
+  <div>Effort</div><div>Small. Half a day with tests.</div>
+</div>
+</div>
+
+<div class="opt">
+<h2>C. Pending-rally prompt <span class="tag grey">B plus guidance</span></h2>
+<p>Everything in B. In addition, after a Serve In or Return In the rally is marked <i>open</i>: the Us / Them pills change to <span class="pill ask">Won?</span><span class="pill ask">Lost?</span> and pulse until one is tapped. The next stat tap is still allowed (the coach is not blocked), it just leaves the earlier rally unresolved.</p>
+<div class="kv">
+  <div>Taps per rally</div><div>Same as B.</div>
+  <div>Gets right</div><div>The score can no longer drift from the sheet without the coach seeing it: an open rally is visible on screen.</div>
+  <div>Misses</div><div>Conditions 1 and 3 still need a finger. No tap is saved over B.</div>
+  <div>UI change</div><div>Pill labels and a pulse while a rally is open. This is also the UI layer D needs, so building C is not wasted if D follows.</div>
+  <div>Data / undo / export</div><div>As B, plus a small per-set <code>pending</code> field (<code>null</code>, <code>'serve'</code> or <code>'return'</code>). Export unchanged.</div>
+  <div>Effort</div><div>Small to medium. About a day.</div>
+</div>
+</div>
+
+<div class="opt">
+<h2>D. Side-out inference <span class="tag">recommended</span></h2>
+<p>Everything in B and C, and the open rally is resolved by the <b>next stat tap</b> using the serving-side rule in section 3: a Serve tap resolves it <code>U</code>, a Return tap resolves it <code>T</code>. When no rally is open but the tap disagrees with who the log says is serving, one letter is inserted for the untracked side-out. The first stat tap of a set answers the serve-first question (a Serve means we served first), still correctable from the menu's flip action. Us / Them remain for set point and for untracked runs.</p>
+<div class="kv">
+  <div>Taps per rally</div><div>1 for every rally that starts on our side. 0 for a single untracked side-out. 1 pill tap at set point and for each extra untracked point.</div>
+  <div>Gets right</div><div>Conditions 1, 2 and the common form of 3 (their serve error followed by our serve).</div>
+  <div>Misses</div><div>The three cases in the warning box above. The score also <b>lags the sheet by one rally</b> while a rally is open; the open-rally marker from C makes that visible.</div>
+  <div>Risk</div><div><b>Surprise.</b> A point appears on a stat tap, not a pill tap. If the coach taps a stat and then, from habit, the pill for the same rally, that pill tap becomes an extra rally. Mitigations: the toast ("Us +1 · side-out"), the "auto" mark on inferred letters in the log, the Undo label naming both things it will reverse, and tinting the active column pair (Serve while we serve, Return while they serve) so a tap on the dimmed pair visibly means "a point you did not log happened".</div>
+  <div>UI change</div><div>Pending pills from C; toast above the bottom bar; "serving: Us / Them" chip; dimmed inactive column pair; richer Undo label.</div>
+  <div>Data / undo / export</div><div>Count history entries carry the letters they appended (zero, one or two) and whether they answered serve-first, so one Undo reverses all of it. New <code>pending</code> field per set. Session schema bump to 5 with a trivial migration (<code>pending: null</code>). Export unchanged, still v4.</div>
+  <div>Effort</div><div>Medium. One to two days including unit tests on the pure inference function and browser tests for Undo and the toast.</div>
+</div>
+<div class="sketch">
+  <div class="f"><b>While they serve (log ends in T)</b>
+    <span class="pill us dim">Us 1</span><span class="pill them">3 Them</span> <span class="small">serving: Them</span>
+    <div class="cols"><span class="n">Brynn</span><span class="cnt in dim">0</span><span class="cnt out dim">0</span><span class="cnt in">2</span><span class="cnt out">1</span></div>
+    <div class="toast">Them +1 · Return Out</div>
+  </div>
+  <div class="f"><b>While a rally is open (Grace just served in)</b>
+    <span class="pill ask">Won?</span><span class="pill ask">Lost?</span> <span class="small">serving: Us</span>
+    <div class="cols"><span class="n">Grace</span><span class="cnt in">4</span><span class="cnt out">0</span><span class="cnt in dim">0</span><span class="cnt out dim">0</span></div>
+    <div class="small" style="margin-top:6px">Undo: ↶ Undo Grace S in + Us</div>
+  </div>
+</div>
+</div>
+
+<div class="opt">
+<h2>E. Track the opponent too <span class="tag grey">out of scope</span></h2>
+<p>Add a "Them" row with Serve In / Serve Out (or a single "Their error" button). Every rally then starts with a tap on one side or the other, which closes the untracked-side-out gap. It still cannot resolve an In rally: that needs the rally's <i>ending</i> (kill, attack error, block, dig error), which is a different stat sheet with several more buttons per player. It is the only route to a fully automatic score, and the cost is a new contract version plus a busier screen that no longer fits a full roster. Noted so the ceiling is clear; not recommended.</p>
+</div>
+
+<h2 class="pb">5. Side by side</h2>
+<table>
+  <tr><th style="width:170px"></th><th class="c">A manual</th><th class="c">B deterministic</th><th class="c">C prompt</th><th class="c">D inference</th><th class="c">E opponent row</th></tr>
+  <tr><td>Taps for an Out rally</td><td class="c">2</td><td class="c">1</td><td class="c">1</td><td class="c">1</td><td class="c">1</td></tr>
+  <tr><td>Taps for an In rally</td><td class="c">2</td><td class="c">2</td><td class="c">2</td><td class="c">1</td><td class="c">2</td></tr>
+  <tr><td>Taps for their serve error</td><td class="c">1</td><td class="c">1</td><td class="c">1</td><td class="c">0 (usually)</td><td class="c">1</td></tr>
+  <tr><td>Condition 1 (Serve In can lose)</td><td class="c">manual</td><td class="c">manual</td><td class="c">manual, prompted</td><td class="c">inferred</td><td class="c">manual</td></tr>
+  <tr><td>Condition 2 (Serve Out = Them)</td><td class="c">manual</td><td class="c">auto</td><td class="c">auto</td><td class="c">auto</td><td class="c">auto</td></tr>
+  <tr><td>Condition 3 (their side untracked)</td><td class="c">manual</td><td class="c">manual</td><td class="c">manual</td><td class="c">single side-outs inferred</td><td class="c">tracked</td></tr>
+  <tr><td>Score can drift unseen</td><td class="c">yes</td><td class="c">yes</td><td class="c">no</td><td class="c">no</td><td class="c">no</td></tr>
+  <tr><td>Double-count risk</td><td class="c">—</td><td class="c">low, after Outs</td><td class="c">low</td><td class="c">medium, needs feedback</td><td class="c">low</td></tr>
+  <tr><td>Score lags the sheet</td><td class="c">no</td><td class="c">no</td><td class="c">no</td><td class="c">by one open rally</td><td class="c">no</td></tr>
+  <tr><td>Undo</td><td class="c">as now</td><td class="c">tap + letter</td><td class="c">tap + letter</td><td class="c">tap + letters + serve-first</td><td class="c">new row</td></tr>
+  <tr><td>Export contract</td><td class="c">v4</td><td class="c">v4</td><td class="c">v4</td><td class="c">v4</td><td class="c">v5</td></tr>
+  <tr><td>Effort</td><td class="c">none</td><td class="c">½ day</td><td class="c">1 day</td><td class="c">1–2 days</td><td class="c">3+ days</td></tr>
+</table>
+<p>Worked-example tap totals (section 6, ten rallies): A 19 taps · B 17 · C 17 · D 10 · E 18 plus the opponent row's taps.</p>
+
+<h2>6. Worked example</h2>
+<p>Ten rallies of set 1, we serve first. Column D shows the log and the score <i>as the coach would see it</i> after each tap; inferred letters are underlined in blue, an open rally is the dashed box.</p>
+<table>
+  <tr><th style="width:26px">#</th><th>What happened</th><th style="width:118px">Tap</th><th style="width:60px" class="c">True score</th><th>D: log after the tap</th><th style="width:58px" class="c">D shows</th><th style="width:70px" class="c">A / B pill taps</th></tr>
+  <tr><td>1</td><td>Grace serves in, we win the rally</td><td>Grace Serve In</td><td class="c">1–0</td><td><span class="chip open">?</span> <span class="small">serve-first answered: Us</span></td><td class="c">0–0</td><td class="c">Us / Us</td></tr>
+  <tr><td>2</td><td>Grace serves in again, we lose</td><td>Grace Serve In</td><td class="c">1–1</td><td><span class="chip u auto">U</span><span class="chip open">?</span></td><td class="c">1–0</td><td class="c">Them / Them</td></tr>
+  <tr><td>3</td><td>They serve, Addison returns in, we lose</td><td>Addison Return In</td><td class="c">1–2</td><td><span class="chip u auto">U</span><span class="chip t auto">T</span><span class="chip open">?</span></td><td class="c">1–1</td><td class="c">Them / Them</td></tr>
+  <tr><td>4</td><td>They serve, Brynn's return goes out</td><td>Brynn Return Out</td><td class="c">1–3</td><td><span class="chip u auto">U</span><span class="chip t auto">T</span><span class="chip t auto">T</span><span class="chip t auto">T</span></td><td class="c">1–3</td><td class="c">Them / —</td></tr>
+  <tr><td>5</td><td>They serve into the net. <b>Nobody taps.</b></td><td>—</td><td class="c">2–3</td><td><span class="small">unchanged</span></td><td class="c">1–3</td><td class="c">Us / Us</td></tr>
+  <tr><td>6</td><td>Emily serves in, we win</td><td>Emily Serve In</td><td class="c">3–3</td><td><span class="chip u auto">U</span><span class="chip t auto">T</span><span class="chip t auto">T</span><span class="chip t auto">T</span><span class="chip u auto">U</span><span class="chip open">?</span> <span class="small">the U is rally 5, inserted because the log said Them were serving</span></td><td class="c">2–3</td><td class="c">Us / Us</td></tr>
+  <tr><td>7</td><td>Emily serves out</td><td>Emily Serve Out</td><td class="c">3–4</td><td><span class="chip u auto">U</span><span class="chip t auto">T</span><span class="chip t auto">T</span><span class="chip t auto">T</span><span class="chip u auto">U</span><span class="chip u auto">U</span><span class="chip t auto">T</span></td><td class="c">3–4</td><td class="c">Them / —</td></tr>
+  <tr><td>8</td><td>They serve, Hailey returns in, we win</td><td>Hailey Return In</td><td class="c">4–4</td><td><span class="small">unchanged, plus</span> <span class="chip open">?</span></td><td class="c">3–4</td><td class="c">Us / Us</td></tr>
+  <tr><td>9</td><td>Brooklyn serves in, we win</td><td>Brooklyn Serve In</td><td class="c">5–4</td><td><span class="small">… </span><span class="chip t auto">T</span><span class="chip u auto">U</span><span class="chip open">?</span></td><td class="c">4–4</td><td class="c">Us / Us</td></tr>
+  <tr><td>10</td><td>Brooklyn serves in, we lose. Set over.</td><td>Brooklyn Serve In</td><td class="c">5–5</td><td><span class="small">… </span><span class="chip t auto">T</span><span class="chip u auto">U</span><span class="chip u auto">U</span><span class="chip open">?</span></td><td class="c">5–4</td><td class="c">Them / Them</td></tr>
+  <tr class="hl"><td></td><td>Set point: nothing follows, so the coach closes it</td><td><b>Them pill</b></td><td class="c">5–5</td><td><span class="log">U T T T U U T U U T</span></td><td class="c">5–5</td><td class="c"></td></tr>
+</table>
+<p class="legend">Blue underline: letter came from a stat tap. Dashed box: open rally, resolved by the next tap. "A / B pill taps": what the coach must tap in addition under option A and under option B.</p>
+<p>Totals for these ten rallies: option A needs 9 stat taps and 10 pill taps; B and C need 9 and 8; D needs 9 and 1. Every option ends on the same log, <span class="log">UTTTUUTUUT</span>, which is what gets exported.</p>
+
+<h2 class="pb">7. Edge cases for D</h2>
+<table>
+  <tr><th style="width:190px">Case</th><th>Behaviour</th></tr>
+  <tr><td>Set point</td><td>The last rally stays open until the coach taps Us or Them. The open-rally pills make this obvious. Leaving it open is harmless: the exported log is simply one rally short, same as forgetting a pill tap today.</td></tr>
+  <tr><td>Two untracked points in a row</td><td>Not detectable. The coach taps the pills for them, in order. If they are noticed late, the pills still append at the end; the tally is right even if the order inside the log is not.</td></tr>
+  <tr><td>Untouched ace against us</td><td>If the coach taps Return Out for the receiver, Them +1 is logged. If nobody taps, it is an untracked point like any other.</td></tr>
+  <tr><td>Coach taps the pill for a rally the app already inferred</td><td>An extra rally is logged. The toast and the auto mark exist to make this rare; Undo fixes it with one tap because the pill tap is the top of the history.</td></tr>
+  <tr><td>Minus mode</td><td>A decrement only reverses the count. It never adds or removes letters and never changes the open rally. The right tool for a mis-tap is still Undo, which reverses the tap and everything it inferred.</td></tr>
+  <tr><td>Undo</td><td>One Undo reverses the count, the zero-to-two letters that tap appended, and the serve-first answer if that tap gave it. The label says so: "↶ Undo Emily S out + Us, Them". Undoing a pill tap re-opens the rally it closed.</td></tr>
+  <tr><td>Serve-first</td><td>Answered by the first stat tap of the set. Wrong when their first serve was an error before our first tap; the existing flip action in the menu corrects it, and the tally is one short until a pill tap adds the rally.</td></tr>
+  <tr><td>Typed score</td><td>A set with a typed score has no log, so no inference. Same exclusivity rule as the pills today.</td></tr>
+  <tr><td>Switching sets with a rally open</td><td>The open rally belongs to its set and waits there. Each set has its own <code>pending</code>.</td></tr>
+  <tr><td>Rally cap (200) and history cap (400)</td><td>At the cap the letter is dropped and the count still increments, as the pill does today. A count tap with letters is one history entry, so the 400 cap is unchanged in practice.</td></tr>
+  <tr><td>Export</td><td>Unchanged. The planner receives the same v4 payload; it cannot tell an inferred letter from a tapped one.</td></tr>
+  <tr><td>Reload mid-set</td><td><code>pending</code> is saved with the set, so an open rally survives a reload and a reopened tab.</td></tr>
+</table>
+
+<h2>8. Recommendation</h2>
+<div class="box info">
+  <b class="t">Build D, in two steps that each ship on their own.</b>
+  <ol style="margin:0">
+    <li><b>B + C first</b>: Out taps score themselves, open rallies show "Won? / Lost?", one Undo reverses a tap and its letter. Low risk, and the open-rally state is the hook D needs.</li>
+    <li><b>Then the inference</b>: resolve the open rally on the next stat tap, insert the untracked side-out, auto-answer serve-first, add the toast, the auto mark and the column tint.</li>
+  </ol>
+  If the inference ever feels wrong on the bench, step 1 stands on its own and the pills still work exactly as today.
+</div>
+
+<h3>What the work looks like if D goes ahead (a separate plan)</h3>
+<ul>
+  <li><b>session.js</b>: a pure <code>inferPoints(set, stat, side)</code> that returns the letters to append and whether serve-first was answered; <code>tap()</code> uses it and writes <code>{ kind:'count', …, points, servedFirstSet }</code>; <code>undo()</code> reverses letters and serve-first from the entry; <code>tapPoint()</code> clears <code>pending</code>; new <code>pending</code> field on the set, schema 5 with a one-line migration.</li>
+  <li><b>ui.js</b>: pill labels while a rally is open; toast; "serving" chip; dimmed column pair; Undo label naming the letters.</li>
+  <li><b>Tests</b>: the worked example above as one unit test on the log; Undo of a two-letter tap; serve-first auto-answer and its undo; minus mode leaving the log alone; a browser test that taps the sequence and reads the score.</li>
+</ul>
+<pre>on stat tap (stat, side), minus mode off:
+  added = ''
+  if servedFirst is null:          servedFirst = (stat == 'serve'); sfSet = true
+  if pending is not null:          added += (stat == 'serve') ? 'U' : 'T'      // resolve the open rally
+  else if server is Us  and stat == 'return': added += 'T'                      // untracked side-out
+  else if server is Them and stat == 'serve': added += 'U'                      // untracked side-out
+  if side == 'out':                added += 'T'                                 // an Out is always their point
+  pending = (side == 'in') ? stat : null
+  count += 1; points += added; history.push({ kind:'count', …, points: added, servedFirstSet: sfSet })
+
+server = last letter of points ('U' means Us, 'T' means Them), or servedFirst when the log is empty</pre>
+
+<footer>Companion mockup: <code>docs/auto-score-mockup.html</code> plays option D with working buttons and replays the worked example above.</footer>
+</body>
+</html>
