@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, setServedFirst, tapPoint, setScore, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, tap, setServedFirst, tapPoint, setScore, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -526,4 +526,43 @@ test('the record screen shows no brand card', async () => {
   assert.match(html, /data-action="tap-count"/, 'this is the record screen');
   assert.doesNotMatch(html, /brandcard/);
   assert.ok(!html.includes('©'), 'no copyright on the record screen');
+});
+
+const ONE_SET = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] };
+
+test('a stat tap that scores shows a toast naming why, and Undo names the letters', async () => {
+  const { document } = await bootWithSession(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'));
+  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
+  let html = document.getElementById('app').innerHTML;
+  assert.doesNotMatch(html, /class="toast"/, 'the first tap only answers serve-first');
+  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="out"]');
+  html = document.getElementById('app').innerHTML;
+  assert.match(html, /<div class="toast" role="status" aria-live="polite">Us \+1 · we serve, then Them \+1 · Serve out<\/div>/);
+  assert.match(html, /↶ Undo Grace S out \+ Us, Them/);
+  click(document, '[data-action="toggle-minus"]');
+  assert.doesNotMatch(document.getElementById('app').innerHTML, /class="toast"/, 'the next action of any kind clears it');
+});
+
+test('the serving side gets the dot, the other pair of columns goes idle, and an open rally dashes both pills', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // we serve, rally open
+  let html = await renderWith(day, 'g1');
+  assert.match(html, /class="pt us serving open" data-action="tap-point" data-winner="U" data-serving="1" data-open="1" aria-label="Us scored, 0"/);
+  assert.match(html, /class="pt them open" data-action="tap-point" data-winner="T" data-open="1" aria-label="Them scored, 0"/);
+  assert.match(html, /class="cnt in idle"[^>]*data-stat="return" data-side="in"/);
+  assert.match(html, /class="cnt in"[^>]*data-stat="serve" data-side="in"/);
+  assert.match(html, /<span class="idle">Return In<\/span>/);
+
+  day = tap(day, 'g1', 1, 'grace', 'return', 'out', 1); // rally to Them, then the Out: they serve, nothing open
+  html = await renderWith(day, 'g1');
+  assert.match(html, /class="pt them serving" data-action="tap-point" data-winner="T" data-serving="1" aria-label="Them scored, 2"/);
+  assert.doesNotMatch(html, /data-open="1"/);
+  assert.match(html, /class="cnt out idle"[^>]*data-stat="serve" data-side="out"/);
+});
+
+test('a typed-score set shows no dot, no idle columns and no toast', async () => {
+  let day = setScore(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'), 'g1', 1, [25, 21]);
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1);
+  const html = await renderWith(day, 'g1');
+  assert.doesNotMatch(html, /idle|data-serving|data-open|class="toast"/);
 });

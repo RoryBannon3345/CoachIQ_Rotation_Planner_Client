@@ -12,7 +12,7 @@ test.describe('Recording a set', () => {
       await press(count(page, 'grace', stat, side));
       await expect(count(page, 'grace', stat, side)).toHaveText('1');
     }
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace R out');
+    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace R out + Them, Them');
     await press(page.locator('[data-action="undo"]'));
     await expect(count(page, 'grace', 'return', 'out')).toHaveText('0');
     // Only the last tap came back.
@@ -75,5 +75,30 @@ test.describe('Recording a set', () => {
     await expect(page.getByText('No players ticked for this set yet.')).toBeVisible();
     await press(page.locator('.rows [data-action="open-players"]'));
     await expect(page.getByRole('heading', { name: 'Players' })).toBeVisible();
+  });
+
+  test('stat taps drive the score: the next tap settles an open rally, and Undo takes back tap and points together', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText());
+    const us = page.locator('[data-action="tap-point"][data-winner="U"]');
+    const them = page.locator('[data-action="tap-point"][data-winner="T"]');
+    await press(count(page, 'grace', 'serve', 'in')); // answers "we serve first"; the rally is open
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 0');
+    await expect(us).toHaveAttribute('data-open', '1');
+    await expect(us).toHaveAttribute('data-serving', '1');
+    await press(count(page, 'grace', 'serve', 'in')); // we served again: rally 1 to Us
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
+    await expect(page.locator('.toast')).toHaveText('Us +1 · we serve');
+    await press(count(page, 'grace', 'serve', 'out')); // rally 2 to Us, then the Out to Them
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 2');
+    await expect(them).toHaveAttribute('aria-label', 'Them scored, 1');
+    await expect(them).toHaveAttribute('data-serving', '1');
+    await expect(page.locator('.toast')).toHaveText('Us +1 · we serve, then Them +1 · Serve out');
+    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace S out + Us, Them');
+    await press(page.locator('[data-action="undo"]'));
+    await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
+    await expect(them).toHaveAttribute('aria-label', 'Them scored, 0');
+    await expect(us).toHaveAttribute('data-open', '1');
+    await expect(count(page, 'grace', 'serve', 'out')).toHaveText('0');
   });
 });

@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -23,6 +23,7 @@ const state = {
   exportData: null, // null | { summary, subject, text, payload } — set when the export screen is showing
   exportStatus: null, // null | { kind: 'ok'|'err', text }
   serveFirstAt: 0, // Date.now() of the last serve-first answer; see onTapPoint
+  toast: null, // null | { text } — set by a stat tap that scored; see showToast
 };
 
 function esc(value) {
@@ -43,6 +44,34 @@ function firstName(day, playerId) {
 
 function statLetter(stat) {
   return stat === 'serve' ? 'S' : 'R';
+}
+
+const TOAST_MS = 2500;
+const TOAST_PHRASE = {
+  resolve: { U: 'Us +1 · we serve', T: 'Them +1 · they serve' },
+  sideout: { U: 'Us +1 · side-out', T: 'Them +1 · side-out' },
+};
+
+/** "Us +1 · we serve, then Them +1 · Serve out" — one phrase per letter a stat tap appended. */
+function toastText(letters, stat) {
+  return letters.map((l) => (l.why === 'out' ? `Them +1 · ${stat === 'serve' ? 'Serve' : 'Return'} out` : TOAST_PHRASE[l.why][l.letter])).join(', then ');
+}
+
+function showToast(text) {
+  const toast = { text };
+  state.toast = toast;
+  const timer = setTimeout(() => {
+    if (state.toast !== toast) return;
+    state.toast = null;
+    render();
+  }, TOAST_MS);
+  // Node's timers keep `node --test` alive; a browser's numeric id has no unref.
+  if (timer && typeof timer.unref === 'function') timer.unref();
+}
+
+/** 'UT' → 'Us, Them' for the Undo label. */
+function lettersLabel(points) {
+  return [...points].map((c) => (c === 'U' ? 'Us' : 'Them')).join(', ');
 }
 
 /** This player's counts in one set — used to decide whether a row in the (now per-set) players
@@ -552,16 +581,17 @@ function renderSheet() {
 // Recording screen
 // ---------------------------------------------------------------------------------------------
 
-function renderRow(game, n, player) {
+function renderRow(game, n, player, idleStat) {
   const c = getCount(game, n, player.id);
   const subChip = player.sub ? ' <span class="gchip">Sub</span>' : '';
+  const idle = (stat) => (stat === idleStat ? ' idle' : '');
   return `
 <div class="row">
   <div class="name">${esc(player.name)}${subChip}</div>
-  <button type="button" class="cnt in" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="in">${c.serve.in}</button>
-  <button type="button" class="cnt out" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="out">${c.serve.out}</button>
-  <button type="button" class="cnt in" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="return" data-side="in">${c.return.in}</button>
-  <button type="button" class="cnt out" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="return" data-side="out">${c.return.out}</button>
+  <button type="button" class="cnt in${idle('serve')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="in">${c.serve.in}</button>
+  <button type="button" class="cnt out${idle('serve')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="out">${c.serve.out}</button>
+  <button type="button" class="cnt in${idle('return')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="return" data-side="in">${c.return.in}</button>
+  <button type="button" class="cnt out${idle('return')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="return" data-side="out">${c.return.out}</button>
 </div>`;
 }
 
@@ -577,33 +607,40 @@ function renderRecord() {
   const ticked = new Set(game.setPlayerIds[n - 1]);
   // Directory order, stable — never derived from the set's own list order.
   const players = day.players.filter((p) => ticked.has(p.id));
+  const setRecord = game.sets[n - 1];
+  const asked = !!setRecord && setRecord.servedFirst !== null;
+  const typed = !!setRecord && setRecord.points === '' && setRecord.score !== null;
+  // Who serves next, and which pair of counters the serving side is not using. Typed sets never infer.
+  const server = setRecord && !typed ? setServer(setRecord) : null;
+  const open = !!setRecord && !typed && setRecord.pending != null;
+  const idleStat = server === 'U' ? 'return' : server === 'T' ? 'serve' : null;
+  const idleCls = (stat) => (stat === idleStat ? ' class="idle"' : '');
   // A mask of 0 (and so an empty list) is legal — never auto-tick everybody and never treat it as
   // an error; offer the players sheet instead.
   const rowsHtml = players.length === 0
     ? `<div class="rows empty-state"><p>No players ticked for this set yet.</p><button type="button" class="btn primary" data-action="open-players">Tick players…</button></div>`
-    : `<div class="rows">${players.map((p) => renderRow(game, n, p)).join('')}</div>`;
+    : `<div class="rows">${players.map((p) => renderRow(game, n, p, idleStat)).join('')}</div>`;
   // sets.length, per game, is the one source of truth for how many sets a game has. Hardcoding
   // five showed a coach two tabs the planner never asked for; hardcoding three would hide the
   // later sets of a four- or five-set game.
   const seg = Array.from({ length: game.setCount }, (_, i2) => i2 + 1)
     .map((setN) => `<button type="button" class="${setN === n ? 'on' : ''}" aria-label="Set ${setN}" data-action="select-set" data-n="${setN}">${setN}</button>`)
     .join('');
-  const setRecord = game.sets[n - 1];
-  const asked = !!setRecord && setRecord.servedFirst !== null;
-  const typed = !!setRecord && setRecord.points === '' && setRecord.score !== null;
   let strip;
   if (typed) {
     strip = `<button type="button" class="pt typed" data-action="open-score" aria-label="Set ${n} score, typed">${setRecord.score[0]}–${setRecord.score[1]}<small>typed</small></button>`;
   } else if (asked) {
     const [us, them] = pointTally(setRecord.points);
-    strip = `<button type="button" class="pt us" data-action="tap-point" data-winner="U" aria-label="Us scored, ${us}">Us <span class="big">${us}</span></button>
-    <button type="button" class="pt them" data-action="tap-point" data-winner="T" aria-label="Them scored, ${them}"><span class="big">${them}</span> Them</button>`;
+    const cls = (side) => `${server === side ? ' serving' : ''}${open ? ' open' : ''}`;
+    const data = (side) => `${server === side ? ' data-serving="1"' : ''}${open ? ' data-open="1"' : ''}`;
+    strip = `<button type="button" class="pt us${cls('U')}" data-action="tap-point" data-winner="U"${data('U')} aria-label="Us scored, ${us}">Us <span class="big">${us}</span></button>
+    <button type="button" class="pt them${cls('T')}" data-action="tap-point" data-winner="T"${data('T')} aria-label="Them scored, ${them}"><span class="big">${them}</span> Them</button>`;
   } else {
     strip = `<button type="button" class="pt ask" data-action="serve-first" data-us="1">We serve<small>first</small></button>
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
   }
   const top = game.history.length ? game.history[game.history.length - 1] : null;
-  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}`;
+  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}${top.points ? ` + ${lettersLabel(top.points)}` : ''}`;
   const undoDisabled = game.history.length === 0 ? 'disabled' : '';
   const minusPressed = state.minusMode ? 'true' : 'false';
   return `
@@ -621,8 +658,9 @@ function renderRecord() {
     <div class="seg" role="group" aria-label="Which set">${seg}</div>
     ${strip}
   </div>
-  <div class="colhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+  <div class="colhead"><span>Player</span><span${idleCls('serve')}>Serve In</span><span${idleCls('serve')}>Serve Out</span><span${idleCls('return')}>Return In</span><span${idleCls('return')}>Return Out</span></div>
   ${rowsHtml}
+  ${state.toast ? `<div class="toast" role="status" aria-live="polite">${esc(state.toast.text)}</div>` : ''}
   <div class="bottombar">
     <button type="button" class="btn sm undo" data-action="undo" ${undoDisabled}>${esc(undoLabel)}</button>
     <button type="button" class="btn icon sm minus${state.minusMode ? ' primary' : ''}" data-action="toggle-minus" aria-pressed="${minusPressed}">−</button>
@@ -646,10 +684,17 @@ function onTapCount(btn) {
   const side = btn.dataset.side;
   const delta = state.minusMode ? -1 : 1;
   const previousSession = state.session;
+  const setBefore = game.sets[n - 1];
   const tapped = tap(state.session, game.gameId, n, pid, stat, side, delta);
   // one-shot: only switches itself off when the tap actually changed something — a no-op tap
   // (count already at 0) must not silently consume minus mode.
   if (state.minusMode && tapped !== previousSession) state.minusMode = false;
+  if (tapped !== previousSession) {
+    const after = tapped.games.find((g) => g.gameId === game.gameId);
+    const top = after.history[after.history.length - 1];
+    // The letters tap() actually appended (the MAX_POINTS cap can trim them), with inferTap's reasons.
+    if (top && top.kind === 'count' && top.points) showToast(toastText(inferTap(setBefore, stat, side).letters.slice(0, top.points.length), stat));
+  }
   commit({ ...tapped, lastChangedAt: new Date().toISOString() });
 }
 
@@ -978,6 +1023,8 @@ function runAction(btn) {
     const nameInput = document.getElementById('subName');
     if (nameInput) state.sheet.name = nameInput.value;
   }
+  // A toast describes only the tap that raised it; the next action of any kind takes it away.
+  state.toast = null;
   const action = btn.dataset.action;
   // data-action stays "open-roster" (not "open-day") deliberately: scripts/verify-build.mjs — the
   // only thing in this repo that drives ui.js end-to-end — queries this exact selector to advance

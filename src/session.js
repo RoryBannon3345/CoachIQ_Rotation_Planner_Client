@@ -6,11 +6,17 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.2.0';
+export const APP_VERSION = '4.3.0';
 export const AUTHOR_NAME = 'Rory Bannon';
 export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
 export const UNDO_LIMIT = 400;
+
+/** Does a Return Out end the rally with the point to Them, like a Serve Out? Ruling 1 of
+ * docs/superpowers/specs/2026-10-07-auto-score-side-out-design.md; `false` makes a Return Out
+ * leave the rally open, like a Return In. */
+export const RETURN_OUT_ENDS_RALLY = true;
+const PENDING_VALUES = [null, 'serve', 'return'];
 
 const STATS = ['serve', 'return'];
 const SIDES = ['in', 'out'];
@@ -20,10 +26,16 @@ function zeroCount() {
 }
 
 /** A set nobody has touched yet. `servedFirst` is null until the coach answers the set bar's
- * question; `points` is one letter per rally (`U` we won it, `T` they did) and is the set's
- * score once it is non-empty. Invariant: `points !== ''` implies `servedFirst !== null`. */
+ * question (or the first stat tap answers it); `points` is one letter per rally (`U` we won it,
+ * `T` they did) and is the set's score once it is non-empty; `pending` is the stat whose In tap
+ * opened a rally nobody has won yet. Invariants: `points !== ''` implies `servedFirst !== null`;
+ * `pending !== null` implies `servedFirst !== null` and no typed score. */
 function emptySet() {
-  return { score: null, counts: {}, servedFirst: null, points: '' };
+  return { score: null, counts: {}, servedFirst: null, points: '', pending: null };
+}
+
+function isTypedSet(set) {
+  return set.points === '' && set.score !== null;
 }
 
 function clampCount(n) {
@@ -415,8 +427,23 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
     const game = applyDelta(g, n, playerId, stat, side, delta);
     if (game === g) return g;
     const after = getCount(game, n, playerId)[stat][side];
-    const history = [...game.history, { kind: 'count', n, playerId, stat, side, delta: after - before }].slice(-UNDO_LIMIT);
-    return { ...game, history };
+    const entry = { kind: 'count', n, playerId, stat, side, delta: after - before };
+    const prevSet = g.sets[n - 1] ?? emptySet();
+    let sets = game.sets;
+    if (entry.delta > 0 && !isTypedSet(prevSet)) {
+      const inferred = inferTap(prevSet, stat, side);
+      const room = Math.max(0, MAX_POINTS - prevSet.points.length);
+      const appended = inferred.letters.slice(0, room).map((l) => l.letter).join('');
+      const pendingBefore = prevSet.pending ?? null;
+      const counted = game.sets[n - 1];
+      sets = game.sets.slice();
+      sets[n - 1] = { ...counted, servedFirst: inferred.servedFirst, points: counted.points + appended, pending: inferred.pending };
+      if (appended !== '') entry.points = appended;
+      if (prevSet.servedFirst === null) entry.servedFirstSet = true;
+      if (pendingBefore !== inferred.pending) entry.pendingBefore = pendingBefore;
+    }
+    const history = [...game.history, entry].slice(-UNDO_LIMIT);
+    return { ...game, sets, history };
   });
 }
 
@@ -425,6 +452,43 @@ export function pointTally(points) {
   let us = 0;
   for (const c of points) if (c === 'U') us += 1;
   return [us, points.length - us];
+}
+
+/** Who serves the next rally: the winner of the last one, else the serve-first answer, else
+ * null (not known yet). `setRecord` may be null for a set nobody has touched. */
+export function setServer(setRecord) {
+  if (!setRecord) return null;
+  if (setRecord.points !== '') return setRecord.points[setRecord.points.length - 1];
+  if (setRecord.servedFirst === null) return null;
+  return setRecord.servedFirst ? 'U' : 'T';
+}
+
+/** What one stat tap says about the score, from the rule that the winner of a rally serves the
+ * next one. Pure; `tap` applies it. Only meaningful for a logged set and a tap that raised a count. */
+export function inferTap(setRecord, stat, side) {
+  const set = setRecord ?? { servedFirst: null, points: '', pending: null };
+  const servedFirst = set.servedFirst === null ? stat === 'serve' : set.servedFirst;
+  const letters = [];
+  if ((set.pending ?? null) !== null) {
+    letters.push({ letter: stat === 'serve' ? 'U' : 'T', why: 'resolve' });
+  } else {
+    const server = setServer({ ...set, servedFirst });
+    if (server === 'U' && stat === 'return') letters.push({ letter: 'T', why: 'sideout' });
+    if (server === 'T' && stat === 'serve') letters.push({ letter: 'U', why: 'sideout' });
+  }
+  const endsRally = side === 'out' && (stat === 'serve' || RETURN_OUT_ENDS_RALLY);
+  if (endsRally) letters.push({ letter: 'T', why: 'out' });
+  return { servedFirst, letters, pending: endsRally ? null : stat };
+}
+
+/** That set's count entries lose their inference fields (they become plain count entries), so an
+ * Undo after the log was cleared or replaced by a typed score reverses only the count. */
+function stripInference(history, n) {
+  return history.map((h) => {
+    if (h.kind !== 'count' || h.n !== n) return h;
+    const { points, servedFirstSet, pendingBefore, ...plain } = h;
+    return plain;
+  });
 }
 
 /** Records who served the set's first rally. Answering again with the same value is a no-op. */
@@ -441,29 +505,34 @@ export function setServedFirst(s, gameId, n, servedFirst) {
 }
 
 /** One rally: `winner` is 'U' or 'T'. Refused (same reference) until servedFirst is answered or
- * once the set carries a typed score, or once the log is at MAX_POINTS — the planner would refuse a longer one. Not touched by minus mode. */
+ * once the set carries a typed score, or once the log is at MAX_POINTS — the planner would refuse a longer one. Not touched by minus mode.
+ * Closes an open rally; the entry remembers it so Undo re-opens it. */
 export function tapPoint(s, gameId, n, winner) {
   if (winner !== 'U' && winner !== 'T') return s;
   return withGame(s, gameId, (g) => {
     const set = g.sets[n - 1] ?? emptySet();
     if (set.servedFirst === null || set.points.length >= MAX_POINTS) return g;
     if (set.points === '' && set.score !== null) return g; // typed and logged are exclusive
+    const closed = set.pending ?? null;
     const sets = g.sets.slice();
-    sets[n - 1] = { ...set, points: set.points + winner };
-    const history = [...g.history, { kind: 'point', n, winner }].slice(-UNDO_LIMIT);
+    sets[n - 1] = { ...set, points: set.points + winner, pending: null };
+    const entry = { kind: 'point', n, winner };
+    if (closed !== null) entry.pendingBefore = closed;
+    const history = [...g.history, entry].slice(-UNDO_LIMIT);
     return { ...g, sets, history };
   });
 }
 
-/** Empties the set's log and forgets who served first; the counts stay. Drops that set's point
- * entries from history the way clearSet drops by n, so undo can never resurrect a rally. */
+/** Empties the set's log, forgets who served first and closes any open rally; the counts stay.
+ * Drops that set's point entries from history the way clearSet drops by n, and strips the
+ * inference fields from its count entries, so undo can never resurrect a rally. */
 export function clearPoints(s, gameId, n) {
   return withGame(s, gameId, (g) => {
     const set = g.sets[n - 1];
     if (!set || (set.points === '' && set.servedFirst === null)) return g;
     const sets = g.sets.slice();
-    sets[n - 1] = { ...set, servedFirst: null, points: '' };
-    const history = g.history.filter((h) => !(h.kind === 'point' && h.n === n));
+    sets[n - 1] = { ...set, servedFirst: null, points: '', pending: null };
+    const history = stripInference(g.history.filter((h) => !(h.kind === 'point' && h.n === n)), n);
     return { ...g, sets, history };
   });
 }
@@ -473,16 +542,30 @@ export function undo(s, gameId) {
   if (!game || game.history.length === 0) return { session: s, undone: null };
   const last = game.history[game.history.length - 1];
   const session = withGame(s, gameId, (g) => {
+    const history = g.history.slice(0, -1);
     if (last.kind === 'point') {
       const set = g.sets[last.n - 1];
       // A letter that does not match the log's last one can only come from corrupt storage: drop the entry, leave the log alone.
-      if (!set || set.points.length === 0 || set.points[set.points.length - 1] !== last.winner) return { ...g, history: g.history.slice(0, -1) };
+      if (!set || set.points.length === 0 || set.points[set.points.length - 1] !== last.winner) return { ...g, history };
+      let next = { ...set, points: set.points.slice(0, -1) };
+      if ('pendingBefore' in last && !isTypedSet(next) && next.servedFirst !== null) next = { ...next, pending: last.pendingBefore };
       const sets = g.sets.slice();
-      sets[last.n - 1] = { ...set, points: set.points.slice(0, -1) };
-      return { ...g, sets, history: g.history.slice(0, -1) };
+      sets[last.n - 1] = next;
+      return { ...g, sets, history };
     }
     const reverted = applyDelta(g, last.n, last.playerId, last.stat, last.side, -last.delta);
-    return { ...reverted, history: g.history.slice(0, -1) };
+    const set = reverted.sets[last.n - 1];
+    if (!set) return { ...reverted, history };
+    let next = set;
+    // Letters are removed only when the log still ends with them; anything else is corrupt storage.
+    if (last.points && next.points.endsWith(last.points)) next = { ...next, points: next.points.slice(0, -last.points.length) };
+    if ('pendingBefore' in last) next = { ...next, pending: last.pendingBefore };
+    if (last.servedFirstSet && next.points === '' && next.servedFirst === (last.stat === 'serve')) next = { ...next, servedFirst: null };
+    if ((isTypedSet(next) || next.servedFirst === null) && next.pending !== null) next = { ...next, pending: null };
+    if (next === set) return { ...reverted, history };
+    const sets = reverted.sets.slice();
+    sets[last.n - 1] = next;
+    return { ...reverted, sets, history };
   });
   return { session, undone: last };
 }
@@ -492,10 +575,12 @@ export function setScore(s, gameId, n, score) {
     const set = g.sets[n - 1] ?? emptySet();
     if (set.points !== '') return g;
     const sets = g.sets.slice();
-    sets[n - 1] = score === null
-      ? { ...set, score: null }
-      : { ...set, score: [score[0], score[1]], servedFirst: null };
-    return { ...g, sets };
+    if (score === null) {
+      sets[n - 1] = { ...set, score: null };
+      return { ...g, sets };
+    }
+    sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null };
+    return { ...g, sets, history: stripInference(g.history, n) };
   });
 }
 
@@ -624,7 +709,10 @@ function parseSetRecord(value) {
   if (value.servedFirst !== null && typeof value.servedFirst !== 'boolean') return undefined;
   if (typeof value.points !== 'string' || !/^[UT]{0,200}$/.test(value.points)) return undefined;
   if (value.points !== '' && value.servedFirst === null) return undefined;
-  return { score, counts, servedFirst: value.servedFirst, points: value.points };
+  const pending = value.pending === undefined ? null : value.pending;
+  if (!PENDING_VALUES.includes(pending)) return undefined;
+  if (pending !== null && (value.servedFirst === null || (value.points === '' && score !== null))) return undefined;
+  return { score, counts, servedFirst: value.servedFirst, points: value.points, pending };
 }
 
 // Contract unchanged: { id, name, sub }.
@@ -643,14 +731,32 @@ function parseHistoryEntry(value) {
   if (!Number.isInteger(value.n) || value.n < 1 || value.n > MAX_SETS) return undefined;
   if (value.kind === 'point') {
     if (value.winner !== 'U' && value.winner !== 'T') return undefined;
-    return { kind: 'point', n: value.n, winner: value.winner };
+    const point = { kind: 'point', n: value.n, winner: value.winner };
+    if (value.pendingBefore !== undefined) {
+      if (value.pendingBefore !== 'serve' && value.pendingBefore !== 'return') return undefined;
+      point.pendingBefore = value.pendingBefore;
+    }
+    return point;
   }
   if (value.kind !== 'count') return undefined;
   if (typeof value.playerId !== 'string') return undefined;
   if (value.stat !== 'serve' && value.stat !== 'return') return undefined;
   if (value.side !== 'in' && value.side !== 'out') return undefined;
   if (typeof value.delta !== 'number' || !Number.isInteger(value.delta)) return undefined;
-  return { kind: 'count', n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
+  const count = { kind: 'count', n: value.n, playerId: value.playerId, stat: value.stat, side: value.side, delta: value.delta };
+  if (value.points !== undefined) {
+    if (typeof value.points !== 'string' || !/^[UT]{1,2}$/.test(value.points)) return undefined;
+    count.points = value.points;
+  }
+  if (value.servedFirstSet !== undefined) {
+    if (value.servedFirstSet !== true) return undefined;
+    count.servedFirstSet = true;
+  }
+  if (value.pendingBefore !== undefined) {
+    if (!PENDING_VALUES.includes(value.pendingBefore)) return undefined;
+    count.pendingBefore = value.pendingBefore;
+  }
+  return count;
 }
 
 // v3 game shape: { gameId, opponent, setCount, setPlayerIds, sets, activeSet, history }.
@@ -952,7 +1058,7 @@ function migrateSchema2(session) {
  * hold no other kind). Tolerant of malformed input — parseDay rejects, this only lifts. */
 function liftGameToSchema4(g) {
   if (!isPlainObject(g)) return g;
-  const sets = Array.isArray(g.sets) ? g.sets.map((set) => (isPlainObject(set) ? { servedFirst: null, points: '', ...set } : set)) : g.sets;
+  const sets = Array.isArray(g.sets) ? g.sets.map((set) => (isPlainObject(set) ? { servedFirst: null, points: '', pending: null, ...set } : set)) : g.sets;
   const history = Array.isArray(g.history) ? g.history.map((h) => (isPlainObject(h) && h.kind === undefined ? { kind: 'count', ...h } : h)) : g.history;
   return { ...g, sets, history };
 }

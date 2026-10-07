@@ -9,7 +9,6 @@ test.describe('Saving on the device', () => {
     await openDay(page, rosterText());
     await page.clock.pauseAt(new Date('2026-09-19T10:00:05'));
     await press(page.locator('[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]'));
-    await press(page.locator('[data-action="serve-first"][data-us="0"]'));
     await page.clock.runFor(350); // past ui.js's 300 ms guard
     await press(page.locator('[data-action="tap-point"][data-winner="T"]'));
     await expect(page.locator('[data-action="tap-point"][data-winner="T"]')).toHaveAttribute('aria-label', 'Them scored, 1');

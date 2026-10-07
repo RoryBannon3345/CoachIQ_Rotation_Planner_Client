@@ -209,6 +209,7 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] One export covers the whole day — a single Export from any game produces one payload naming every game recorded that day, not one payload per game.
 - [ ] Paste the stats string into the roster box → "This is a stats payload, not a roster payload."
 - [ ] Tap We serve first, tap Us twice and Them once → the bar reads Us 2 / 1 Them, Undo reads '↶ Undo point Them'. Export → the planner's Stats page shows the Points on court card.
+- [ ] On a fresh set tap Grace Serve In twice, then Serve Out → the bar reads Us 2 / 1 Them with the dot on Them, the toast says "Us +1 · we serve, then Them +1 · Serve out", and one Undo takes back the Out tap and both of its points (Us 1 / 0 Them, both pills dashed).
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract
