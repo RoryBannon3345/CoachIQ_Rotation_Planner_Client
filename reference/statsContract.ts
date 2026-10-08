@@ -39,8 +39,13 @@
  * bump (see `docs/stats-contract.md`, "Versioning policy"), but a v3 planner handed a logged day
  * would validate it field by field and drop every log without a word, and the coach would find
  * out after "New day" on the phone. A refusal — "made by a newer version" — is the better failure,
- * so this bumps on purpose. The roster half is unchanged and `encodeDayRoster` pins it to 3. */
-export const CONTRACT_VERSION = 4;
+ * so this bumps on purpose. The roster half is unchanged and `encodeDayRoster` pins it to 3.
+ *
+ * Version 5 adds an optional `servers` list to each logged stats set: who the phone says served
+ * each of our serve turns, or `null` where it does not know (docs/superpowers/specs/2026-10-08-as-played-design.md).
+ * It bumps for the reason v4 did: a v4 planner would validate a v5 day field by field and drop
+ * every server without a word. The roster half is unchanged and stays pinned to 3. */
+export const CONTRACT_VERSION = 5;
 
 /**
  * The largest pre-selection one game inside a day payload may name — the **union** across that
@@ -116,6 +121,23 @@ export const MAX_SETS = 5;
  * 60; 200 is generously above any real one, in the spirit of `MAX_COUNT`. */
 export const MAX_POINTS = 200;
 
+/** How many serve turns of ours a point log holds: runs of rallies we served, the winner of each
+ *  rally serving the next. `servers` has exactly this many entries. */
+export function serveTurnCount(points: string, servedFirst: boolean): number {
+  let turns = 0;
+  let weServe = servedFirst;
+  let inTurn = false;
+  for (const c of points) {
+    if (weServe && !inTurn) {
+      turns += 1;
+      inTurn = true;
+    }
+    if (!weServe) inTurn = false;
+    weServe = c === 'U';
+  }
+  return turns;
+}
+
 /** Every player id in this app: opaque, non-empty, printable ASCII, capped so a corrupt payload
  * cannot smuggle in a huge string. */
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -165,6 +187,10 @@ export interface StatsPayloadSet {
   /** One character per rally, in order: `U` we won it, `T` they did. 1..`MAX_POINTS` characters.
    *  `score` must equal this string's tally. */
   points?: string;
+  /** v5, optional, only with `points`: one entry per serve turn of ours in `points`
+   *  (`serveTurnCount`), in order — the id of who served it, or `null` when the phone does not
+   *  know. A named server has a stat line in this set. */
+  servers?: (string | null)[];
 }
 
 export interface StatsPayload {
@@ -239,17 +265,18 @@ export interface DayStatsGame {
 }
 
 /**
- * The v4 stats payload: one day's recording across every game the Client tracked.
+ * The v5 stats payload: one day's recording across every game the Client tracked.
  *
- * v4 adds the optional per-set point log; `validateDayStatsPayload` still accepts v2 and v3
- * bodies, since stats flow Client -> planner and an un-updated Client keeps sending one.
+ * v4 added the optional per-set point log; v5 adds who served each serve turn; v2–v4 bodies are
+ * still accepted by `validateDayStatsPayload`, since stats flow Client -> planner and an
+ * un-updated Client keeps sending one.
  *
  * No `date`, `team` or `opponent`: the import matches each game on `gameId` and the planner
  * already knows the rest, so re-sending them would only create a second source of truth for facts
  * the planner owns.
  */
 export interface DayStatsPayload {
-  v: 4;
+  v: 5;
   kind: 'stats';
   recordedAt: string;
   players: { id: string; name: string }[];
@@ -674,8 +701,8 @@ export function validateStatsPayload(value: unknown): ContractResult<StatsPayloa
   };
 }
 
-/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 4 now, and
- * without it this would emit a `CIQR4.` prefix around a body saying `"v":1`, which
+/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 5 now, and
+ * without it this would emit a `CIQR5.` prefix around a body saying `"v":1`, which
  * `decodePayload`'s own cross-check refuses as corruption. */
 export function encodeRoster(payload: RosterPayload): string {
   return encodePayload('roster', payload, 1);
@@ -686,8 +713,8 @@ export function encodeStats(payload: StatsPayload): string {
   return encodePayload('stats', payload, 1);
 }
 
-/** Encodes a day roster pinned to **3**. The roster shape did not change at contract v4 — only the
- * stats half gained the point log — and an un-updated Client must keep reading `CIQR3.`.
+/** Encodes a day roster pinned to **3**. The roster shape did not change at contract v4 or v5 — only the
+ * stats half gained the point log and its servers — and an un-updated Client must keep reading `CIQR3.`.
  * `decodePayload` treats a body `v` that differs from the prefix as corruption, so the pin and
  * `DayRosterPayload.v` move together or not at all. */
 export function encodeDayRoster(payload: DayRosterPayload): string {
@@ -718,9 +745,9 @@ export function decodeStats(text: string): ContractResult<StatsPayload> {
 // ---------------------------------------------------------------------------------------------
 
 /** The one version detail every day validator and both day decoders report. Deliberately names
- * *all four* versions this app reads rather than only the one being validated: a coach who pasted
+ * *all five* versions this app reads rather than only the one being validated: a coach who pasted
  * the wrong thing needs to know what is acceptable, not which branch refused her. */
-const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3 or 4';
+const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3, 4 or 5';
 
 /**
  * The day directory shared by both v2 payloads: 1..`MAX_DAY_PLAYERS` entries, unique legal ids,
@@ -903,11 +930,11 @@ function tallyPoints(points: string): [number, number] {
 
 export function validateDayStatsPayload(value: unknown): ContractResult<DayStatsPayload> {
   if (!isRecord(value)) return malformed('stats', 'it is not an object');
-  // v2 and v3 too, not just 4: the stats shape only grew an optional field, and an un-updated
-  // Client still sends v2 or v3 bodies. Refusing them would take the coach's whole day of stats
+  // v2, v3 and v4 too, not just 5: the stats shape only grew optional fields, and an un-updated
+  // Client still sends older bodies. Refusing them would take the coach's whole day of stats
   // down over a version digit that means nothing on this path — and stats flow Client -> planner,
   // so accepting the older number cannot break anything the Client does.
-  if (value.v !== 2 && value.v !== 3 && value.v !== 4) return malformed('stats', NOT_A_KNOWN_VERSION);
+  if (value.v !== 2 && value.v !== 3 && value.v !== 4 && value.v !== 5) return malformed('stats', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'stats') return malformed('stats', 'its kind is not "stats"');
   if (!isNonEmptyString(value.recordedAt)) return malformed('stats', 'it has no recorded time');
   if (value.recordedAt.length > MAX_RECORDED_AT_LENGTH) {
@@ -986,12 +1013,40 @@ export function validateDayStatsPayload(value: unknown): ContractResult<DayStats
         if (!isLegalStatCount(rawLine.return)) return malformed('stats', `player "${id}" has a malformed return count in game "${gid}" set ${n}`);
         lines.push({ id, serve: buildStatCount(rawLine.serve), return: buildStatCount(rawLine.return) });
       }
-      sets.push(log === null ? { n, score, players: lines } : { n, score, players: lines, servedFirst: log.servedFirst, points: log.points });
+
+      // v5: who the phone says served each of our serve turns. Each named server must have a stat
+      // line here, so the import knows her and puts her on the set's roster.
+      let servers: (string | null)[] | null = null;
+      if (rawSet.servers !== undefined) {
+        if (log === null) return malformed('stats', `game "${gid}" set ${n} names servers but has no point log`);
+        if (!Array.isArray(rawSet.servers)) return malformed('stats', `game "${gid}" set ${n} has a malformed server list`);
+        const turns = serveTurnCount(log.points, log.servedFirst);
+        if (rawSet.servers.length !== turns) {
+          return malformed('stats', `game "${gid}" set ${n} names ${rawSet.servers.length} servers for ${turns} serve turns`);
+        }
+        servers = [];
+        for (const id of rawSet.servers as unknown[]) {
+          if (id === null) {
+            servers.push(null);
+            continue;
+          }
+          if (!isLegalId(id) || !seenInSet.has(id)) {
+            return malformed('stats', `game "${gid}" set ${n} names server "${String(id)}", who has no stat line in that set`);
+          }
+          servers.push(id);
+        }
+      }
+
+      sets.push(
+        log === null
+          ? { n, score, players: lines }
+          : { n, score, players: lines, servedFirst: log.servedFirst, points: log.points, ...(servers === null ? {} : { servers }) },
+      );
     }
     games.push({ gameId: gid, sets });
   }
 
-  return { ok: true, value: { v: 4, kind: 'stats', recordedAt: value.recordedAt, players, games } };
+  return { ok: true, value: { v: 5, kind: 'stats', recordedAt: value.recordedAt, players, games } };
 }
 
 /**
@@ -1008,7 +1063,7 @@ export function validateDayStatsPayload(value: unknown): ContractResult<DayStats
  */
 export function normaliseStatsV1(p: StatsPayload): DayStatsPayload {
   return {
-    v: 4,
+    v: 5,
     kind: 'stats',
     recordedAt: p.recordedAt,
     players: p.players,
@@ -1098,6 +1153,6 @@ export function decodeDayStats(text: string): ContractResult<DayStatsPayload> {
     if (!v1.ok) return v1;
     return { ok: true, value: normaliseStatsV1(v1.value) };
   }
-  if (version === 2 || version === 3 || version === 4) return validateDayStatsPayload(decoded.value);
+  if (version === 2 || version === 3 || version === 4 || version === 5) return validateDayStatsPayload(decoded.value);
   return malformed('stats', NOT_A_KNOWN_VERSION);
 }

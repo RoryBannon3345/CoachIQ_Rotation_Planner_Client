@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/session.js';
-import { decodeDayRoster, decodeDayStats, MAX_SETS } from '../src/codec.js';
-import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V4_VECTOR, POINTS_46, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
+import { decodeDayRoster, decodeDayStats, encodeDayStats, MAX_SETS } from '../src/codec.js';
+import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V4_AS_V5, POINTS_46, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
 
 // The v2 golden day re-expressed at contract v3, which is the only roster shape the session model
 // reads now. game-1 gets FIVE set masks (mask 3 = maskOf([0, 1]) = both players) and game-2 two
@@ -357,7 +357,7 @@ test('setActiveSet(3) does not itself start set 3, and 5 slots/history range are
   assert.equal(S.getCount(s.games[0], 5, 'grace').serve.in, 1);
 });
 
-test('buildDayStatsPayload reproduces the golden v4 stats vector', () => {
+test('buildDayStatsPayload reproduces the v4 sheet at v5', () => {
   let s = S.newDayFromRoster(rosterV2AsV3, '2026-09-19T20:00:00Z');
   s = S.addSub(s, 'game-1', 1, 'Ava', 'cx-8f2k1q').session;
   s = S.setPlayerTicked(s, 'game-2', 1, 'cx-8f2k1q', true).session;
@@ -376,7 +376,8 @@ test('buildDayStatsPayload reproduces the golden v4 stats vector', () => {
   t('game-2', 1, 'cx-8f2k1q', 'serve', 'in', 6);
   t('game-2', 1, 'cx-8f2k1q', 'serve', 'out', 1);
   t('game-2', 1, 'cx-8f2k1q', 'return', 'in', 2);
-  // The taps above infer a log of their own; the golden vector carries a hand-entered one on set 1 and none elsewhere.
+  // The taps above infer a log of their own (and who served it); the golden vector carries a hand-entered
+  // log on set 1 and none elsewhere, and no servers.
   for (const [g, n] of [['game-1', 1], ['game-1', 2], ['game-2', 1]]) s = S.clearPoints(s, g, n);
   s = S.setServedFirst(s, 'game-1', 1, true);
   for (const c of POINTS_46) s = S.tapPoint(s, 'game-1', 1, c);
@@ -384,8 +385,10 @@ test('buildDayStatsPayload reproduces the golden v4 stats vector', () => {
 
   const built = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z');
   assert.equal(built.ok, true, built.error);
-  assert.equal(built.value.text, STATS_V4_VECTOR.encoded, 'byte-exact against the frozen v4 vector');
-  assert.deepEqual(built.value.payload, STATS_V4_VECTOR.payload);
+  // The build is v5 now, and the frozen v5 vector cannot be rebuilt from taps (its third serve turn is
+  // served by a player with a 0/0 serve line); its byte-exactness is pinned by codec.test.mjs and runSelfCheck.
+  assert.deepEqual(built.value.payload, STATS_V4_AS_V5);
+  assert.equal(built.value.text, encodeDayStats(STATS_V4_AS_V5));
   // Zoie is never tapped: no stat line, filtered from the sent directory.
   assert.deepEqual(built.value.payload.players.map((p) => p.id), ['grace', 'cx-8f2k1q']);
 });
@@ -404,7 +407,7 @@ test('a typed score on an unlogged set goes out as before, without log fields', 
   const s = S.setScore(open(), 'game-1', 1, [25, 21]);
   const set1 = S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z').value.payload.games[0].sets[0];
   assert.deepEqual(Object.keys(set1), ['n', 'score', 'players']);
-  assert.equal(S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z').value.payload.v, 4);
+  assert.equal(S.buildDayStatsPayload(s, '2026-09-19T21:04:00Z').value.payload.v, 5);
 });
 test('sets with no score and no counts are omitted, per game', () => {
   let s = openV2();

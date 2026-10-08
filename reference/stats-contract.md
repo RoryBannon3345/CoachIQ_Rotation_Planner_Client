@@ -19,8 +19,9 @@ This app's implementation lives in `src/contract/statsContract.ts`, deliberately
 imports** — the Client is plain HTML/JS on iOS Safari and copies that file's logic verbatim
 rather than sharing a build step with it. Keep this document and that file in sync by hand.
 
-The current contract is **version 4**, which lets each stats set carry a point log — `servedFirst`
-and `points`, one `U` or `T` per rally — so the Planner can replay who was on court. The roster half
+The current contract is **version 5**, which lets each logged stats set say who served each of the
+team's serve turns — `servers`, one id or `null` per serve turn. Version 4 added that point log —
+`servedFirst` and `points`, one `U` or `T` per rally — so the Planner can replay who was on court. The roster half
 is unchanged from **version 3**, which replaced `games[].roster` — one index array per game, naming
 everyone who played anywhere in it — with `games[].sets`, one bitmask per set, so a roster can say
 how many sets a game has and who is in each one.
@@ -194,21 +195,21 @@ merely behaves badly in a gym — so they are stated here, where both implementa
 - **`sets.length` is the set count, and it is authoritative.** The Client must build that many set
   tabs rather than assuming three. This is what closes the gap described under "Set count".
 
-## Stats payload schema (contract v2, v3 or v4)
+## Stats payload schema (contract v2, v3, v4 or v5)
 
 One day's recording across every game the Client tracked. Validated by `validateDayStatsPayload`.
 No `date`, `team` or `opponent`: the import matches each game on `gameId` and this app already knows
 the rest, so re-sending them would only create a second source of truth for facts this app owns.
 
 **This shape hasn't changed since contract 2 except for the optional point log added at contract
-4** — only the roster half moved at contract 3 — so `validateDayStatsPayload` accepts a body whose
-`v` is `2`, `3` **or** `4`, and always returns `v: 4`. An un-updated Client still producing `v: 2`
-or `v: 3` stats bodies can keep sending a whole day of stats even though it cannot read a newer
-roster.
+4 and its optional `servers` added at contract 5** — only the roster half moved at contract 3 — so
+`validateDayStatsPayload` accepts a body whose `v` is `2`, `3`, `4` **or** `5`, and always returns
+`v: 5`. An un-updated Client still producing `v: 2`, `v: 3` or `v: 4` stats bodies can keep sending
+a whole day of stats even though it cannot read a newer roster.
 
 | Field | Type | Rule |
 |---|---|---|
-| `v` | `2`, `3` or `4` | Must equal the version named in the prefix. Any of the three is accepted here, unlike the roster half — see above. |
+| `v` | `2`, `3`, `4` or `5` | Must equal the version named in the prefix. Any of the four is accepted here, unlike the roster half — see above. |
 | `kind` | `"stats"` | Fixed. |
 | `recordedAt` | `string` | Non-empty ISO timestamp, from the Client's clock. At most 32 characters (`MAX_RECORDED_AT_LENGTH`). |
 | `players` | array | The day's directory, of `{ id, name }` entries — 1–32 of them (`MAX_DAY_PLAYERS`), unique ids, each `id` matching `ID_PATTERN` and each `name` 1–64 characters (`MAX_NAME_LENGTH`). The `name` is the day display name — see the roster payload's field table for full semantics. The set lines refer to it **by id string**, not by bit position the way a roster's `games[].sets` masks do — but the directory itself is objects either way. No `jersey`: a stats sheet has no use for one, so the field is dropped on the way in. A Client-added player (id in the `cx-` namespace) arrives with a name and becomes a guest on import. |
@@ -221,10 +222,13 @@ roster.
 | `…players[].serve` / `.return` | `{ in: number; out: number }` | Both integers, `0`–`999` (`MAX_COUNT`). **Totals are never transmitted** — both apps derive `in + out`. |
 | `games[].sets[].servedFirst` | `boolean` | **Optional, v4.** Present together with `points` or not at all. `true` when the Client's team served the set's first rally. |
 | `games[].sets[].points` | `string` | **Optional, v4.** Present together with `servedFirst` or not at all. Matches `/^[UT]{1,200}$/` (`MAX_POINTS`): one character per rally in order, `U` when the Client's team won it, `T` when the opponent did. |
+| `games[].sets[].servers` | `(string \| null)[]` | **Optional, v5, only with `points`.** One entry per serve turn of ours (`serveTurnCount`): the id of who served it, or `null`. Each id has a stat line in that set. |
 
 **Point log (v4).** A set may carry `servedFirst: boolean` and `points: string`, both or neither. `points` is one character per rally in order, `U` when the Client's team won it, `T` when the opponent did; 1 to `MAX_POINTS` characters. When present, `score` is required and must equal the tally of `points` (`U`s, then `T`s). The Planner replays the string against the planned lineup; the Client never sends a lineup. A v2 or v3 body has no log and imports exactly as before.
 
-A logged set's keys go in the order `n`, `score`, `players`, `servedFirst`, `points`. Key order is not part of the contract (see "Golden vectors"), but the frozen vector below is emitted in that order. A set with no log omits both fields entirely; an empty log is never sent as `''` (it is refused — see the v4 additions to the error catalogue).
+**Who served (v5).** A logged set may also carry `servers`: one entry per serve turn of the Client's team in `points`, in order, where a serve turn is a run of rallies the team served (the winner of each rally serves the next; `serveTurnCount` in the reference codec). Each entry is the id of who served that turn, or `null` where the phone does not know. Every named id has a stat line in that set. A set with no log never carries `servers`; a v4 body has none and imports exactly as before.
+
+A logged set's keys go in the order `n`, `score`, `players`, `servedFirst`, `points`, then `servers` when present. Key order is not part of the contract (see "Golden vectors"), but the frozen vector below is emitted in that order. A set with no log omits both fields entirely; an empty log is never sent as `''` (it is refused — see the v4 additions to the error catalogue).
 
 ## Roster payload schema (contract v1)
 
@@ -437,10 +441,10 @@ interpolated at the point of failure, `<id>` a player id and `<gid>` a game id.
 - `This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.`
 - `This is a roster payload, not a stats payload.` (and the reverse)
 - **Newer version, two variants** — the first `<n>` is the version read off the payload's prefix;
-  the second is the reader's own `CONTRACT_VERSION`, which is **4** today, so these render as
-  `(contract 5); this app understands 4.`:
-  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 4.`
-  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 4.`
+  the second is the reader's own `CONTRACT_VERSION`, which is **5** today, so these render as
+  `(contract 6); this app understands 5.`:
+  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 5.`
+  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 5.`
 - **Corrupted, two variants** — each covers a truncated payload, a checksum mismatch, invalid
   Base64URL, unparsable JSON, and a body whose own `v`/`kind` disagrees with the prefix:
   - `This payload is corrupted or incomplete — copy it again from the Rotation Planner.`
@@ -529,13 +533,13 @@ Stats:
 
 Same two forms — `The roster payload is malformed: <detail>.` and
 `The stats payload is malformed: <detail>.` — where `<detail>` is one of. The roster validator only
-accepts `v: 3`; the stats validator accepts `v: 2`, `v: 3` or `v: 4` — see "Stats payload schema
-(contract v2, v3 or v4)" above. The stats list below is the whole of it apart from the seven point-log
-messages under "Contract v4 stats additions".
+accepts `v: 3`; the stats validator accepts `v: 2`, `v: 3`, `v: 4` or `v: 5` — see "Stats payload schema
+(contract v2, v3, v4 or v5)" above. The stats list below is the whole of it apart from the seven point-log
+messages under "Contract v4 stats additions" and the four server-list messages under "Contract v5 stats additions".
 
 Roster:
 - `it is not an object`
-- `its version is not 1, 2, 3 or 4`
+- `its version is not 1, 2, 3, 4 or 5`
 - `its kind is not "roster"`
 - `it has no date`
 - `it has no team name`
@@ -565,7 +569,7 @@ Roster:
 
 Stats:
 - `it is not an object`
-- `its version is not 1, 2, 3 or 4`
+- `its version is not 1, 2, 3, 4 or 5`
 - `its kind is not "stats"`
 - `it has no recorded time`
 - `its recorded time is <n> characters; the limit is 32`
@@ -606,7 +610,7 @@ reproducing these by hand will be tempted to regularise all four:
   `the limit is 16`. Different phrase, different limit, on purpose.
 - A roster `names <n> games; the limit is 8`, while a stats sheet `records more than 8 games`. A
   roster names games it plans; a sheet records games that happened.
-- `its version is not 1, 2, 3 or 4` names **all four** versions this app reads rather than only the
+- `its version is not 1, 2, 3, 4 or 5` names **all five** versions this app reads rather than only the
   one that refused, because a coach who pasted the wrong thing needs to know what is acceptable, not
   which branch said no. The v1 validators still say `its version is not 1`; they are only reachable
   through the day decoders, which have already dispatched on the body's `v`.
@@ -632,6 +636,19 @@ the per-set loop, after the score is parsed and before the set's player list is 
 - `game "<gid>" set <n> has a score that disagrees with its point log` — `score` is not exactly
   `[count of U, count of T]`.
 
+### Contract v5 stats additions
+
+Same form, `The stats payload is malformed: <detail>.`, and the checks run in the order below, inside
+the per-set loop, after the set's player list is read. A set with no `servers` skips all four.
+
+- `game "<gid>" set <n> names servers but has no point log` — `servers` is present on a set with no
+  `points`/`servedFirst`.
+- `game "<gid>" set <n> has a malformed server list` — `servers` is not an array.
+- `game "<gid>" set <n> names <k> servers for <t> serve turns` — the list's length is not
+  `serveTurnCount(points, servedFirst)`.
+- `game "<gid>" set <n> names server "<id>", who has no stat line in that set` — an entry that is
+  not `null` is not a legal id, or has no line in that set's `players`.
+
 ### Contract v2 roster (legacy)
 
 Still reachable, and worth its own entry rather than a footnote: `decodeDayRoster` sends a body
@@ -640,7 +657,7 @@ whose `v` is `2` through `validateDayRosterPayloadV2` (not exported — internal
 opens an old `CIQR2.` roster email in an already-updated Client still runs it through this
 validator, so a malformed one still produces these strings, not the v3 ones above.
 
-Its `it is not an object` / `its version is not 1, 2, 3 or 4` / `its kind is not "roster"` / `it has no
+Its `it is not an object` / `its version is not 1, 2, 3, 4 or 5` / `its kind is not "roster"` / `it has no
 date` / `it has no team name` / player-list / `it has no game list` / `it names no games` / `it
 names <n> games; the limit is 8` / `one of its games is malformed` / `one of its games has no id` /
 `game id "<gid>" appears twice` / `game "<gid>" has no opponent name` checks are worded identically
@@ -691,6 +708,13 @@ receive, never carried on the wire. The cost is a mixed pair. A stats app still 
 13–16 player game from this planner with its existing "names N players; the limit is 12", so
 both apps ship together. At 32 the highest mask bit is `2 ** 31`, which is why every mask reader
 must use the arithmetic helpers.
+
+### Who served (contract 5) — 2026-10-08
+
+Version 5 adds an optional `servers` list to each logged stats set: who the phone says served
+each of our serve turns, or `null` where it does not know (docs/superpowers/specs/2026-10-08-as-played-design.md).
+It bumps for the reason v4 did: a v4 planner would validate a v5 day field by field and drop
+every server without a word. The roster half is unchanged and stays pinned to 3.
 
 ### Point logs (contract 4) — 2026-10-01
 
@@ -881,10 +905,11 @@ for a stats payload is. Both apps must now produce it for both kinds.
 
 The same logic as `src/contract/statsContract.ts`, without types, for an implementer who is not
 using TypeScript (e.g. the Client). Shape validation is intentionally omitted here — only the
-transport codec needs to be identical between the two apps.
+transport codec needs to be identical between the two apps — apart from `serveTurnCount` and the
+v5 `servers` check, whose count rule both apps must agree on exactly.
 
 ```js
-const CONTRACT_VERSION = 4;
+const CONTRACT_VERSION = 5;
 const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 /** Coach-readable name for each kind, used in the kind-mismatch error. */
@@ -941,7 +966,7 @@ function encodePayload(kind, json, version = CONTRACT_VERSION) {
   return `${PREFIX[kind]}${version}.${toBase64Url(bytes)}.${fnv1a32(bytes)}`;
 }
 
-// The two day encoders. The roster half did not change at contract 4, so its body still says v: 3
+// The two day encoders. The roster half did not change at contract 4 or 5, so its body still says v: 3
 // and the prefix must too (decodePayload calls a body `v` that differs from the prefix corruption).
 function encodeDayRoster(payload) { return encodePayload('roster', payload, 3); }
 function encodeDayStats(payload) { return encodePayload('stats', payload); }
@@ -976,9 +1001,46 @@ function decodePayload(text, expected) {
   }
   // Not yet shape-validated. Dispatch on `parsed.v` next: 1 and 2 are legacy payloads to validate
   // and normalise into the day shape (a v2 roster's per-game index array becomes one set mask), 3
-  // is the current day roster (the roster is pinned at 3; stats are at 4, which adds the point
-  // log, and still reads 2 and 3). Anything else is `its version is not 1, 2, 3 or 4`.
+  // is the current day roster (the roster is pinned at 3; stats are at 5, which adds `servers` to
+  // the point log v4 added, and still reads 2, 3 and 4). Anything else is
+  // `its version is not 1, 2, 3, 4 or 5`.
   return { ok: true, value: parsed };
+}
+
+/** How many serve turns of ours a point log holds: runs of rallies we served, the winner of each
+ *  rally serving the next. `servers` has exactly this many entries. */
+function serveTurnCount(points, servedFirst) {
+  let turns = 0;
+  let weServe = servedFirst;
+  let inTurn = false;
+  for (const c of points) {
+    if (weServe && !inTurn) {
+      turns += 1;
+      inTurn = true;
+    }
+    if (!weServe) inTurn = false;
+    weServe = c === 'U';
+  }
+  return turns;
+}
+
+/** The one piece of shape validation repeated here, because its count rule is easy to get wrong:
+ *  a v5 set's `servers`. `log` is the set's validated `{ servedFirst, points }` or `null`;
+ *  `idsInSet` is the Set of ids with a stat line in that set. Returns the detail for
+ *  `The stats payload is malformed: <detail>.`, or `null` when the list is fine (or absent). */
+function serversFault(gid, n, rawServers, log, idsInSet) {
+  if (rawServers === undefined) return null;
+  if (log === null) return `game "${gid}" set ${n} names servers but has no point log`;
+  if (!Array.isArray(rawServers)) return `game "${gid}" set ${n} has a malformed server list`;
+  const turns = serveTurnCount(log.points, log.servedFirst);
+  if (rawServers.length !== turns) return `game "${gid}" set ${n} names ${rawServers.length} servers for ${turns} serve turns`;
+  for (const id of rawServers) {
+    if (id === null) continue;
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || !idsInSet.has(id)) {
+      return `game "${gid}" set ${n} names server "${String(id)}", who has no stat line in that set`;
+    }
+  }
+  return null;
 }
 ```
 
@@ -1024,6 +1086,51 @@ Encoded:
 
 ```
 CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391
+```
+
+### Stats vector (contract v5)
+
+The v4 sheet below with its version digit moved to `5`, and one `servers` list added on the logged
+set: `game-1` set 1's `POINTS_46`, served first, holds 14 serve turns of ours; the phone knew Grace
+served the first and Ava (`cx-8f2k1q`) the third, and nobody else, so the list is
+`["grace", null, "cx-8f2k1q", null, null, null, null, null, null, null, null, null, null, null]`.
+Both named ids have a stat line in that set. Set 2 and `game-2` are unchanged. Note the key order on
+the logged set: `n`, `score`, `players`, `servedFirst`, `points`, `servers`. Frozen: never regenerate
+this string.
+
+Payload:
+
+```json
+{
+  "v": 5, "kind": "stats", "recordedAt": "2026-09-19T21:04:00Z",
+  "players": [
+    { "id": "grace", "name": "Grace" },
+    { "id": "cx-8f2k1q", "name": "Ava" }
+  ],
+  "games": [
+    { "gameId": "game-1", "sets": [
+      { "n": 1, "score": [25, 21], "players": [
+        { "id": "grace", "serve": { "in": 8, "out": 2 }, "return": { "in": 5, "out": 1 } },
+        { "id": "cx-8f2k1q", "serve": { "in": 0, "out": 0 }, "return": { "in": 3, "out": 0 } }
+      ], "servedFirst": true, "points": "UUTUTTUUUTTUTTUUTUTTTUUUTUTTUUTUTTUUUTTUTUUTUU",
+      "servers": ["grace", null, "cx-8f2k1q", null, null, null, null, null, null, null, null, null, null, null] },
+      { "n": 2, "score": null, "players": [
+        { "id": "grace", "serve": { "in": 4, "out": 1 }, "return": { "in": 2, "out": 2 } }
+      ] }
+    ] },
+    { "gameId": "game-2", "sets": [
+      { "n": 1, "score": [25, 18], "players": [
+        { "id": "cx-8f2k1q", "serve": { "in": 6, "out": 1 }, "return": { "in": 2, "out": 0 } }
+      ] }
+    ] }
+  ]
+}
+```
+
+Encoded:
+
+```
+CIQS5.eyJ2Ijo1LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIiwic2VydmVycyI6WyJncmFjZSIsbnVsbCwiY3gtOGYyazFxIixudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGxdfSx7Im4iOjIsInNjb3JlIjpudWxsLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwic2VydmUiOnsiaW4iOjQsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjoyfX1dfV19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwic2V0cyI6W3sibiI6MSwic2NvcmUiOlsyNSwxOF0sInBsYXllcnMiOlt7ImlkIjoiY3gtOGYyazFxIiwic2VydmUiOnsiaW4iOjYsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjowfX1dfV19XX0.2ded0a1d
 ```
 
 ### Stats vector (contract v4)

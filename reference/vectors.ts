@@ -128,7 +128,7 @@ export const ROSTER_V3_VECTOR = {
 /** Set 2 vs Falcons from `docs/points-on-court-mockup.html`: we served first, 46 rallies, 25–21. */
 export const POINTS_46 = 'UUTUTTUUUTTUTTUUTUTTTUUUTUTTUUTUTTUUUTTUTUUTUU';
 
-const STATS_V4_PAYLOAD: DayStatsPayload = {
+const STATS_V4_PAYLOAD: Omit<DayStatsPayload, 'v'> & { v: 4 } = {
   ...STATS_V3_PAYLOAD,
   v: 4,
   games: [
@@ -151,4 +151,29 @@ export const STATS_V4_VECTOR = {
 export const STATS_V3_VECTOR = {
   payload: STATS_V3_PAYLOAD,
   encoded: 'CIQS3.eyJ2IjozLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.89cc6a1f',
+};
+
+/** The v4 day with contract v5's `servers` on game-1 set 1: who served each of our 14 serve turns
+ *  in `POINTS_46`, where the phone knew. Frozen: never regenerate the encoded string. */
+const STATS_V5_PAYLOAD: DayStatsPayload = {
+  ...STATS_V4_PAYLOAD,
+  v: 5,
+  games: [
+    {
+      gameId: 'game-1',
+      sets: [
+        {
+          ...STATS_V4_PAYLOAD.games[0]!.sets[0]!,
+          servers: ['grace', null, 'cx-8f2k1q', null, null, null, null, null, null, null, null, null, null, null],
+        },
+        STATS_V4_PAYLOAD.games[0]!.sets[1]!,
+      ],
+    },
+    STATS_V4_PAYLOAD.games[1]!,
+  ],
+};
+
+export const STATS_V5_VECTOR = {
+  payload: STATS_V5_PAYLOAD,
+  encoded: 'CIQS5.eyJ2Ijo1LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIiwic2VydmVycyI6WyJncmFjZSIsbnVsbCwiY3gtOGYyazFxIixudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGxdfSx7Im4iOjIsInNjb3JlIjpudWxsLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwic2VydmUiOnsiaW4iOjQsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjoyfX1dfV19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwic2V0cyI6W3sibiI6MSwic2NvcmUiOlsyNSwxOF0sInBsYXllcnMiOlt7ImlkIjoiY3gtOGYyazFxIiwic2VydmUiOnsiaW4iOjYsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjowfX1dfV19XX0.2ded0a1d',
 };

@@ -129,6 +129,31 @@ export const STATS_V3_VECTOR = {
   encoded: 'CIQS3.eyJ2IjozLCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV19LHsibiI6Miwic2NvcmUiOm51bGwsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJzZXJ2ZSI6eyJpbiI6NCwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjJ9fV19XX0seyJnYW1lSWQiOiJnYW1lLTIiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDE4XSwicGxheWVycyI6W3siaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6Niwib3V0IjoxfSwicmV0dXJuIjp7ImluIjoyLCJvdXQiOjB9fV19XX1dfQ.89cc6a1f',
 };
 
+/** The v4 day with contract v5's `servers` on game-1 set 1: who served each of our 14 serve turns
+ *  in `POINTS_46`, where the phone knew. Frozen: never regenerate the encoded string. */
+const STATS_V5_PAYLOAD = {
+  ...STATS_V4_PAYLOAD,
+  v: 5,
+  games: [
+    {
+      gameId: 'game-1',
+      sets: [
+        {
+          ...STATS_V4_PAYLOAD.games[0].sets[0],
+          servers: ['grace', null, 'cx-8f2k1q', null, null, null, null, null, null, null, null, null, null, null],
+        },
+        STATS_V4_PAYLOAD.games[0].sets[1],
+      ],
+    },
+    STATS_V4_PAYLOAD.games[1],
+  ],
+};
+
+export const STATS_V5_VECTOR = {
+  payload: STATS_V5_PAYLOAD,
+  encoded: 'CIQS5.eyJ2Ijo1LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIiwic2VydmVycyI6WyJncmFjZSIsbnVsbCwiY3gtOGYyazFxIixudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGxdfSx7Im4iOjIsInNjb3JlIjpudWxsLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwic2VydmUiOnsiaW4iOjQsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjoyfX1dfV19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwic2V0cyI6W3sibiI6MSwic2NvcmUiOlsyNSwxOF0sInBsYXllcnMiOlt7ImlkIjoiY3gtOGYyazFxIiwic2VydmUiOnsiaW4iOjYsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjowfX1dfV19XX0.2ded0a1d',
+};
+
 /**
  * `ROSTER_V1_AS_DAY` — the day shape `normaliseRosterV1`/`decodeDayRoster` must produce from
  * `ROSTER_VECTOR.payload` at v3. A v1 roster is a one-game day whose directory is that game's
@@ -156,11 +181,11 @@ export const ROSTER_V2_AS_V3 = {
 
 /**
  * `STATS_V1_AS_DAY` — the day shape `normaliseStatsV1`/`decodeDayStats` must produce from
- * `STATS_VECTOR.payload` at v4. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
+ * `STATS_VECTOR.payload` at v5. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
  * matches `normaliseStatsV1`'s own literal order (v, kind, recordedAt, players, games).
  */
 export const STATS_V1_AS_DAY = {
-  v: 4, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
+  v: 5, kind: 'stats', recordedAt: '2026-09-19T21:04:00Z',
   players: [{ id: 'grace', name: 'Grace' }, { id: 'cx-8f2k1q', name: 'Ava' }],
   games: [{ gameId: 'game-1', sets: [
     { n: 1, score: [25, 21], players: [
@@ -171,6 +196,9 @@ export const STATS_V1_AS_DAY = {
   ] }],
 };
 
-/** The day shape `decodeDayStats` produces from a v2 or v3 body now: the same sheet reported at 4, no log. */
-export const STATS_V2_AS_V4 = { ...STATS_V2_PAYLOAD, v: 4 };
-export const STATS_V3_AS_V4 = { ...STATS_V2_PAYLOAD, v: 4 };
+/** The day shape `decodeDayStats` produces from a v2 or v3 body now: the same sheet reported at 5, no log. */
+export const STATS_V2_AS_V5 = { ...STATS_V2_PAYLOAD, v: 5 };
+export const STATS_V3_AS_V5 = { ...STATS_V2_PAYLOAD, v: 5 };
+
+/** The day shape `decodeDayStats` produces from the v4 body now: the same day, log and all, reported at 5. */
+export const STATS_V4_AS_V5 = { ...STATS_V4_PAYLOAD, v: 5 };
