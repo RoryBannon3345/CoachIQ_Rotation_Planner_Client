@@ -15,8 +15,9 @@
 // already-booted module instead of a clean one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { encodeDayRoster } from '../src/codec.js';
-import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, tap, setServedFirst, tapPoint, setScore, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR } from '../src/session.js';
+import { parseSession, STORAGE_KEY, newDayFromRoster, serialiseSession, getCount, tap, setServedFirst, tapPoint, setScore, setPlayerTicked, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR } from '../src/session.js';
 import { createFakeDom, flushAsync } from './helpers/fake-dom.mjs';
 
 let caseId = 0;
@@ -53,12 +54,12 @@ async function bootUi() {
 }
 
 const ROSTER_TEXT = encodeDayRoster({
-  v: 3,
+  v: 6,
   kind: 'roster',
   date: '2026-09-19',
   team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace' }],
-  games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }], // mask 1 = index 0 = grace, one set
+  games: [{ gameId: 'g1', opponent: 'Lions', sets: [1], serve: [null] }], // mask 1 = index 0 = grace, one set, no plan
 });
 
 function click(document, selector) {
@@ -629,4 +630,80 @@ test('the replace sheet asks for both scores without offering to clear one', asy
   const html = document.getElementById('app').innerHTML;
   assert.match(html, /<span>Enter both scores<\/span>/);
   assert.doesNotMatch(html, /or clear the score/);
+});
+
+// ---- the planned server (docs/superpowers/specs/2026-10-08-server-highlight-design.md) ----
+const PLAN = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: ['Ana Lopez', 'Bea', 'Cat', 'Dee', 'Eve', 'Fay', 'Gia'].map((name) => ({ id: name.slice(0, 3).toLowerCase(), name })),
+  games: [{ gameId: 'g1', opponent: 'Lions', sets: [127, 63], serve: ['012345', null] }], // Gia is in set 1 but not in its plan; set 2 has no plan
+};
+const planDay = (serve = ['012345', null]) => newDayFromRoster({ ...PLAN, games: [{ ...PLAN.games[0], serve }] }, '2026-09-19T09:00:00Z');
+const servingRows = (html) => html.match(/class="row serving"/g) ?? [];
+const servingRow = (name) => new RegExp(`<div class="row serving" data-serving="1" aria-current="true">\\s*<div class="name">${name}</div>`);
+const serveIn = (pid) => `[data-action="tap-count"][data-pid="${pid}"][data-stat="serve"][data-side="in"]`;
+const toastSays = (text) => new RegExp(`<div class="toast" role="status" aria-live="polite">${text.replace(/[+.]/g, '\\$&')}</div>`);
+
+test('the planned server’s row is highlighted while we serve and while we receive', async () => {
+  let html = await renderWith(setServedFirst(planDay(), 'g1', 1, true), 'g1');
+  assert.match(html, servingRow('Ana Lopez'));
+  assert.equal(servingRows(html).length, 1);
+  html = await renderWith(setServedFirst(planDay(), 'g1', 1, false), 'g1');
+  assert.match(html, servingRow('Bea'), 'receiving: our next server');
+  assert.equal(servingRows(html).length, 1);
+  assert.match(html, /<div class="row">\s*<div class="name">Ana Lopez<\/div>/, 'every other row keeps the plain class');
+});
+
+test('no row is highlighted without a plan, for a typed set, before serve-first, on an empty spot, or when she is not ticked', async () => {
+  const none = async (day, n, why) => assert.equal(servingRows(await renderWith(day, 'g1', n)).length, 0, why);
+  await none(planDay(), 1, 'serve-first unanswered');
+  await none(setServedFirst(planDay(), 'g1', 2, true), 2, 'no plan for set 2');
+  await none(setServedFirst(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'), 'g1', 1, true), 1, 'an older roster');
+  await none(setScore(planDay(), 'g1', 1, [25, 20]), 1, 'a typed set');
+  await none(setServedFirst(planDay(['-12345', null]), 'g1', 1, true), 1, 'an empty spot');
+  await none(setServedFirst(setPlayerTicked(planDay(), 'g1', 1, 'ana', false).session, 'g1', 1, true), 1, 'the predicted player is not ticked');
+});
+
+test('a Serve tap for someone else re-aligns: the toast names her, Undo reads ↶ Undo re-align and keeps the stat', async () => {
+  const { document } = await bootWithSession(planDay());
+  click(document, serveIn('cat'));
+  let html = document.getElementById('app').innerHTML;
+  assert.match(html, toastSays('Re-aligned to Cat'));
+  assert.match(html, servingRow('Cat'));
+  assert.match(html, /data-action="undo"[^>]*>↶ Undo re-align<\/button>/);
+  click(document, '[data-action="undo"]');
+  html = document.getElementById('app').innerHTML;
+  assert.match(html, servingRow('Ana Lopez'));
+  assert.match(html, /data-action="undo"[^>]*>↶ Undo Cat S in<\/button>/);
+  assert.match(html, /data-pid="cat" data-stat="serve" data-side="in">1<\/button>/);
+});
+
+test('a re-align after a side-out keeps the scoring phrase first', async () => {
+  const { document } = await bootWithSession(setServedFirst(planDay(), 'g1', 1, false));
+  click(document, serveIn('cat')); // side-out to Us; the plan says Bea serves our first turn
+  assert.match(document.getElementById('app').innerHTML, toastSays('Us +1 · side-out. Re-aligned to Cat'));
+});
+
+test('a player outside the plan stands in: “<P> serving for <Q>”, or “<P> serving” on an empty spot', async () => {
+  let env = await bootWithSession(planDay());
+  click(env.document, serveIn('gia'));
+  assert.match(env.document.getElementById('app').innerHTML, toastSays('Gia serving for Ana'));
+  env = await bootWithSession(planDay(['-12345', null]));
+  click(env.document, serveIn('gia'));
+  assert.match(env.document.getElementById('app').innerHTML, toastSays('Gia serving'));
+});
+
+test('the planned player coming back for her stand-in says “<P> back in”', async () => {
+  let day = tap(planDay(), 'g1', 1, 'gia', 'serve', 'out', 1); // Gia stands in for Ana and loses the rally
+  for (const pid of ['bea', 'cat', 'dee', 'eve', 'fay']) day = tap(day, 'g1', 1, pid, 'serve', 'out', 1); // side-out, then lost
+  const { document } = await bootWithSession(day);
+  assert.match(document.getElementById('app').innerHTML, servingRow('Gia'), 'the stand-in is due again');
+  click(document, '[data-action="tap-count"][data-pid="ana"][data-stat="serve"][data-side="out"]');
+  assert.match(document.getElementById('app').innerHTML, toastSays('Us +1 · side-out, then Them +1 · Serve out. Ana back in'));
+});
+
+test('the serving row is styled by colour alone: a background and an accent bar, no dot', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.ok(css.includes('.row.serving, .row.serving:nth-child(even) { background:var(--info-bg); box-shadow:inset 4px 0 0 var(--accent); }'));
+  assert.doesNotMatch(css, /\.row\.serving[^{]*::before/);
 });

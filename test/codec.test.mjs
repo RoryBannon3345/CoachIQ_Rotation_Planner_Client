@@ -5,9 +5,9 @@ import {
   fnv1a32, encodePayload, decodePayload, decodeRoster, decodeStats, encodeRoster, encodeStats,
   encodeDayRoster, encodeDayStats, decodeDayRoster, decodeDayStats,
   validateRosterPayload, validateStatsPayload, validateDayRosterPayload, validateDayStatsPayload,
-  normaliseRosterV1, normaliseStatsV1, maskHas, maskOf, maskMembers, maskCount, maskUnion, serveTurnCount,
+  normaliseRosterV1, normaliseStatsV1, maskHas, maskOf, maskMembers, maskCount, maskUnion, serveTurnCount, SERVE_ORDER_PATTERN,
 } from '../src/codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, STATS_V4_VECTOR, STATS_V5_VECTOR, STATS_V4_AS_V5, STATS_V2_AS_V5, STATS_V3_AS_V5, STATS_V3_VECTOR } from '../src/vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, ROSTER_V3_VECTOR, ROSTER_V6_VECTOR, ROSTER_V3_AS_V6, ROSTER_V2_AS_V6, ROSTER_V1_AS_V6, STATS_V1_AS_DAY, STATS_V4_VECTOR, STATS_V5_VECTOR, STATS_V4_AS_V5, STATS_V2_AS_V5, STATS_V3_AS_V5, STATS_V3_VECTOR } from '../src/vectors.js';
 
 test('fnv1a32 reference values', () => {
   assert.equal(fnv1a32(new Uint8Array()), '811c9dc5');
@@ -21,13 +21,18 @@ test('golden stats vector round-trips byte-exact', () => {
   assert.equal(encodeStats(STATS_VECTOR.payload), STATS_VECTOR.encoded);
   assert.deepEqual(decodeStats(STATS_VECTOR.encoded), { ok: true, value: STATS_VECTOR.payload });
 });
-test('golden v2 roster vector still encodes and decodes, normalising to one set per game', () => {
+test('golden v2 roster vector still encodes and decodes, normalising to one set per game at v6', () => {
   assert.equal(encodePayload('roster', ROSTER_V2_VECTOR.payload, 2), ROSTER_V2_VECTOR.encoded);
-  assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_AS_V3 });
+  assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_AS_V6 });
 });
-test('golden v3 roster vector round-trips byte-exact', () => {
-  assert.equal(encodeDayRoster(ROSTER_V3_VECTOR.payload), ROSTER_V3_VECTOR.encoded);
-  assert.deepEqual(decodeDayRoster(ROSTER_V3_VECTOR.encoded), { ok: true, value: ROSTER_V3_VECTOR.payload });
+test('golden v3 roster vector still encodes at 3, and decodes to v6 with no plan', () => {
+  assert.equal(encodePayload('roster', ROSTER_V3_VECTOR.payload, 3), ROSTER_V3_VECTOR.encoded);
+  assert.deepEqual(decodeDayRoster(ROSTER_V3_VECTOR.encoded), { ok: true, value: ROSTER_V3_AS_V6 });
+});
+test('golden v6 roster vector round-trips byte-exact', () => {
+  assert.equal(encodeDayRoster(ROSTER_V6_VECTOR.payload), ROSTER_V6_VECTOR.encoded);
+  assert.ok(ROSTER_V6_VECTOR.encoded.startsWith('CIQR6.'));
+  assert.deepEqual(decodeDayRoster(ROSTER_V6_VECTOR.encoded), { ok: true, value: ROSTER_V6_VECTOR.payload });
 });
 test('mask helpers use arithmetic and survive past bit 30', () => {
   assert.equal(maskHas(3, 0), true);
@@ -70,26 +75,31 @@ test('the guide§8 worked example decodes to the documented tick lists', () => {
   assert.deepEqual(membersOf(g2, 1), [], 'mask 0 is nobody pre-ticked, not a missing set');
 });
 
-test('legacy rosters normalise to exactly one set holding the whole roster', () => {
-  assert.deepEqual(decodeDayRoster(ROSTER_VECTOR.encoded), { ok: true, value: ROSTER_V1_AS_DAY });
-  assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_AS_V3 });
+test('legacy rosters normalise to v6: v1 and v2 to exactly one set holding the whole roster, and no plan anywhere', () => {
+  assert.deepEqual(decodeDayRoster(ROSTER_VECTOR.encoded), { ok: true, value: ROSTER_V1_AS_V6 });
+  assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_AS_V6 });
   // One set, not three and not five — inventing a set count would present a fabrication as data.
   for (const g of decodeDayRoster(ROSTER_V2_VECTOR.encoded).value.games) assert.equal(g.sets.length, 1);
+  for (const encoded of [ROSTER_VECTOR.encoded, ROSTER_V2_VECTOR.encoded, ROSTER_V3_VECTOR.encoded]) {
+    for (const g of decodeDayRoster(encoded).value.games) {
+      assert.deepEqual(g.serve, g.sets.map(() => null), 'one null per set: an older roster carries no plan');
+    }
+  }
 });
-
-test('a CIQR6 roster is refused as newer, naming the Rotation Planner', () => {
-  // 6, not 5: version 5 is this app's own contract now, so only a 6 is genuinely "newer".
-  const future = ROSTER_V3_VECTOR.encoded.replace('CIQR3.', 'CIQR6.');
+test('a CIQR7 roster is refused as newer, naming the Rotation Planner', () => {
+  // 7, not 6: version 6 is this app's own contract now, so only a 7 is genuinely "newer".
+  const future = ROSTER_V6_VECTOR.encoded.replace('CIQR6.', 'CIQR7.');
   assert.deepEqual(decodeDayRoster(future), {
     ok: false,
-    error: 'This payload was made by a newer version of the Rotation Planner (contract 6); this app understands 5.',
+    error: 'This payload was made by a newer version of the Rotation Planner (contract 7); this app understands 6.',
   });
 });
 
-test('v3 roster catalogue', () => {
+test('roster catalogue: the v3 set rules, read at contract 6', () => {
   const manyPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: 'x' }));
-  const base = { v: 3, kind: 'roster', date: 'd', team: 't', players: manyPlayers(2) };
-  const game = (sets) => ({ ...base, games: [{ gameId: 'g', opponent: 'o', sets }] });
+  const base = { v: 6, kind: 'roster', date: 'd', team: 't', players: manyPlayers(2) };
+  const nulls = (sets) => (Array.isArray(sets) ? sets.map(() => null) : []);
+  const game = (sets) => ({ ...base, games: [{ gameId: 'g', opponent: 'o', sets, serve: nulls(sets) }] });
   // Not a mask at all: negative, fractional, a string, or past the safe-integer range.
   for (const bad of [-1, 1.5, '0', 2 ** 53]) {
     assert.equal(
@@ -114,29 +124,88 @@ test('v3 roster catalogue', () => {
     'The roster payload is malformed: game "g" records more than 5 sets.',
   );
   // The 16-cap is the UNION across sets, not any one set's count.
-  const seventeen = { v: 3, kind: 'roster', date: 'd', team: 't', players: manyPlayers(17) };
+  const seventeen = { v: 6, kind: 'roster', date: 'd', team: 't', players: manyPlayers(17) };
   assert.equal(
-    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 17 - 1] }] }).error,
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 17 - 1], serve: [null] }] }).error,
     'The roster payload is malformed: game "g" names 17 players; the limit is 16.',
   );
   // The same 17 players spread across two sets still trip the union cap.
   assert.equal(
-    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1, 2 ** 16] }] }).error,
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1, 2 ** 16], serve: [null, null] }] }).error,
     'The roster payload is malformed: game "g" names 17 players; the limit is 16.',
   );
   // Exactly 16 is legal.
   assert.equal(
-    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1] }] }).ok,
+    validateDayRosterPayload({ ...seventeen, games: [{ gameId: 'g', opponent: 'o', sets: [2 ** 16 - 1], serve: [null] }] }).ok,
     true,
   );
   // A mask of 0 is legal: the coach sent the day before picking that set.
   assert.equal(validateDayRosterPayload(game([0])).ok, true);
   assert.equal(validateDayRosterPayload(game([3, 0, 1])).ok, true);
-  // A v2 body reaching the v3 validator directly is a version fault, named with all five.
+  // A v2 or v3 body reaching the v6 validator directly is a version fault, named with all six.
+  for (const v of [2, 3]) {
+    assert.equal(
+      validateDayRosterPayload({ v, kind: 'roster', date: 'd', team: 't', players: manyPlayers(2), games: [] }).error,
+      'The roster payload is malformed: its version is not 1, 2, 3, 4, 5 or 6.',
+    );
+  }
+});
+
+test('the serve-order pattern is the Planner’s: 6 to 16 base-32 characters or dashes', () => {
+  assert.equal(SERVE_ORDER_PATTERN.source, '^[0-9a-v-]{6,16}$');
+});
+
+test('base 32 reaches the 32nd directory player: 0–9, then a for index 10, up to v', () => {
+  const players = Array.from({ length: MAX_DAY_PLAYERS }, (_, i) => ({ id: `p${i}`, name: 'x' }));
+  const game = { gameId: 'g1', opponent: 'Lions', sets: [maskOf([0, 9, 10, 31])], serve: ['09av--'] };
+  const day = { ...ROSTER_V6_VECTOR.payload, players, games: [game] };
+  assert.deepEqual(validateDayRosterPayload(day), { ok: true, value: day });
+});
+
+test('a game over its cap is reported as that, not as its 17-spot order: every v3 check runs first', () => {
+  const players = Array.from({ length: 17 }, (_, i) => ({ id: `p${i}`, name: 'x' }));
+  const seventeen = [...Array(17).keys()];
+  const order = seventeen.map((i) => i.toString(32)).join('');
+  assert.equal(order, '0123456789abcdefg');
   assert.equal(
-    validateDayRosterPayload({ v: 2, kind: 'roster', date: 'd', team: 't', players: manyPlayers(2), games: [] }).error,
-    'The roster payload is malformed: its version is not 1, 2, 3, 4 or 5.',
+    validateDayRosterPayload({ ...ROSTER_V6_VECTOR.payload, players, games: [{ gameId: 'g1', opponent: 'Lions', sets: [maskOf(seventeen)], serve: [order] }] }).error,
+    'The roster payload is malformed: game "g1" names 17 players; the limit is 16.',
   );
+});
+
+test('each v6 game is rebuilt field by field, dropping unknown fields, in a fixed key order', () => {
+  const base = ROSTER_V6_VECTOR.payload;
+  const decoded = validateDayRosterPayload({ ...base, games: [{ ...base.games[0], ghost: 1 }, base.games[1]] });
+  assert.deepEqual(decoded, { ok: true, value: base });
+  assert.deepEqual(Object.keys(decoded.value.games[0]), ['gameId', 'opponent', 'sets', 'serve']);
+});
+
+test('contract 6 serve-order refusals match the Planner catalogue', () => {
+  const players = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }];
+  // Set 1 is mask 3 (a, b); set 2 is mask 7 (a, b, c).
+  const day = (extra) => ({ v: 6, kind: 'roster', date: 'd', team: 't', players, games: [{ gameId: 'g', opponent: 'o', sets: [3, 7], ...extra }] });
+  const fault = (extra) => validateDayRosterPayload(day(extra)).error;
+  const M = 'The roster payload is malformed: ';
+  const noList = `${M}game "g" has no serve list with one entry per set.`;
+  assert.equal(fault({}), noList, 'missing');
+  assert.equal(fault({ serve: 'x' }), noList, 'not an array');
+  assert.equal(fault({ serve: [null] }), noList, 'one entry for two sets');
+  assert.equal(fault({ serve: [null, null, null] }), noList, 'three entries for two sets');
+  assert.equal(fault({ serve: [null, 7] }), `${M}game "g" set 2 has a serve order that is not legal.`, 'wrong type');
+  for (const bad of ['01010', '0'.repeat(17), '01010W', '01010z', '010 10']) {
+    assert.equal(fault({ serve: [bad, null] }), `${M}game "g" set 1 has a serve order that is not legal.`, JSON.stringify(bad));
+  }
+  assert.equal(fault({ serve: [null, '012v12'] }), `${M}game "g" set 2 serve order names player 31, but the payload lists only 3.`);
+  assert.equal(fault({ serve: ['012012', null] }), `${M}game "g" set 1 serve order names a player who is not in that set.`);
+  assert.equal(fault({ serve: ['------', null] }), `${M}game "g" set 1 serve order names nobody.`);
+  assert.equal(validateDayRosterPayload(day({ serve: ['01-01-', '0120120'] })).ok, true, 'a dash is an empty spot; 7 long is a Train set');
+  assert.equal(validateDayRosterPayload(day({ serve: [null, '0123456789abcdef'.replace(/[3-9a-f]/g, '2')] })).ok, true, '16 long is the maximum');
+});
+
+test('a stats body at 6 is not a known version: the stats half stays at 5', () => {
+  const six = { ...STATS_V5_VECTOR.payload, v: 6 };
+  assert.equal(validateDayStatsPayload(six).error, 'The stats payload is malformed: its version is not 1, 2, 3, 4, 5 or 6.');
+  assert.equal(decodeDayStats(encodePayload('stats', six, 6)).error, 'The stats payload is malformed: its version is not 1, 2, 3, 4, 5 or 6.');
 });
 test('golden v5 stats vector round-trips byte-exact; the encode side is at v5 now', () => {
   assert.equal(encodeDayStats(STATS_V5_VECTOR.payload), STATS_V5_VECTOR.encoded);
@@ -171,8 +240,10 @@ test('server-list refusals match the planner catalogue (contract v5)', () => {
   assert.equal(fault({ servedFirst: undefined, points: undefined, servers: [] }), 'The stats payload is malformed: game "game-1" set 1 names servers but has no point log.');
   assert.equal(validateDayStatsPayload(withSet({ servers: fourteen(null) })).ok, true, 'a list that knows nobody is legal');
 });
-test('the roster stays pinned to 3', () => {
-  assert.equal(encodeDayRoster(ROSTER_V3_VECTOR.payload), ROSTER_V3_VECTOR.encoded);
+test('the roster is pinned to 6 and the stats sheet to 5', () => {
+  assert.ok(encodeDayRoster(ROSTER_V6_VECTOR.payload).startsWith('CIQR6.'));
+  assert.equal(encodeDayStats(STATS_V5_VECTOR.payload), STATS_V5_VECTOR.encoded);
+  assert.ok(encodeDayStats(STATS_V5_VECTOR.payload).startsWith('CIQS5.'));
 });
 test('point-log refusals match the planner catalogue', () => {
   const base = STATS_V4_VECTOR.payload;
@@ -191,7 +262,7 @@ test('whitespace and line-wrapping are harmless', () => {
   assert.equal(decodeRoster(wrapped).ok, true);
 });
 test('contract constants', () => {
-  assert.equal(CONTRACT_VERSION, 5);
+  assert.equal(CONTRACT_VERSION, 6);
   assert.equal(MAX_POINTS, 200);
   assert.equal(MAX_SETS, 5);
   assert.equal(MAX_ROSTER_PLAYERS, 16);
@@ -212,8 +283,8 @@ test('transport error catalogue', () => {
   assert.equal(decodeRoster('hello').error, 'This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.');
   assert.equal(decodeRoster(STATS_VECTOR.encoded).error, 'This is a stats payload, not a roster payload.');
   assert.equal(decodeStats(ROSTER_VECTOR.encoded).error, 'This is a roster payload, not a stats payload.');
-  assert.equal(decodeRoster('CIQR6.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 6); this app understands 5.');
-  assert.equal(decodeStats('CIQS6.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 6); this app understands 5.');
+  assert.equal(decodeRoster('CIQR7.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 7); this app understands 6.');
+  assert.equal(decodeStats('CIQS7.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 7); this app understands 6.');
   const ROSTER_CORRUPT = 'This payload is corrupted or incomplete — copy it again from the Rotation Planner.';
   const STATS_CORRUPT = 'This payload is corrupted or incomplete — copy it again from the stats app.';
   assert.equal(decodeRoster(ROSTER_VECTOR.encoded.slice(0, -12)).error, ROSTER_CORRUPT);
@@ -222,8 +293,8 @@ test('transport error catalogue', () => {
   assert.equal(decodeStats(STATS_VECTOR.encoded.slice(0, -12)).error, STATS_CORRUPT);
 });
 test('kind-aware transport messages, verbatim', () => {
-  assert.equal(decodeRoster('CIQR6.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 6); this app understands 5.');
-  assert.equal(decodeStats('CIQS6.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 6); this app understands 5.');
+  assert.equal(decodeRoster('CIQR7.abc.00000000').error, 'This payload was made by a newer version of the Rotation Planner (contract 7); this app understands 6.');
+  assert.equal(decodeStats('CIQS7.abc.00000000').error, 'This payload was made by a newer version of the stats app (contract 7); this app understands 6.');
   assert.equal(decodeRoster(ROSTER_VECTOR.encoded.slice(0, -12)).error, 'This payload is corrupted or incomplete — copy it again from the Rotation Planner.');
   assert.equal(decodeStats(STATS_VECTOR.encoded.slice(0, -12)).error, 'This payload is corrupted or incomplete — copy it again from the stats app.');
   // the not-a-CoachIQ-payload message names the stats app for BOTH kinds — it fires before the
@@ -259,7 +330,7 @@ test('real planner roster payload decodes to a one-game day', () => {
 });
 
 test('legacy path: decodeDayRoster/decodeDayStats normalise v1 vectors to the hand-written day shape', () => {
-  assert.deepEqual(decodeDayRoster(ROSTER_VECTOR.encoded), { ok: true, value: ROSTER_V1_AS_DAY });
+  assert.deepEqual(decodeDayRoster(ROSTER_VECTOR.encoded), { ok: true, value: ROSTER_V1_AS_V6 });
   assert.deepEqual(decodeDayStats(STATS_VECTOR.encoded), { ok: true, value: STATS_V1_AS_DAY });
 });
 

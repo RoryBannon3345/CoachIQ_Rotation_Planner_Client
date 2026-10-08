@@ -1,4 +1,4 @@
-import { expect, openDay, rosterText, test } from './support/fixtures.mjs';
+import { expect, openDay, plannedPayload, rosterPayload, rosterText, test } from './support/fixtures.mjs';
 
 const count = (page, pid, stat, side) =>
   page.locator(`[data-action="tap-count"][data-pid="${pid}"][data-stat="${stat}"][data-side="${side}"]`);
@@ -66,7 +66,7 @@ test.describe('Recording a set', () => {
 
   test('set tabs switch, and an empty set offers Tick players…', async ({ page, openApp, press }) => {
     await openApp();
-    await openDay(page, rosterText({ v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'game-1', opponent: 'Lions', sets: [1, 0] }] }));
+    await openDay(page, rosterText(rosterPayload({ players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'game-1', opponent: 'Lions', sets: [1, 0] }] })));
     const set2 = page.locator('[data-action="select-set"][data-n="2"]');
     await expect(set2).not.toHaveClass(/\bon\b/);
     await expect(page.getByText('No players ticked for this set yet.')).toHaveCount(0);
@@ -116,5 +116,50 @@ test.describe('Recording a set', () => {
     await press(count(page, 'zoie', 'serve', 'in')); // the right row: a fresh rally, no phantom point
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
     await expect(us).toHaveAttribute('data-open', '1');
+  });
+
+  test('the planned server is highlighted while we serve and while we receive', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(plannedPayload()));
+    const serving = page.locator('.rows .row.serving');
+    await expect(serving).toHaveCount(0); // serve-first not answered yet
+    await press(page.locator('[data-action="serve-first"][data-us="1"]'));
+    await expect(serving).toHaveCount(1);
+    await expect(serving.locator('.name')).toHaveText('Grace');
+    await expect(serving).toHaveAttribute('aria-current', 'true');
+    await press(count(page, 'grace', 'serve', 'out')); // rally lost: they serve, and Zoë is our next server
+    await expect(serving.locator('.name')).toHaveText('Zoë');
+    await press(count(page, 'zoie', 'serve', 'in')); // side-out: Zoë serves, as planned
+    await expect(page.locator('.toast')).toHaveText('Us +1 · side-out');
+    await expect(serving.locator('.name')).toHaveText('Zoë');
+  });
+
+  test('a Serve tap for someone else re-aligns with a toast, and Undo takes it back and keeps the stat', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(plannedPayload()));
+    const serving = page.locator('.rows .row.serving .name');
+    const undo = page.locator('[data-action="undo"]');
+    await press(count(page, 'lily', 'serve', 'in')); // answers "we serve first"; the plan says Grace
+    await expect(page.locator('.toast')).toHaveText('Re-aligned to Lily');
+    await expect(serving).toHaveText('Lily');
+    await expect(undo).toHaveText('↶ Undo re-align');
+    await press(undo);
+    await expect(serving).toHaveText('Grace');
+    await expect(count(page, 'lily', 'serve', 'in')).toHaveText('1');
+    await expect(undo).toHaveText('↶ Undo Lily S in');
+  });
+
+  test('a player outside the plan stands in, and the planned player comes back in', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(plannedPayload()));
+    const serving = page.locator('.rows .row.serving .name');
+    await press(count(page, 'ava', 'serve', 'out')); // Ava serves for Grace, and the serve is out
+    await expect(page.locator('.toast')).toHaveText('Them +1 · Serve out. Ava serving for Grace');
+    await expect(serving).toHaveText('Zoë');
+    for (const pid of ['zoie', 'lily', 'grace', 'zoie', 'lily']) await press(count(page, pid, 'serve', 'out')); // one turn each
+    await expect(serving).toHaveText('Ava'); // her spot comes round again
+    await press(count(page, 'grace', 'serve', 'out'));
+    await expect(page.locator('.toast')).toHaveText('Us +1 · side-out, then Them +1 · Serve out. Grace back in');
+    await expect(serving).toHaveText('Zoë');
   });
 });

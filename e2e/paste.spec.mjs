@@ -1,4 +1,4 @@
-import { ROSTER_V3_VECTOR } from '../src/vectors.js';
+import { ROSTER_V3_VECTOR, ROSTER_V6_VECTOR } from '../src/vectors.js';
 import { encodePayload, maskOf } from '../src/codec.js';
 import { expect, openDay, rosterPayload, rosterText, test } from './support/fixtures.mjs';
 
@@ -11,13 +11,23 @@ const span = (from, to) => maskOf(Array.from({ length: to - from }, (_, k) => fr
 // Exact texts: session.js mergeDayRoster (the day cap at :210, the game cap at :254).
 
 test.describe('Open the day', () => {
-  test('the golden v3 vector opens Lions with three set tabs', async ({ page, openApp }) => {
+  test('the golden v6 vector opens Lions with three set tabs, and its plan highlights Grace', async ({ page, openApp, press }) => {
     await openApp();
     await expect(page.getByText('CoachIQ Stats')).toBeVisible();
-    await openDay(page, ROSTER_V3_VECTOR.encoded);
+    await openDay(page, ROSTER_V6_VECTOR.encoded);
     await expect(page.locator('[data-action="select-set"]')).toHaveCount(3);
     await expect(page.locator('.title')).toContainText('vs Lions');
     await expect(banner(page)).toHaveCount(0);
+    await press(page.locator('[data-action="serve-first"][data-us="1"]'));
+    await expect(page.locator('.rows .row.serving .name')).toHaveText('Grace');
+  });
+
+  test('the golden v3 vector still opens, with no highlight', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, ROSTER_V3_VECTOR.encoded);
+    await expect(page.locator('[data-action="select-set"]')).toHaveCount(3);
+    await press(page.locator('[data-action="serve-first"][data-us="1"]'));
+    await expect(page.locator('.rows .row.serving')).toHaveCount(0);
   });
 
   test('a payload wrapped by a mail app (CRLF and spaces) still opens', async ({ page, openApp }) => {
@@ -34,6 +44,7 @@ test.describe('Open the day', () => {
     ['plain text', 'hello coach', 'This is not a CoachIQ payload'],
     ['a stats payload', encodePayload('stats', { v: 4 }, 4), 'This is a stats payload, not a roster payload.'],
     ['a newer contract', encodePayload('roster', rosterPayload(), 9), 'made by a newer version of the Rotation Planner'],
+    ['a serve order naming nobody', encodePayload('roster', rosterPayload({ games: [{ gameId: 'game-1', opponent: 'Lions', sets: [7, 3], serve: ['------', null] }] }), 6), 'game "game-1" set 1 serve order names nobody'],
     ['a corrupted payload', rosterText().slice(0, -3) + 'zzz', 'This payload is corrupted or incomplete'],
   ];
   for (const [label, text, message] of refusals) {

@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, replaceLogWithScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, replaceLogWithScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, plannedServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -67,6 +67,15 @@ function showToast(text) {
   }, TOAST_MS);
   // Node's timers keep `node --test` alive; a browser's numeric id has no unref.
   if (timer && typeof timer.unref === 'function') timer.unref();
+}
+
+/** What a re-align did (spec §4): "<P> back in", "Re-aligned to <P>", "<P> serving for <Q>" or
+ * "<P> serving" on an empty spot. First names, like the Undo label. */
+function alignText(day, align) {
+  const p = firstName(day, align.playerId);
+  if (align.rule === 'back') return `${p} back in`;
+  if (align.rule === 'shift') return `Re-aligned to ${p}`;
+  return align.forId ? `${p} serving for ${firstName(day, align.forId)}` : `${p} serving`;
 }
 
 /** 'UT' → 'Us, Them' for the Undo label. */
@@ -586,12 +595,14 @@ function renderSheet() {
 // Recording screen
 // ---------------------------------------------------------------------------------------------
 
-function renderRow(game, n, player, idleStat) {
+function renderRow(game, n, player, idleStat, serverId) {
   const c = getCount(game, n, player.id);
   const subChip = player.sub ? ' <span class="gchip">Sub</span>' : '';
   const idle = (stat) => (stat === idleStat ? ' idle' : '');
+  // The planned server (spec §6): our server while we serve, our next server while they do.
+  const rowOpen = player.id === serverId ? '<div class="row serving" data-serving="1" aria-current="true">' : '<div class="row">';
   return `
-<div class="row">
+${rowOpen}
   <div class="name">${esc(player.name)}${subChip}</div>
   <button type="button" class="cnt in${idle('serve')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="in">${c.serve.in}</button>
   <button type="button" class="cnt out${idle('serve')}" data-action="tap-count" data-pid="${esc(player.id)}" data-stat="serve" data-side="out">${c.serve.out}</button>
@@ -620,11 +631,14 @@ function renderRecord() {
   const open = !!setRecord && !typed && setRecord.pending != null;
   const idleStat = server === 'U' ? 'return' : server === 'T' ? 'serve' : null;
   const idleCls = (stat) => (stat === idleStat ? ' class="idle"' : '');
+  // The planned server's row: null when there is no plan, the set is typed or untouched, serve-first
+  // is unanswered or the spot is empty — and a player who is not ticked has no row to mark.
+  const serverId = typed ? null : plannedServer(setRecord, Array.isArray(game.serveOrders) ? game.serveOrders[n - 1] : null);
   // A mask of 0 (and so an empty list) is legal — never auto-tick everybody and never treat it as
   // an error; offer the players sheet instead.
   const rowsHtml = players.length === 0
     ? `<div class="rows empty-state"><p>No players ticked for this set yet.</p><button type="button" class="btn primary" data-action="open-players">Tick players…</button></div>`
-    : `<div class="rows">${players.map((p) => renderRow(game, n, p, idleStat)).join('')}</div>`;
+    : `<div class="rows">${players.map((p) => renderRow(game, n, p, idleStat, serverId)).join('')}</div>`;
   // sets.length, per game, is the one source of truth for how many sets a game has. Hardcoding
   // five showed a coach two tabs the planner never asked for; hardcoding three would hide the
   // later sets of a four- or five-set game.
@@ -645,7 +659,7 @@ function renderRecord() {
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
   }
   const top = game.history.length ? game.history[game.history.length - 1] : null;
-  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}${top.points ? ` + ${lettersLabel(top.points)}` : ''}`;
+  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : top.kind === 'align' ? '↶ Undo re-align' : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}${top.points ? ` + ${lettersLabel(top.points)}` : ''}`;
   const undoDisabled = game.history.length === 0 ? 'disabled' : '';
   const minusPressed = state.minusMode ? 'true' : 'false';
   return `
@@ -697,9 +711,15 @@ function onTapCount(btn) {
   if (tapped !== previousSession) {
     const after = tapped.games.find((g) => g.gameId === game.gameId);
     const top = after.history[after.history.length - 1];
+    // A re-align pushes its own entry straight after the tap's count entry.
+    const align = top && top.kind === 'align' ? top : null;
+    const entry = align ? after.history[after.history.length - 2] : top;
+    const phrases = [];
     // The letters tap() actually appended (the MAX_POINTS cap can trim them), with inferTap's reasons.
-    if (top && top.kind === 'count' && top.points) showToast(toastText(inferTap(setBefore, stat, side).letters.slice(0, top.points.length), stat));
-    else if (top && top.kind === 'count' && top.delta < 0 && 'pendingBefore' in top) showToast('Open rally cancelled');
+    if (entry && entry.kind === 'count' && entry.points) phrases.push(toastText(inferTap(setBefore, stat, side).letters.slice(0, entry.points.length), stat));
+    if (align) phrases.push(alignText(tapped, align));
+    if (phrases.length > 0) showToast(phrases.join('. '));
+    else if (entry && entry.kind === 'count' && entry.delta < 0 && 'pendingBefore' in entry) showToast('Open rally cancelled');
   }
   commit({ ...tapped, lastChangedAt: new Date().toISOString() });
 }

@@ -1,10 +1,18 @@
 // codec.js — verbatim port of the CoachIQ stats contract codec.
-// Source: reference/stats-contract-v4-client-guide.md (the v4 migration guide) and
-// reference/statsContract.ts (constants, validators, v1-v5 functions), with TypeScript type syntax stripped.
+// Source: reference/statsContract.ts (constants, validators, v1-v6 functions), with TypeScript type syntax stripped,
+// and the client guides reference/stats-contract-v4-client-guide.md and reference/stats-contract-v6-client-guide.md.
 // v5 has no separate client guide: reference/stats-contract.md covers it.
 // Do not edit; re-copy from those sources if the contract changes.
 
-export const CONTRACT_VERSION = 5;
+/**
+ * Version 6 gives each roster game a `serve` list: one compact string per set naming the planned
+ * server of each of our rotation turns (docs/superpowers/specs/2026-10-08-roster-serve-order-design.md),
+ * so the phone can highlight who should be serving. Nothing is removed, but a v5 Client would
+ * validate a v6 roster field by field and drop every order without a word, so it bumps the way v4
+ * and v5 did. The roster is sent at 6 (`encodeDayRoster`); the stats half is unchanged, and
+ * `encodeDayStats` is pinned to 5.
+ */
+export const CONTRACT_VERSION = 6;
 export const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 export function fnv1a32(bytes) {
@@ -186,6 +194,15 @@ export function serveTurnCount(points, servedFirst) {
   }
   return turns;
 }
+
+/**
+ * A legal `DayRosterGame.serve` entry (contract 6): 6–16 characters, each a directory index in
+ * base 32 or `-` for nobody. Base 32 is `0`–`9` then `a`–`v`, so `parseInt(c, 32)` is 0–31,
+ * which covers `MAX_DAY_PLAYERS`. Six characters for a slot set; one per spot in a Train line,
+ * never fewer than six. At most `MAX_ROSTER_PLAYERS`, because a longer line names more players
+ * than a game may.
+ */
+export const SERVE_ORDER_PATTERN = /^[0-9a-v-]{6,16}$/;
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const CLIENT_ID_PATTERN = /^cx-[A-Za-z0-9_-]{4,32}$/;
@@ -389,8 +406,8 @@ export function validateStatsPayload(value) {
   };
 }
 
-/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 5 now, and
- * without it this would emit a `CIQR5.` prefix around a body saying `"v":1`, which
+/** Encodes a v1 roster. The explicit `1` is not decoration: `CONTRACT_VERSION` is 6 now, and
+ * without it this would emit a `CIQR6.` prefix around a body saying `"v":1`, which
  * `decodePayload`'s own cross-check refuses as corruption. */
 export function encodeRoster(payload) {
   return encodePayload('roster', payload, 1);
@@ -401,17 +418,20 @@ export function encodeStats(payload) {
   return encodePayload('stats', payload, 1);
 }
 
-/** Encodes a day roster pinned to **3**. The roster shape did not change at contract v4 or v5 — only the
- * stats half gained the point log and its servers — and an un-updated Client must keep reading `CIQR3.`.
- * `decodePayload` treats a body `v` that differs from the prefix as corruption, so the pin and
- * `DayRosterPayload.v` move together or not at all. */
+/** Encodes a day roster pinned to **6**, the contract that added `serve`. `decodePayload` treats a
+ * body `v` that differs from the prefix as corruption, so the pin and `DayRosterPayload.v` move
+ * together or not at all. Contracts 4 and 5 left the roster alone and pinned it to 3. A phone
+ * older than contract 6 refuses `CIQR6.` as "made by a newer version", which is the point. */
 export function encodeDayRoster(payload) {
-  return encodePayload('roster', payload, 3);
+  return encodePayload('roster', payload, 6);
 }
 
-/** Encodes a day stats sheet at the current contract version. */
+/** Encodes a day stats sheet pinned to **5**. The stats shape did not change at contract 6 (only
+ * the roster gained `serve`), and an un-updated Planner must keep reading `CIQS5.`.
+ * `decodePayload` treats a body `v` that differs from the prefix as corruption, so the pin and
+ * `DayStatsPayload.v` move together or not at all, as the roster pin did for contracts 4 and 5. */
 export function encodeDayStats(payload) {
-  return encodePayload('stats', payload);
+  return encodePayload('stats', payload, 5);
 }
 
 export function decodeRoster(text) {
@@ -433,9 +453,9 @@ export function decodeStats(text) {
 // ---------------------------------------------------------------------------------------------
 
 /** The one version detail every day validator and both day decoders report. Deliberately names
- * *all five* versions this app reads rather than only the one being validated: a coach who pasted
+ * *all six* versions this app reads rather than only the one being validated: a coach who pasted
  * the wrong thing needs to know what is acceptable, not which branch refused her. */
-const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3, 4 or 5';
+const NOT_A_KNOWN_VERSION = 'its version is not 1, 2, 3, 4, 5 or 6';
 
 /**
  * The day directory shared by both v2 payloads: 1..`MAX_DAY_PLAYERS` entries, unique legal ids,
@@ -534,15 +554,20 @@ function validateDayRosterPayloadV2(value) {
 }
 
 /**
- * The v3 roster validator. `games[].roster` (one index array per game) is gone; `games[].sets` is
- * one bitmask per set, positional, and `sets.length` is how many sets the game has.
+ * The v3 roster checks: a day, its directory, and every game as a list of per-set masks.
  *
  * The per-game cap is checked on the **union** across the game's sets, which is the same rule v2
- * enforced — in v2 `roster` *was* that union.
+ * enforced (in v2, `roster` *was* that union). That is deliberate: it keeps `overCapGame` in
+ * `StatsToolbar.tsx` correct without change, and it is the rule that actually matters, since the
+ * Client's tick-list for a game shows everyone the game names across all its sets.
+ *
+ * `version` is the body `v` it accepts: 3 on the legacy decode path, and 6 when
+ * `validateDayRosterPayload` runs it over a v6 body before reading `serve`. Either way it
+ * returns the v3 shape.
  */
-export function validateDayRosterPayload(value) {
+function validateDayRosterPayloadV3(value, version = 3) {
   if (!isRecord(value)) return malformed('roster', 'it is not an object');
-  if (value.v !== 3) return malformed('roster', NOT_A_KNOWN_VERSION);
+  if (value.v !== version) return malformed('roster', NOT_A_KNOWN_VERSION);
   if (value.kind !== 'roster') return malformed('roster', 'its kind is not "roster"');
   if (!isNonEmptyString(value.date)) return malformed('roster', 'it has no date');
   // `team` may be empty: `createTeam` does not trim, so a coach who never named her team has one.
@@ -602,6 +627,72 @@ export function validateDayRosterPayload(value) {
   }
 
   return { ok: true, value: { v: 3, kind: 'roster', date: value.date, team: value.team, players, games } };
+}
+
+/**
+ * One game's contract 6 `serve` list, checked against the game's validated `sets` and the
+ * directory size, and rebuilt entry by entry. Checks run in this order:
+ * 1. the list's shape and length;
+ * 2. each set's characters;
+ * 3. each index against the directory, then against that set's mask;
+ * 4. "names nobody".
+ */
+function parseServeList(gameId, value, sets, size) {
+  if (!Array.isArray(value) || value.length !== sets.length) {
+    return malformed('roster', `game "${gameId}" has no serve list with one entry per set`);
+  }
+  const serve = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const order = value[i];
+    const n = i + 1;
+    if (order === null) {
+      serve.push(null);
+      continue;
+    }
+    if (typeof order !== 'string' || !SERVE_ORDER_PATTERN.test(order)) {
+      return malformed('roster', `game "${gameId}" set ${n} has a serve order that is not legal`);
+    }
+    const mask = sets[i] ?? 0;
+    let named = false;
+    for (const c of order) {
+      if (c === '-') continue;
+      const index = parseInt(c, 32);
+      if (index >= size) {
+        return malformed('roster', `game "${gameId}" set ${n} serve order names player ${index}, but the payload lists only ${size}`);
+      }
+      if (!maskHas(mask, index)) {
+        return malformed('roster', `game "${gameId}" set ${n} serve order names a player who is not in that set`);
+      }
+      named = true;
+    }
+    // An order with nobody in it says nothing a `null` would not, so the sender sends `null`.
+    if (!named) return malformed('roster', `game "${gameId}" set ${n} serve order names nobody`);
+    serve.push(order);
+  }
+  return { ok: true, value: serve };
+}
+
+/**
+ * The v6 roster validator. It runs the v3 checks first, over the whole day, so a game over its
+ * cap is reported as that (the message `StatsToolbar.tsx` already warns about) rather than as a
+ * bad serve order. Then it checks each game's `serve` (`parseServeList`). Rebuilt field by field,
+ * like every validator here; never spread.
+ */
+export function validateDayRosterPayload(value) {
+  const base = validateDayRosterPayloadV3(value, 6);
+  if (!base.ok) return base;
+  // `validateDayRosterPayloadV3` has proved `value` is a record whose `games` is an array with one
+  // record per entry of `base.value.games`, in the same order.
+  const rawGames = value.games;
+  const { date, team, players } = base.value;
+  const games = [];
+  for (const [i, game] of base.value.games.entries()) {
+    const rawGame = rawGames[i];
+    const serve = parseServeList(game.gameId, isRecord(rawGame) ? rawGame.serve : undefined, game.sets, players.length);
+    if (!serve.ok) return serve;
+    games.push({ gameId: game.gameId, opponent: game.opponent, sets: game.sets, serve: serve.value });
+  }
+  return { ok: true, value: { v: 6, kind: 'roster', date, team, players, games } };
 }
 
 /** `[us, them]` from a point log. Zero imports, so the domain's `rallyReplay.ts` has its own copy. */
@@ -770,22 +861,37 @@ function normaliseRosterV2(p) {
 }
 
 /**
- * A v1 roster lifted into the v3 shape, via v2 so that "what a legacy payload's single set means"
- * has exactly one definition.
+ * A v3 roster lifted into the v6 shape. Everything is kept, and `serve` is all `null`: a v3
+ * payload carried no serve order, and inventing one would put a plan in front of the coach
+ * that nobody made.
+ */
+function normaliseRosterV3(p) {
+  return {
+    v: 6,
+    kind: 'roster',
+    date: p.date,
+    team: p.team,
+    players: p.players,
+    games: p.games.map((g) => ({ gameId: g.gameId, opponent: g.opponent, sets: g.sets, serve: g.sets.map(() => null) })),
+  };
+}
+
+/**
+ * A v1 roster lifted into the v6 shape, via v2 and v3 so that "what a legacy payload's single set means" has exactly one definition.
  *
  * A v1 roster is a one-game day whose directory is that game's players, so every index `0..n-1` is
  * on its tick-list, and `date`/`team` lift to the top. v1's own player cap *is*
  * `MAX_ROSTER_PLAYERS`, so even a full v1 roster normalises to a legal game.
  */
 export function normaliseRosterV1(p) {
-  return normaliseRosterV2({
+  return normaliseRosterV3(normaliseRosterV2({
     v: 2,
     kind: 'roster',
     date: p.date,
     team: p.team,
     players: p.players,
     games: [{ gameId: p.gameId, opponent: p.opponent, roster: p.players.map((_, i) => i) }],
-  });
+  }));
 }
 
 /** The decoded body's own `v`, which `decodePayload` has already proved equals the prefix version. */
@@ -794,7 +900,7 @@ function bodyVersion(value) {
 }
 
 /**
- * Decodes either contract version and always returns the day shape.
+ * Decodes any roster version this app reads and always returns the v6 day shape.
  *
  * `decodePayload` needs no change to make this work: it refuses a prefix version above
  * `CONTRACT_VERSION` before touching the body, accepts anything at or below it, and has already
@@ -813,9 +919,14 @@ export function decodeDayRoster(text) {
   if (version === 2) {
     const v2 = validateDayRosterPayloadV2(decoded.value);
     if (!v2.ok) return v2;
-    return { ok: true, value: normaliseRosterV2(v2.value) };
+    return { ok: true, value: normaliseRosterV3(normaliseRosterV2(v2.value)) };
   }
-  if (version === 3) return validateDayRosterPayload(decoded.value);
+  if (version === 3) {
+    const v3 = validateDayRosterPayloadV3(decoded.value);
+    if (!v3.ok) return v3;
+    return { ok: true, value: normaliseRosterV3(v3.value) };
+  }
+  if (version === 6) return validateDayRosterPayload(decoded.value);
   return malformed('roster', NOT_A_KNOWN_VERSION);
 }
 

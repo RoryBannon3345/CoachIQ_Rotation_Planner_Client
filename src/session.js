@@ -1,12 +1,12 @@
 // session.js — pure, DOM-free day/session state model, storage envelope and stats payload builder.
 // build note: import lines below are for node tests; the inliner strips single-line imports only, so each must stay on one line
 import { MAX_ROSTER_PLAYERS, MAX_COUNT, MAX_NAME_LENGTH, MAX_SETS, MAX_DAY_PLAYERS, MAX_GAMES_PER_DAY, ID_PATTERN, CLIENT_ID_PATTERN, fnv1a32, encodeRoster, encodeStats, encodeDayRoster, encodeDayStats, validateDayStatsPayload, decodeDayRoster, decodeDayStats, maskMembers, MAX_POINTS } from './codec.js';
-import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V4_VECTOR, STATS_V5_VECTOR, STATS_V4_AS_V5, STATS_V2_AS_V5, STATS_V3_VECTOR, STATS_V3_AS_V5, ROSTER_V1_AS_DAY, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V2_AS_V3 } from './vectors.js';
+import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V4_VECTOR, STATS_V5_VECTOR, STATS_V4_AS_V5, STATS_V2_AS_V5, STATS_V3_VECTOR, STATS_V3_AS_V5, ROSTER_V1_AS_V6, STATS_V1_AS_DAY, ROSTER_V3_VECTOR, ROSTER_V6_VECTOR, ROSTER_V3_AS_V6, ROSTER_V2_AS_V6, SERVE_ORDER_VECTOR } from './vectors.js';
 
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.5.0';
+export const APP_VERSION = '4.6.0';
 export const AUTHOR_NAME = 'Rory Bannon';
 export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
@@ -30,9 +30,11 @@ function zeroCount() {
  * `T` they did) and is the set's score once it is non-empty; `pending` is the stat whose In tap
  * opened a rally nobody has won yet. Invariants: `points !== ''` implies `servedFirst !== null`;
  * `pending !== null` implies `servedFirst !== null` and no typed score.
- * `serveBy` maps a rally's index in `points` to the player whose serve tap served it (contract v5's `servers` is built from it). */
+ * `serveBy` maps a rally's index in `points` to the player whose serve tap served it (contract v5's `servers` is built from it).
+ * `shift` is a whole number of turns added to the set's planned serve order, and `standIns` maps an
+ * order index to the player serving that spot instead of the planned one (spec 2026-10-08 §2). */
 function emptySet() {
-  return { score: null, counts: {}, servedFirst: null, points: '', pending: null, serveBy: {} };
+  return { score: null, counts: {}, servedFirst: null, points: '', pending: null, serveBy: {}, shift: 0, standIns: {} };
 }
 
 function isTypedSet(set) {
@@ -121,6 +123,43 @@ function padSetPlayerIds(lists) {
   return out;
 }
 
+/** One game's planned serve orders, MAX_SETS long (contract 6): each set's serve string resolved to
+ * player ids once, here at ingest — a character is a base-32 index into the roster's own directory,
+ * `-` an empty spot (null) — or null when the roster has no plan for that set. `serve` is missing on
+ * a hand-built v3-shaped roster, which is read as no plan at all. */
+function serveOrdersFrom(serve, rosterPlayers) {
+  const out = [];
+  for (let i = 0; i < MAX_SETS; i += 1) {
+    const text = Array.isArray(serve) ? serve[i] : undefined;
+    out.push(typeof text === 'string' ? [...text].map((c) => (c === '-' ? null : rosterPlayers[parseInt(c, 32)].id)) : null);
+  }
+  return out;
+}
+
+/** Two stored orders name the same servers in the same spots (null and missing are the same). */
+function sameOrder(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return (Array.isArray(a) ? a : null) === (Array.isArray(b) ? b : null);
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+/** Set n's planned serve order, or null. Tolerant of a game with no `serveOrders` at all (a
+ * hand-built or older in-memory game). */
+function serveOrderOf(game, n) {
+  return Array.isArray(game.serveOrders) ? game.serveOrders[n - 1] ?? null : null;
+}
+
+/** Forgets set n's re-alignment in history: its align entries go and its count entries lose
+ * `alignBefore`, so no Undo can bring back an alignment that described another plan. */
+function forgetAlignment(history, n) {
+  return history
+    .filter((h) => !(h.kind === 'align' && h.n === n))
+    .map((h) => {
+      if (h.kind !== 'count' || h.n !== n || h.alignBefore === undefined) return h;
+      const { alignBefore, ...rest } = h;
+      return rest;
+    });
+}
+
 export function dayLabel(day) {
   return `${day.team ? day.team + ' · ' : ''}${formatDate(day.date)}`;
 }
@@ -157,7 +196,7 @@ function hasCountInSet(game, n, playerId) {
 // Step 1 — ingest
 // ---------------------------------------------------------------------------------------------
 
-/** `roster` is always a v3 day roster payload — `decodeDayRoster` normalises v1 and v2 before it
+/** `roster` is always a contract-6 day roster payload — `decodeDayRoster` normalises v1, v2 and v3 before it
  * ever reaches here, so nothing below branches on a version. */
 export function newDayFromRoster(roster, nowIso) {
   const directory = roster.players.map((p) => ({ id: p.id, name: p.name, sub: false }));
@@ -174,6 +213,8 @@ export function newDayFromRoster(roster, nowIso) {
     sets: Array(MAX_SETS).fill(null),
     activeSet: 1,
     history: [],
+    // The plan, resolved to ids once, like the masks above (spec §2).
+    serveOrders: serveOrdersFrom(g.serve, roster.players),
   }));
   return {
     date: roster.date,
@@ -253,11 +294,19 @@ function mergeDayRoster(s, roster) {
     // so no i >= setCount can be the highest-played slot), so nulling its record here — same as
     // clearSet — discards no score and no count, only leftover zeroed counts a minus-mode netback
     // may have left behind.
-    const sets = g.sets.map((set, i) => (i >= setCount ? null : set));
+    // The plan (contract 6): each set the roster covers takes the incoming order. An order that
+    // changed resets that set's alignment and forgets its re-align Undo steps, because they
+    // described the old plan. A slot beyond the incoming sets keeps what it had.
+    const incomingOrders = serveOrdersFrom(rg.serve, roster.players);
+    const storedOrders = Array.isArray(g.serveOrders) ? g.serveOrders : Array(MAX_SETS).fill(null);
+    const changed = (i) => i < rg.sets.length && !sameOrder(storedOrders[i], incomingOrders[i]);
+    const serveOrders = Array.from({ length: MAX_SETS }, (_, i) => (i < rg.sets.length ? incomingOrders[i] : storedOrders[i] ?? null));
+    const sets = g.sets.map((set, i) => (i >= setCount ? null : set && changed(i) ? { ...set, shift: 0, standIns: {} } : set));
     // Mirror clearSet: a slot the merge just retired must not leave a history entry stamped at
     // it, or undo/export can resurrect a tab the UI no longer shows (see mergeDayRoster's tests).
-    const history = g.history.filter((h) => h.n <= setCount);
-    return { ...g, opponent: rg.opponent, setCount, setPlayerIds, sets, history };
+    let history = g.history.filter((h) => h.n <= setCount);
+    for (let i = 0; i < MAX_SETS; i += 1) if (changed(i)) history = forgetAlignment(history, i + 1);
+    return { ...g, opponent: rg.opponent, setCount, setPlayerIds, sets, history, serveOrders };
   });
   for (const g of matchedGames) {
     const named = gamePlayerIdsUnion(g).length;
@@ -279,6 +328,7 @@ function mergeDayRoster(s, roster) {
     sets: Array(MAX_SETS).fill(null),
     activeSet: 1,
     history: [],
+    serveOrders: serveOrdersFrom(rg.serve, roster.players),
   }));
   const games = [...matchedGames, ...appendedGames];
   if (games.length > MAX_GAMES_PER_DAY) {
@@ -433,6 +483,63 @@ function rallyOpener(history, n) {
   return null;
 }
 
+/** Is rally `at` (one we serve) the first of its serve turn named by a serve tap? True when no
+ * earlier rally of the same turn has a serveBy entry — the rule v5's `servers` uses. A tap that
+ * replaces serveBy[at] itself is still the first. */
+function firstServeOfTurn(set, at) {
+  const serveBy = set.serveBy ?? {};
+  for (let i = at - 1; i >= 0; i -= 1) {
+    const weServed = i === 0 ? set.servedFirst === true : set.points[i - 1] === 'U';
+    if (!weServed) break;
+    if (serveBy[i] !== undefined) return false;
+  }
+  return true;
+}
+
+/** The re-align a Serve tap causes (spec §4), or null when none. `set` is the set after the tap's
+ * letters and serveBy; `at` is the rally the tap served. Fires only for the turn's first serve tap
+ * and only when the tapped player is not the one the plan predicts. First rule that applies wins:
+ * back (the planned player returns for her stand-in), shift (she is the server at another spot —
+ * the nearest round the order, forward on a tie), standIn (anyone else). */
+function realign(set, order, at, playerId) {
+  if (!Array.isArray(order) || order.length === 0) return null;
+  if (!firstServeOfTurn(set, at)) return null;
+  if (plannedServerAt(set, order, at) === playerId) return null;
+  const length = order.length;
+  const shift = set.shift ?? 0;
+  const standIns = set.standIns ?? {};
+  const idx = planIndex(set, length, at);
+  const planned = order[idx] ?? null;
+  if (playerId === planned) {
+    const rest = { ...standIns };
+    delete rest[idx];
+    return { set: { ...set, standIns: rest }, rule: 'back', forId: planned };
+  }
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let j = 0; j < length; j += 1) {
+    if (j === idx || (standIns[j] ?? order[j]) !== playerId) continue;
+    const forward = mod(j - idx, length);
+    const distance = Math.min(forward, length - forward);
+    if (distance < bestDistance || (distance === bestDistance && forward === distance)) {
+      best = j;
+      bestDistance = distance;
+    }
+  }
+  if (best !== -1) return { set: { ...set, shift: mod(shift + best - idx, length) }, rule: 'shift', forId: planned };
+  return { set: { ...set, standIns: { ...standIns, [idx]: playerId } }, rule: 'standIn', forId: planned };
+}
+
+/** The re-align the opener's tap caused, or null. tap() pushes it straight after the opener's own
+ * entry, so it is the opener's next history entry whatever was recorded since (a minus on another
+ * count, a tap in another set). */
+function alignOf(history, opener, openAt) {
+  const i = history.lastIndexOf(opener);
+  if (i === -1) return null;
+  const next = history[i + 1];
+  return next && next.kind === 'align' && next.n === opener.n && next.at === openAt ? next : null;
+}
+
 export function tap(s, gameId, n, playerId, stat, side, delta) {
   return withGame(s, gameId, (g) => {
     const before = getCount(g, n, playerId)[stat][side];
@@ -442,6 +549,7 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
     const entry = { kind: 'count', n, playerId, stat, side, delta: after - before };
     const prevSet = g.sets[n - 1] ?? emptySet();
     let sets = game.sets;
+    let align = null;
     if (entry.delta > 0 && !isTypedSet(prevSet)) {
       const inferred = inferTap(prevSet, stat, side);
       const room = Math.max(0, MAX_POINTS - prevSet.points.length);
@@ -460,6 +568,14 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
           if (serveBy[at] !== undefined) entry.serveBefore = serveBy[at];
           serveBy[at] = playerId;
           sets[n - 1] = { ...sets[n - 1], serveBy };
+          // The turn's first serve tap for someone other than the planned server re-aligns the
+          // plan to her (spec §4). Its own entry follows this one, so the first Undo takes it back.
+          const realigned = realign(sets[n - 1], serveOrderOf(g, n), at, playerId);
+          if (realigned) {
+            const was = sets[n - 1];
+            align = { kind: 'align', n, at, rule: realigned.rule, playerId, forId: realigned.forId, shiftBefore: was.shift ?? 0, standInsBefore: { ...(was.standIns ?? {}) } };
+            sets[n - 1] = realigned.set;
+          }
         }
       }
       if (appended !== '') entry.points = appended;
@@ -479,11 +595,18 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
           delete rest[openAt];
           sets[n - 1] = { ...sets[n - 1], serveBy: rest };
           entry.serveCleared = openAt;
+          // The opener's re-align goes with it; Undo of this minus puts it back (spec §5).
+          const aligned = alignOf(g.history, opener, openAt);
+          if (aligned) {
+            const cur = sets[n - 1];
+            entry.alignBefore = { shift: cur.shift ?? 0, standIns: { ...(cur.standIns ?? {}) } };
+            sets[n - 1] = { ...cur, shift: aligned.shiftBefore, standIns: { ...aligned.standInsBefore } };
+          }
         }
         entry.pendingBefore = prevSet.pending;
       }
     }
-    const history = [...game.history, entry].slice(-UNDO_LIMIT);
+    const history = [...game.history, entry, ...(align ? [align] : [])].slice(-UNDO_LIMIT);
     return { ...game, sets, history };
   });
 }
@@ -527,6 +650,38 @@ export function setServer(setRecord) {
   return setRecord.servedFirst ? 'U' : 'T';
 }
 
+/** `a mod m` that stays in 0..m-1 for a negative `a` too. */
+function mod(a, m) {
+  return ((a % m) + m) % m;
+}
+
+/** The order index for rally `at` of a logged set (spec §3 steps 1-4): count our side-outs before
+ * `at`; the turn is that count while we serve rally `at`, and the next one while they do. */
+function planIndex(set, length, at) {
+  let serving = set.servedFirst ? 'U' : 'T';
+  let t = 0;
+  for (let i = 0; i < at && i < set.points.length; i += 1) {
+    if (set.points[i] === 'U' && serving === 'T') t += 1;
+    serving = set.points[i];
+  }
+  const turn = serving === 'U' ? t : t + 1;
+  return mod(turn + (set.shift ?? 0), length);
+}
+
+/** Who serves rally `at` of a logged set under its plan: our server when we serve it, else our next server.
+ * Null without a plan, for a typed set, before serve-first is answered, or on an empty spot. */
+export function plannedServerAt(set, order, at) {
+  if (!set || !Array.isArray(order) || order.length === 0) return null;
+  if (isTypedSet(set) || set.servedFirst === null) return null;
+  const idx = planIndex(set, order.length, at);
+  return (set.standIns ?? {})[idx] ?? order[idx] ?? null;
+}
+
+/** plannedServerAt at the end of the log: the row to highlight. */
+export function plannedServer(set, order) {
+  return plannedServerAt(set, order, set ? set.points.length : 0);
+}
+
 /** What one stat tap says about the score, from the rule that the winner of a rally serves the
  * next one. Pure; `tap` applies it. Only meaningful for a logged set and a tap that raised a count. */
 export function inferTap(setRecord, stat, side) {
@@ -550,7 +705,7 @@ export function inferTap(setRecord, stat, side) {
 function stripInference(history, n) {
   return history.map((h) => {
     if (h.kind !== 'count' || h.n !== n) return h;
-    const { points, servedFirstSet, pendingBefore, serveAt, serveBefore, serveCleared, ...plain } = h;
+    const { points, servedFirstSet, pendingBefore, serveAt, serveBefore, serveCleared, alignBefore, ...plain } = h;
     return plain;
   });
 }
@@ -588,15 +743,16 @@ export function tapPoint(s, gameId, n, winner) {
 }
 
 /** Empties the set's log, forgets who served first and closes any open rally; the counts stay.
- * Drops that set's point entries from history the way clearSet drops by n, and strips the
- * inference fields from its count entries, so undo can never resurrect a rally. */
+ * Drops that set's point and align entries from history the way clearSet drops by n, resets its
+ * alignment to the plan, and strips the inference fields from its count entries, so undo can
+ * never resurrect a rally or a re-align. */
 export function clearPoints(s, gameId, n) {
   return withGame(s, gameId, (g) => {
     const set = g.sets[n - 1];
     if (!set || (set.points === '' && set.servedFirst === null)) return g;
     const sets = g.sets.slice();
-    sets[n - 1] = { ...set, servedFirst: null, points: '', pending: null, serveBy: {} };
-    const history = stripInference(g.history.filter((h) => !(h.kind === 'point' && h.n === n)), n);
+    sets[n - 1] = { ...set, servedFirst: null, points: '', pending: null, serveBy: {}, shift: 0, standIns: {} };
+    const history = stripInference(g.history.filter((h) => !((h.kind === 'point' || h.kind === 'align') && h.n === n)), n);
     return { ...g, sets, history };
   });
 }
@@ -617,6 +773,14 @@ export function undo(s, gameId) {
       sets[last.n - 1] = next;
       return { ...g, sets, history };
     }
+    if (last.kind === 'align') {
+      // A re-align: the plan's alignment goes back; the serve tap before it stays (spec §4).
+      const set = g.sets[last.n - 1];
+      if (!set) return { ...g, history };
+      const sets = g.sets.slice();
+      sets[last.n - 1] = { ...set, shift: last.shiftBefore, standIns: { ...last.standInsBefore } };
+      return { ...g, sets, history };
+    }
     const reverted = applyDelta(g, last.n, last.playerId, last.stat, last.side, -last.delta);
     const set = reverted.sets[last.n - 1];
     if (!set) return { ...reverted, history };
@@ -632,6 +796,7 @@ export function undo(s, gameId) {
       next = { ...next, serveBy };
     }
     if (last.serveCleared !== undefined) next = { ...next, serveBy: { ...(next.serveBy ?? {}), [last.serveCleared]: last.playerId } };
+    if (last.alignBefore !== undefined) next = { ...next, shift: last.alignBefore.shift, standIns: { ...last.alignBefore.standIns } };
     if ((isTypedSet(next) || next.servedFirst === null) && next.pending !== null) next = { ...next, pending: null };
     if (next === set) return { ...reverted, history };
     const sets = reverted.sets.slice();
@@ -650,8 +815,8 @@ export function setScore(s, gameId, n, score) {
       sets[n - 1] = { ...set, score: null };
       return { ...g, sets };
     }
-    sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null, serveBy: {} };
-    return { ...g, sets, history: stripInference(g.history, n) };
+    sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null, serveBy: {}, shift: 0, standIns: {} };
+    return { ...g, sets, history: stripInference(g.history.filter((h) => !(h.kind === 'align' && h.n === n)), n) };
   });
 }
 
@@ -772,6 +937,20 @@ function parseCountsMember(value) {
   return out;
 }
 
+/** A stored alignment's `shift`: whole turns, below MAX_ROSTER_PLAYERS (the longest order). */
+function isShift(x) {
+  return Number.isInteger(x) && x >= 0 && x < MAX_ROSTER_PLAYERS;
+}
+
+/** A `standIns` key: an order index, written by JSON as one or two digits, below MAX_ROSTER_PLAYERS. */
+function isOrderIndexKey(k) {
+  return /^\d{1,2}$/.test(k) && Number(k) < MAX_ROSTER_PLAYERS;
+}
+
+function isPlayerId(x) {
+  return typeof x === 'string' && ID_PATTERN.test(x);
+}
+
 function parseSetRecord(value) {
   if (value === null) return null;
   if (!isPlainObject(value)) return undefined;
@@ -802,7 +981,13 @@ function parseSetRecord(value) {
       if (/^\d{1,3}$/.test(k) && Number(k) < MAX_POINTS && typeof id === 'string' && ID_PATTERN.test(id)) serveBy[k] = id;
     }
   }
-  return { score, counts, servedFirst: value.servedFirst, points: value.points, pending, serveBy };
+  // The planned-server alignment (4.6.0): missing in an older save; a bad value is reset, never fatal.
+  const shift = isShift(value.shift) ? value.shift : 0;
+  const standIns = {};
+  if (isPlainObject(value.standIns)) {
+    for (const [k, id] of Object.entries(value.standIns)) if (isOrderIndexKey(k) && isPlayerId(id)) standIns[k] = id;
+  }
+  return { score, counts, servedFirst: value.servedFirst, points: value.points, pending, serveBy, shift, standIns };
 }
 
 // Contract unchanged: { id, name, sub }.
@@ -816,6 +1001,23 @@ function parsePlayer(value, seenIds) {
   return { id: value.id, name: value.name, sub: value.sub };
 }
 
+const ALIGN_RULES = ['back', 'shift', 'standIn'];
+
+function isRallyIndex(x) {
+  return Number.isInteger(x) && x >= 0 && x < MAX_POINTS;
+}
+
+/** A history entry's `standIns` snapshot, read strictly: any bad entry refuses the whole entry. */
+function parseStandInsStrict(value) {
+  if (!isPlainObject(value)) return undefined;
+  const out = {};
+  for (const [k, id] of Object.entries(value)) {
+    if (!isOrderIndexKey(k) || !isPlayerId(id)) return undefined;
+    out[k] = id;
+  }
+  return out;
+}
+
 function parseHistoryEntry(value) {
   if (!isPlainObject(value)) return undefined;
   if (!Number.isInteger(value.n) || value.n < 1 || value.n > MAX_SETS) return undefined;
@@ -827,6 +1029,14 @@ function parseHistoryEntry(value) {
       point.pendingBefore = value.pendingBefore;
     }
     return point;
+  }
+  if (value.kind === 'align') {
+    if (!isRallyIndex(value.at) || !ALIGN_RULES.includes(value.rule) || !isPlayerId(value.playerId)) return undefined;
+    if (value.forId !== null && !isPlayerId(value.forId)) return undefined;
+    if (!isShift(value.shiftBefore)) return undefined;
+    const standInsBefore = parseStandInsStrict(value.standInsBefore);
+    if (standInsBefore === undefined) return undefined;
+    return { kind: 'align', n: value.n, at: value.at, rule: value.rule, playerId: value.playerId, forId: value.forId, shiftBefore: value.shiftBefore, standInsBefore };
   }
   if (value.kind !== 'count') return undefined;
   if (typeof value.playerId !== 'string') return undefined;
@@ -846,7 +1056,6 @@ function parseHistoryEntry(value) {
     if (!PENDING_VALUES.includes(value.pendingBefore)) return undefined;
     count.pendingBefore = value.pendingBefore;
   }
-  const isRallyIndex = (x) => Number.isInteger(x) && x >= 0 && x < MAX_POINTS;
   if (value.serveAt !== undefined) {
     if (!isRallyIndex(value.serveAt)) return undefined;
     count.serveAt = value.serveAt;
@@ -859,10 +1068,25 @@ function parseHistoryEntry(value) {
     if (!isRallyIndex(value.serveCleared)) return undefined;
     count.serveCleared = value.serveCleared;
   }
+  if (value.alignBefore !== undefined) {
+    const a = value.alignBefore;
+    if (!isPlainObject(a) || !isShift(a.shift)) return undefined;
+    const standIns = parseStandInsStrict(a.standIns);
+    if (standIns === undefined) return undefined;
+    count.alignBefore = { shift: a.shift, standIns };
+  }
   return count;
 }
 
-// v3 game shape: { gameId, opponent, setCount, setPlayerIds, sets, activeSet, history }.
+/** One stored serve order: null, or 6 to MAX_ROSTER_PLAYERS entries, each a directory id or null.
+ * Anything else becomes null (no plan) — tolerant, never fatal, like serveBy. */
+function parseServeOrder(value, directoryIds) {
+  if (!Array.isArray(value) || value.length < 6 || value.length > MAX_ROSTER_PLAYERS) return null;
+  for (const id of value) if (id !== null && !(typeof id === 'string' && directoryIds.has(id))) return null;
+  return [...value];
+}
+
+// v3 game shape: { gameId, opponent, setCount, setPlayerIds, sets, activeSet, history, serveOrders }.
 // team/date/importedAt/players are no longer read — the parser rebuilds field by field, so a
 // stale game carrying extras is silently cleaned (including a schema-2 `playerIds`). A game
 // naming an unknown directory id is dropped (salvage).
@@ -912,7 +1136,10 @@ function parseGame(value, directoryIds) {
     if (h === undefined) return undefined;
     history.push(h);
   }
-  return { gameId: value.gameId, opponent: value.opponent, setCount: value.setCount, setPlayerIds, sets, activeSet: value.activeSet, history };
+  // The planned serve orders (4.6.0): missing in an older save; a bad entry is no plan, never fatal.
+  const serveOrders = [];
+  for (let i = 0; i < MAX_SETS; i += 1) serveOrders.push(parseServeOrder(Array.isArray(value.serveOrders) ? value.serveOrders[i] : null, directoryIds));
+  return { gameId: value.gameId, opponent: value.opponent, setCount: value.setCount, setPlayerIds, sets, activeSet: value.activeSet, history, serveOrders };
 }
 
 // The day envelope (schema 3). `date` a non-empty string, or null only when games and players
@@ -1112,6 +1339,7 @@ function migrateSchema1(v1session) {
       sets: [...g.sets, null, null], // pad 3 to 5
       activeSet: g.activeSet,
       history: g.history,
+      serveOrders: Array(MAX_SETS).fill(null), // a schema-1 save has no plan; the shape matches what a reload reads
     })),
     activeGameId:
       v1session.activeGameId && keptGames.some((g) => g.gameId === v1session.activeGameId)
@@ -1141,7 +1369,7 @@ function migrateSchema1(v1session) {
  * it showed five tabs unconditionally and had no per-set membership to record. So it keeps five
  * tabs, and every set inherits that game's whole list. Deliberately NOT derived from what she
  * happened to have played: shrinking an in-progress day's tabs under her while she is recording is
- * a worse failure than showing two tabs she will not use. A CIQR3. paste for the same date merges
+ * a worse failure than showing two tabs she will not use. A roster paste for the same date merges
  * real per-set masks in.
  */
 function migrateSchema2(session) {
@@ -1233,16 +1461,31 @@ export function serialiseSession(s) {
   return JSON.stringify({ schema: SESSION_SCHEMA, savedAt: new Date().toISOString(), session: s });
 }
 
+/** True when the phone's prediction disagrees with the Planner's replay on any rally we served in
+ * `vector` (`{ order, servedFirst, points, servers }`, the shape of SERVE_ORDER_VECTOR) — the
+ * self-check's contract-6 leg. Which rallies we served is worked out from `points` by the reading
+ * rule, not from `servers`. Pure, so a test can hand it a bent copy. */
+export function serveOrderVectorFails(vector) {
+  const set = { score: null, counts: {}, servedFirst: vector.servedFirst, points: vector.points, pending: null, serveBy: {}, shift: 0, standIns: {} };
+  for (let i = 0; i < vector.points.length; i += 1) {
+    const weServe = i === 0 ? vector.servedFirst : vector.points[i - 1] === 'U';
+    if (weServe && plannedServerAt(set, vector.order, i) !== vector.servers[i]) return true;
+  }
+  return false;
+}
+
 export function runSelfCheck() {
   try {
     if (fnv1a32(new Uint8Array()) !== '811c9dc5') return { ok: false, error: 'fnv1a32 of empty input' };
     if (fnv1a32(new TextEncoder().encode('a')) !== 'e40c292c') return { ok: false, error: 'fnv1a32 of "a"' };
-    if (encodeDayRoster(ROSTER_V3_VECTOR.payload) !== ROSTER_V3_VECTOR.encoded) return { ok: false, error: 'day roster vector encode' };
+    if (encodeDayRoster(ROSTER_V6_VECTOR.payload) !== ROSTER_V6_VECTOR.encoded) return { ok: false, error: 'day roster vector encode' };
     if (encodeDayStats(STATS_V5_VECTOR.payload) !== STATS_V5_VECTOR.encoded) return { ok: false, error: 'day stats vector encode' };
     if (encodeRoster(ROSTER_VECTOR.payload) !== ROSTER_VECTOR.encoded) return { ok: false, error: 'roster vector encode' };
     if (encodeStats(STATS_VECTOR.payload) !== STATS_VECTOR.encoded) return { ok: false, error: 'stats vector encode' };
+    const r6 = decodeDayRoster(ROSTER_V6_VECTOR.encoded);
+    if (!r6.ok || JSON.stringify(r6.value) !== JSON.stringify(ROSTER_V6_VECTOR.payload)) return { ok: false, error: 'day roster vector decode' };
     const r3 = decodeDayRoster(ROSTER_V3_VECTOR.encoded);
-    if (!r3.ok || JSON.stringify(r3.value) !== JSON.stringify(ROSTER_V3_VECTOR.payload)) return { ok: false, error: 'day roster vector decode' };
+    if (!r3.ok || JSON.stringify(r3.value) !== JSON.stringify(ROSTER_V3_AS_V6)) return { ok: false, error: 'legacy v3 roster vector decode' };
     const t5 = decodeDayStats(STATS_V5_VECTOR.encoded);
     if (!t5.ok || JSON.stringify(t5.value) !== JSON.stringify(STATS_V5_VECTOR.payload)) return { ok: false, error: 'day stats vector decode' };
     const t4 = decodeDayStats(STATS_V4_VECTOR.encoded);
@@ -1252,11 +1495,13 @@ export function runSelfCheck() {
     const t3 = decodeDayStats(STATS_V3_VECTOR.encoded);
     if (!t3.ok || JSON.stringify(t3.value) !== JSON.stringify(STATS_V3_AS_V5)) return { ok: false, error: 'legacy v3 stats vector decode' };
     const r2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
-    if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_AS_V3)) return { ok: false, error: 'legacy v2 roster vector decode' };
+    if (!r2.ok || JSON.stringify(r2.value) !== JSON.stringify(ROSTER_V2_AS_V6)) return { ok: false, error: 'legacy v2 roster vector decode' };
     const r1 = decodeDayRoster(ROSTER_VECTOR.encoded);
-    if (!r1.ok || JSON.stringify(r1.value) !== JSON.stringify(ROSTER_V1_AS_DAY)) return { ok: false, error: 'legacy roster vector decode' };
+    if (!r1.ok || JSON.stringify(r1.value) !== JSON.stringify(ROSTER_V1_AS_V6)) return { ok: false, error: 'legacy roster vector decode' };
     const t1 = decodeDayStats(STATS_VECTOR.encoded);
     if (!t1.ok || JSON.stringify(t1.value) !== JSON.stringify(STATS_V1_AS_DAY)) return { ok: false, error: 'legacy stats vector decode' };
+    // Contract 6: the phone's prediction agrees with the Planner's replay on every rally we served.
+    if (serveOrderVectorFails(SERVE_ORDER_VECTOR)) return { ok: false, error: 'serve order vector' };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };

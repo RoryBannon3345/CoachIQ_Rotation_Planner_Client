@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS5… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR6… roster payloads (with per-set membership bitmasks and each set's planned serve order) and CIQS5… stats payloads with the planner by copy and paste, with no server or network required. The record screen highlights the player who should be serving.
 
 Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v5).
 
@@ -171,7 +171,7 @@ It refuses to publish, before touching `gh-pages`, if:
   the last commit would ship stale bytes while the verify you just watched pass applied to
   different ones. Commit `dist/` and run it again;
 - `npm test` fails, or the headless-browser checks fail (obfuscated-vs-readable render parity, and
-  the `CIQR3.` golden vector decoding and rendering correctly in the shipped file).
+  the `CIQR6.` golden vector decoding and rendering correctly in the shipped file).
 
 After pushing it polls the live URL until Pages serves the exact bytes it just verified.
 
@@ -215,6 +215,9 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] On a set with a rally log, Menu → Type the final score… → the sheet shows the log's tally and warns it replaces the log; Replace log with 25–23 → the bar shows 25–23 typed and the counts are unchanged.
 - [ ] (4.5.0) On a fresh set tap Grace Serve In, Us, then Grace Serve Out → Export starts `CIQS5.`; paste it into the planner → the import is accepted, and that set's As played card on the Stats page either reads "The phone’s servers match this set as played." or names Grace as the phone's server.
   Each serve tap records the rally it served; a set whose serves were never tapped sends no servers, and the planner still imports a 4.4.0 phone's `CIQS4.` export.
+- [ ] (4.6.0) Paste a `CIQR6.` roster from the planner and tap We serve first → the planned server's row has a blue background and an accent bar on the left; tap Serve Out for her → the highlight moves to our next server while they serve.
+- [ ] (4.6.0) At the start of our serve turn tap Serve In for someone other than the highlighted player → the toast says "Re-aligned to <name>" (or "<name> serving for <name>" for a player outside the plan) and the highlight moves to her; Undo reads "↶ Undo re-align": one Undo puts the highlight back and keeps her serve count, a second takes the tap back.
+- [ ] (4.6.0) Paste the same `CIQR6.` roster into a phone still on 4.5.0 → it is refused as made by a newer version of the Rotation Planner (contract 6).
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract
@@ -223,10 +226,11 @@ The payload format is frozen in `reference/stats-contract.md` and is the source 
 
 ## `reference/`
 
-Verbatim copies from the planner repo. `stats-contract.md`, `statsContract.ts`, `vectors.ts` and
-`stats-contract-v3-client-guide.md` and `stats-contract-v4-client-guide.md` are current as of the
-planner's as-played work (contract 5, which has no separate client guide: `stats-contract.md` covers
-it). `stats-contract-v2-client-guide.md`
+Verbatim copies from the planner repo. `stats-contract.md`, `statsContract.ts`, `vectors.ts`,
+`stats-contract-v6-client-guide.md`, `stats-contract-v3-client-guide.md` and
+`stats-contract-v4-client-guide.md` are current as of contract 6 (the roster's planned serve order,
+`games[].serve`; stats unchanged and pinned to 5; contract 5 has no separate client guide:
+`stats-contract.md` covers it). `stats-contract-v2-client-guide.md`
 is kept alongside it for historical context on the v1→v2 move. `stats-mockup.html` and
 `StatsDialog.tsx` are still from the earlier v1 copy at commit `2c57064`, kept for mockup/vocabulary
 reference only — neither affects the wire contract this app implements, and the planner has since
@@ -235,11 +239,12 @@ the planner's contract changes, re-copy the affected files.
 
 | File | What it is |
 |---|---|
-| `stats-contract.md` | The shared payload contract, v1 to v5. Source of truth for both apps. |
+| `stats-contract.md` | The shared payload contract, v1 to v6. Source of truth for both apps. |
 | `stats-contract-v2-client-guide.md` | The v2 migration guide written for this app's author — what changed from v1 to v2 and why, including the index-vs-id rationale for roster ticking. |
 | `stats-contract-v3-client-guide.md` | The v3 migration guide written for this app's author — what changed from v2 to v3 (per-set membership bitmasks replacing a single per-game roster) and why. |
 | `stats-contract-v4-client-guide.md` | The v4 migration guide written for this app's author — the optional per-set point log (`servedFirst`, `points`), the version bump and why. |
-| `statsContract.ts` | The planner's codec and validators, v1 to v5 (zero imports, copyable). |
-| `vectors.ts` | The golden test vectors both apps check against, v1 to v5. |
+| `statsContract.ts` | The planner's codec and validators, v1 to v6 (zero imports, copyable). |
+| `vectors.ts` | The golden test vectors both apps check against, v1 to v6, and `SERVE_ORDER_VECTOR` for the phone's serve prediction. |
+| `stats-contract-v6-client-guide.md` | The contract-6 guide written for this app's author — the roster's per-set planned serve order (`games[].serve`), its reading rule, refusals and the compatibility matrix. |
 | `stats-mockup.html` | The planner's v1 Stats dialog mockup, for matching look and vocabulary. |
 | `StatsDialog.tsx` | The planner's v1 Stats card — how it produced the roster payload and imported the stats payload back, before the day-scoped v2 dialogs split that. |

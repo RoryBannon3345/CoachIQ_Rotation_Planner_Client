@@ -19,24 +19,27 @@ This app's implementation lives in `src/contract/statsContract.ts`, deliberately
 imports** — the Client is plain HTML/JS on iOS Safari and copies that file's logic verbatim
 rather than sharing a build step with it. Keep this document and that file in sync by hand.
 
-The current contract is **version 5**, which lets each logged stats set say who served each of the
-team's serve turns — `servers`, one id or `null` per serve turn. Version 4 added that point log —
-`servedFirst` and `points`, one `U` or `T` per rally — so the Planner can replay who was on court. The roster half
-is unchanged from **version 3**, which replaced `games[].roster` — one index array per game, naming
-everyone who played anywhere in it — with `games[].sets`, one bitmask per set, so a roster can say
-how many sets a game has and who is in each one.
-`docs/stats-contract-v3-client-guide.md` and `docs/stats-contract-v4-client-guide.md` are the
-companion change briefs written for the Client's author: what moved, why, and what the Client has
-to do about it. This document is the reference for the format as it ends up, and it keeps the v1
-and v2 schemas, because v1 stats payloads are still accepted and both legacy roster shapes still
-decode.
+The current contract is **version 6**, which gives each roster game a `serve` list — one compact
+string per set naming the planned server of each of the team's rotation turns — so the phone can
+highlight who should be serving. The stats half is unchanged from **version 5**, which lets each
+logged stats set say who served each of the team's serve turns — `servers`, one id or `null` per
+serve turn. Version 4 added the point log — `servedFirst` and `points`, one `U` or `T` per rally —
+so the Planner can replay who was on court. Version 3 replaced `games[].roster` — one index array
+per game, naming everyone who played anywhere in it — with `games[].sets`, one bitmask per set, so
+a roster can say how many sets a game has and who is in each one.
+`docs/stats-contract-v3-client-guide.md`, `docs/stats-contract-v4-client-guide.md` and
+`docs/stats-contract-v6-client-guide.md` are the companion change briefs written for the Client's
+author: what moved, why, and what the Client has to do about it. This document is the reference
+for the format as it ends up, and it keeps the v1, v2 and v3 roster schemas, because v1 stats
+payloads are still accepted and every legacy roster shape still decodes.
 
 ## The encoded form
 
 ```
-CIQS5.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 5
+CIQR6.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 6 (what the Planner sends)
+CIQS5.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 5 (what the Client sends; stats did not change at 6)
 CIQS4.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 4 (accepted)
-CIQR3.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 3 (still what the Planner sends)
+CIQR3.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 3 (legacy: what the Planner sent at contracts 3–5)
 CIQS3.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 3 (accepted)
 CIQR2.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 2 (legacy)
 CIQS2.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 2 (legacy)
@@ -47,14 +50,15 @@ CIQS1.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 1 (le
 - `CIQR` / `CIQS` name the payload **kind** (roster / stats). A decoder reads this before
   touching the body, so it can say "this is a roster, not stats" without attempting to parse
   anything.
-- The digit immediately after the kind letters (`5` today) is the **contract major version**
-  (`CONTRACT_VERSION`). The roster half is still sent at `3`: it did not change at contract 4 or 5, and
-  `encodeDayRoster` is pinned to 3 so that an un-updated Client keeps reading `CIQR3.`. A decoder
-  refuses a payload whose version is higher than the one it understands, before attempting to
-  decode the body.
+- The digit immediately after the kind letters (`6` today) is the **contract major version**
+  (`CONTRACT_VERSION`). Each kind is pinned to the contract that last changed it:
+  `encodeDayRoster` sends `6`, and `encodeDayStats` sends `5`, because the stats half did not
+  change at contract 6 and an un-updated Planner must keep reading `CIQS5.`. A decoder refuses a
+  payload whose version is higher than the one it understands, before attempting to decode the
+  body.
 - The two literal `.` characters separate three fields: `<prefix+version>.<body>.<checksum>`.
 
-**The algorithm itself is unchanged by the version 2, 3, 4 or 5 bump.** Same Base64URL, same FNV-1a over the
+**The algorithm itself is unchanged by the version 2, 3, 4, 5 or 6 bump.** Same Base64URL, same FNV-1a over the
 same UTF-8 bytes, same whitespace stripping, same order of checks. Only the JSON inside the
 envelope is different — which is precisely why it earned a major bump rather than passing as a
 widening: fields moved and were renamed, so an older decoder would not merely ignore something new,
@@ -76,12 +80,12 @@ it would be wrong about what it had.
 
 `encodePayload` takes that `version` as a third argument, defaulting to `CONTRACT_VERSION`. It is
 not decoration: the prefix version and the body's own `v` must agree, and `decodePayload` calls any
-disagreement corruption. Now that `CONTRACT_VERSION` is 5, a v1 body encoded with the default would
-go out as `CIQS5.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
+disagreement corruption. Now that `CONTRACT_VERSION` is 6, a v1 body encoded with the default would
+go out as `CIQS6.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
 encoders pass `1` explicitly — which is also what keeps the v1 golden vectors below byte-identical.
-`encodeDayRoster` passes `3` for the same reason: the roster half did not change at contract 4 or 5, so
-its body still says `"v":3`, and a `CIQR5.` prefix around it would be refused as corruption. A stats
-encoder (`encodeDayStats`) never passes it, and sends `"v":5`.
+The day encoders pin theirs for the same reason: `encodeDayRoster` passes `6`, and `encodeDayStats`
+passes `5`, because the stats body still says `"v":5` and a `CIQS6.` prefix around it would be
+refused as corruption.
 
 **Decoding** (`decodePayload`), in this exact order:
 
@@ -107,14 +111,20 @@ encoder (`encodeDayStats`) never passes it, and sends `"v":5`.
    the prefix. A hand-edited or mismatched body is treated as corruption, not as a differently
    valid payload.
 8. Return the parsed (but not yet shape-validated) JSON value. `decodeDayRoster` /
-   `decodeDayStats` then dispatch on the body's own `v` — `1` runs the v1 validator and normalises
-   the result into the day shape (via the v2 shape, for a roster — see `normaliseRosterV1`), `2`
-   runs the v2 validator and normalises that (a roster's per-game `roster` index array becomes a
-   single set mask; a stats body needs no normalising, since its shape hasn't changed), `3` runs
-   the current roster validator directly (a stats body's `4` runs the current stats validator, which
-also accepts `2` and `3` — see "Stats payload schema") — and always hand back a day payload, so nothing downstream has
-   to branch on a version. Dispatching on that `v` is safe because step 7 has already proved it
-   equals the prefix version the transport layer vouched for.
+   `decodeDayStats` then dispatch on the body's own `v`, and always hand back a day payload, so
+   nothing downstream has to branch on a version:
+   - **Roster:** `1` runs the v1 validator and lifts the result through v2 and v3 to v6
+     (`normaliseRosterV1`). `2` runs the v2 validator and lifts it the same way (a per-game
+     `roster` index array becomes a single set mask). `3` runs the v3 checks
+     (`validateDayRosterPayloadV3`) and lifts the result to v6 with every `serve` entry `null`
+     (`normaliseRosterV3`). `6` runs the current roster validator directly. Anything else is
+     `its version is not 1, 2, 3, 4, 5 or 6`.
+   - **Stats:** `1` runs the v1 validator and normalises the result into the day shape. `2`,
+     `3`, `4` and `5` run the current stats validator, which accepts all four (see "Stats payload
+     schema"). Anything else, `6` included, is `its version is not 1, 2, 3, 4, 5 or 6`.
+
+   Dispatching on that `v` is safe because step 7 has already proved it equals the prefix version
+   the transport layer vouched for.
 
 ### `fnv1a32`
 
@@ -133,7 +143,7 @@ function fnv1a32(bytes) {
 
 Reference values: `fnv1a32([])` = `811c9dc5`; `fnv1a32(utf8("a"))` = `e40c292c`.
 
-## Roster payload schema (contract v3)
+## Roster payload schema (contract v6)
 
 One day, the player directory of the games it carries, and those games — every game of the day,
 or the ones the coach ticked (at most three an email, a Planner rule, not a contract limit). A day
@@ -142,7 +152,7 @@ holds. Validated by `validateDayRosterPayload`.
 
 | Field | Type | Rule |
 |---|---|---|
-| `v` | `3` | Must equal the version named in the prefix. |
+| `v` | `6` | Must equal the version named in the prefix. |
 | `kind` | `"roster"` | Fixed. |
 | `date` | `string` | Non-empty. The day this payload is about — the identity of a day payload, so a blank one is refused. |
 | `team` | `string` | Display-only. May be empty: `createTeam` does not trim, so a coach who never named her team has a blank one, and refusing it would refuse a real save. |
@@ -154,6 +164,8 @@ holds. Validated by `validateDayRosterPayload`.
 | `games[].gameId` | `string` | Non-empty, unique within the payload. Echoed back in the stats payload to match the game. |
 | `games[].opponent` | `string` | Display-only. May be empty, the same way `team` may: a game against an unnamed opponent is a real thing a coach plans, and the Client only ever prints this string. |
 | `games[].sets` | `number[]` | 1–5 entries (`MAX_SETS`), **one bitmask per set, positional** — `sets[0]` is set 1, and `sets.length` is how many sets the game has. Bit `i` set means `players[i]` is in that set. Each entry is a whole number `0 ≤ mask < 2 ** players.length`. A set nobody is picked for is `0`. The **union** across a game's sets may name at most 16 players (`MAX_ROSTER_PLAYERS`). |
+| `games[].serve` | `(string \| null)[]` | **Required, contract 6.** Same length as that game's `sets`, positional: `serve[0]` is set 1. `null`: no planned serve order for that set (an empty lineup, nobody resolvable). |
+| `games[].serve[k]` | `string` | Matches `/^[0-9a-v-]{6,16}$/` (`SERVE_ORDER_PATTERN`). Character `t` names the server of **rotation turn t**: `-` means nobody (an empty spot); any other character is a directory index in base 32 (`parseInt(c, 32)`, 0–31, which covers `MAX_DAY_PLAYERS`). Every index is in that set's mask, and at least one character is not `-`. A slot set's order is always 6 long; a Train set's has one entry per spot in its line, `max(6, N)`. 16 is the most, since a line of 17 names more players than a game may. |
 
 ### Reading a set mask
 
@@ -195,6 +207,54 @@ merely behaves badly in a gym — so they are stated here, where both implementa
   entirely the Client's to keep.
 - **`sets.length` is the set count, and it is authoritative.** The Client must build that many set
   tabs rather than assuming three. This is what closes the gap described under "Set count".
+
+### Reading a serve order
+
+`serve[k]` is the Planner's plan for set `k + 1`: who serves each of the team's rotation turns,
+starting from rotation 1. The Planner does all the resolving — rotations, pairs, coverage, serve
+overrides, availability, Train lines — so the Client does no rotation work. It reads the string
+with one rule, the same rule the Planner's own replay (`replaySet`) uses with no as-played changes:
+
+- Set `t = 0`.
+- Each time we win a rally they served, `t` goes up by one.
+- The server of any rally we serve is `serve[t mod length]`.
+
+So when we serve first, our first server is entry 0 (rotation 1). When we receive first, it is
+entry 1, because our first side-out moves us to rotation 2. While they serve, our *next* server
+is `serve[(t + 1) mod length]`.
+
+```js
+// The entry of a serve string of `length` characters that names our server for rally `at`
+// (0-based; `at === points.length` is the next rally). While we serve that rally, it is the
+// rally's server; while they do, it is our next server.
+function serveEntryAt(points, servedFirst, at, length) {
+  let t = 0;
+  let weServe = servedFirst;
+  for (let i = 0; i < at; i += 1) {
+    const won = points[i] === 'U';
+    if (won && !weServe) t += 1;
+    weServe = won;
+  }
+  return (weServe ? t : t + 1) % length;
+}
+```
+
+**Worked example.** In the v6 golden vector below, `game-1`'s directory is
+`[Grace, Zoë]` and its set 1 order is `"010-10"`: rotation turn 0 Grace, 1 Zoë, 2 Grace,
+3 nobody, 4 Zoë, 5 Grace. Receiving first, a log of `TU` leaves `t = 1`, so our first server is
+entry 1, Zoë. After `TUUT` she has lost the serve, so they serve and our next server is entry 2,
+Grace. Once we have won six of their serves, `t = 6` and the order wraps back to entry 0. An entry of `-` is a
+turn the plan has nobody at 1 for: show no server. `SERVE_ORDER_VECTOR` under "Golden vectors"
+is a longer check of the same rule against the Planner's replay.
+
+## Roster payload schema (contract v3, legacy)
+
+A `CIQR3.` roster — what the Planner sent at contracts 3, 4 and 5 — is the v6 shape without
+`serve`, with `v` = `3`. `decodeDayRoster` runs the same checks over it
+(`validateDayRosterPayloadV3`, internal to `statsContract.ts`) and lifts the result with
+`normaliseRosterV3`, which adds `serve: sets.map(() => null)`. A v3 roster carried no serve
+order, and inventing one would put a plan in front of the coach that nobody made. Every error
+message is the v6 one, apart from the five serve-order refusals, which a v3 body cannot reach.
 
 ## Stats payload schema (contract v2, v3, v4 or v5)
 
@@ -381,6 +441,28 @@ eight-game cap sits under the ~2048 ceiling, though narrowly (2011 vs. ~2048)
 — a longer address or opponent name could still close that gap, which is exactly what the warning
 exists to catch before the mail client does.
 
+**Contract 6's serve orders, measured 2026-10-08.** One character per rotation turn, base 32,
+costs about 9 JSON characters a set (`"3a0712",`) on top of a per-game `"serve":[…]` key. On
+`rosterPayload.test.ts`'s realistic day (twelve players with 24-character ids, all twelve in all
+three sets, four games, a 17-character address and the subject `Roster · Thunder 14U Gold · Fri,
+Sep 11`):
+
+| the day's lineups | composed href |
+|---|---|
+| contract 5 (no `serve`) | 1529 |
+| contract 6, no lineups (every entry `null`) | **1663** |
+| contract 6, every lineup filled (every entry six characters) | **1727** |
+
+A full lineup costs about 200 characters a 4-game day over contract 5 and still sits well under
+`MAILTO_WARN_LENGTH`. Id strings in place of the base-32 characters would cost several hundred a
+set, which is why `DayRosterGame.serve`'s docblock carries the same "do not simplify into arrays"
+warning as `games[].sets`.
+
+The tables above predate `serve`: they were measured at contract 3, so the "through the full
+eight-game cap" figures hold for a roster without serve orders. With `serve` (about 34 characters a
+game with no lineups, more with lineups) an eight-game roster no longer fits under ~2048. The
+Planner sends at most three games an email.
+
 **Stats must never go by `mailto:`.** A 3-game, 3-set, 12-player day sheet encodes to roughly
 **13 KB**, about six times anything a `mailto:` URL can be relied on to carry. The stats payload
 travels by clipboard into a textarea, which has no length limit, and that is also why it keeps id
@@ -397,8 +479,8 @@ a log of 46 rallies is 46 characters before Base64URL, about 62 after.
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `CONTRACT_VERSION` | `4` | The contract's major version. |
-| `MAX_GAMES_PER_DAY` | `8` | The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It also lands almost exactly on what a `mailto:` roster can carry for a 12-player squad (a 16-player squad reaches that limit sooner) — see "Payload size" above. |
+| `CONTRACT_VERSION` | `6` | The contract's major version. The roster is sent at 6 and stats at 5 (see "The encoded form"). |
+| `MAX_GAMES_PER_DAY` | `8` | The most games one day payload may carry, in either kind. A tournament day is a handful of games; eight is generously above any real one, and bounds how much a single paste can push into saved state. It sits near what a `mailto:` roster can carry for a 12-player squad without serve orders (a 16-player squad reaches that limit sooner, and `serve` lowers it further) — see "Payload size" above. |
 | `MAX_DAY_PLAYERS` | `32` | The most players one day payload's directory may name. A day's directory spans every game of the day, so it is legitimately larger than any one game's tick-list — squads rotate across games and a tournament day can field two teams' worth of names: two squads of sixteen. Must never exceed 53, and at 32 it already depends on the arithmetic mask helpers — see `DayRosterGame.sets`: at 32 the highest bit is `2 ** 31`, exactly the bit JS's `\|`/`&` coerce to a negative number, so a reader who reached for a bitwise operator on a mask would silently get wrong girls on a tick-list instead of an error. Use only the arithmetic helpers (see "Reading a set mask"); the largest legal mask is `2 ** 32 - 1` = `4294967295`. |
 | `MAX_ROSTER_PLAYERS` | `16` | The largest **union** across a game's sets (`games[].sets`) may name — the size of the tick-list the Client shows for the game as a whole, not any single set and not the sum of all of them. In v2, when a game carried one `roster` array, that array *was* this union, so the rule is unchanged, only its expression moved. In v1, when a payload *was* one game, it bounded the whole payload's `players` instead, and it still does on the v1 path. |
 | `MAX_COUNT` | `999` | Largest legal serve/return count. |
@@ -406,6 +488,7 @@ a log of 46 rallies is 46 characters before Base64URL, about 62 after.
 | `MAX_RECORDED_AT_LENGTH` | `32` | Longest legal `recordedAt`. An ISO timestamp with milliseconds and a timezone offset is under 32 characters. |
 | `MAX_SETS` | `5` | Largest legal `sets` length in either payload (a roster's `games[].sets`, a stats sheet's `games[].sets`), and largest legal `sets[].n` on the stats side — **per game** at v2/v3, per payload at v1. The stats-side widening from 3 to 5 was receive-side only — see "Set count" under Versioning policy below. |
 | `MAX_POINTS` | `200` | The most rallies one set's point log may record. A 25-point set that goes to deuce is under 60. A refusal, like every cap here. |
+| `SERVE_ORDER_PATTERN` | `/^[0-9a-v-]{6,16}$/` | A legal `games[].serve[k]` string (contract 6). 6 for a slot set; one per spot in a Train line, never fewer than 6 and at most 16 (`MAX_ROSTER_PLAYERS`). Base 32 reaches index 31, which covers `MAX_DAY_PLAYERS`. |
 
 On the v1 path `MAX_ROSTER_PLAYERS` bounds the stats payload's top-level `players` as well: that
 list echoes the roster the Client was handed. `validateRosterPayload` refuses a v1 roster payload
@@ -442,10 +525,10 @@ interpolated at the point of failure, `<id>` a player id and `<gid>` a game id.
 - `This is not a CoachIQ payload — copy the whole text from the stats app and paste it again.`
 - `This is a roster payload, not a stats payload.` (and the reverse)
 - **Newer version, two variants** — the first `<n>` is the version read off the payload's prefix;
-  the second is the reader's own `CONTRACT_VERSION`, which is **5** today, so these render as
-  `(contract 6); this app understands 5.`:
-  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 5.`
-  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 5.`
+  the second is the reader's own `CONTRACT_VERSION`, which is **6** today, so these render as
+  `(contract 7); this app understands 6.`:
+  - `This payload was made by a newer version of the Rotation Planner (contract <n>); this app understands 6.`
+  - `This payload was made by a newer version of the stats app (contract <n>); this app understands 6.`
 - **Corrupted, two variants** — each covers a truncated payload, a checksum mismatch, invalid
   Base64URL, unparsable JSON, and a body whose own `v`/`kind` disagrees with the prefix:
   - `This payload is corrupted or incomplete — copy it again from the Rotation Planner.`
@@ -530,17 +613,20 @@ Stats:
 - `player "<id>" has a malformed serve count in set <n>`
 - `player "<id>" has a malformed return count in set <n>`
 
-### Contract v3 (`validateDayRosterPayload` / `validateDayStatsPayload`)
+### Contract v6 roster and v5 stats (`validateDayRosterPayload` / `validateDayStatsPayload`)
 
 Same two forms — `The roster payload is malformed: <detail>.` and
-`The stats payload is malformed: <detail>.` — where `<detail>` is one of. The roster validator only
-accepts `v: 3`; the stats validator accepts `v: 2`, `v: 3`, `v: 4` or `v: 5` — see "Stats payload schema
-(contract v2, v3, v4 or v5)" above. The stats list below is the whole of it apart from the seven point-log
-messages under "Contract v4 stats additions" and the four server-list messages under "Contract v5 stats additions".
+`The stats payload is malformed: <detail>.` — where `<detail>` is one of. The roster validator
+accepts `v: 6`; a legacy `v: 3` body runs the same checks (`validateDayRosterPayloadV3`) before
+it is lifted, and only a v6 body reaches the five serve-order messages under "Contract v6 roster
+additions". The stats validator accepts `v: 2`, `v: 3`, `v: 4` or `v: 5` — see "Stats payload
+schema (contract v2, v3, v4 or v5)" above. The stats list below is the whole of it apart from the
+seven point-log messages under "Contract v4 stats additions" and the four server-list messages
+under "Contract v5 stats additions".
 
 Roster:
 - `it is not an object`
-- `its version is not 1, 2, 3, 4 or 5`
+- `its version is not 1, 2, 3, 4, 5 or 6`
 - `its kind is not "roster"`
 - `it has no date`
 - `it has no team name`
@@ -570,7 +656,7 @@ Roster:
 
 Stats:
 - `it is not an object`
-- `its version is not 1, 2, 3, 4 or 5`
+- `its version is not 1, 2, 3, 4, 5 or 6`
 - `its kind is not "stats"`
 - `it has no recorded time`
 - `its recorded time is <n> characters; the limit is 32`
@@ -611,7 +697,7 @@ reproducing these by hand will be tempted to regularise all four:
   `the limit is 16`. Different phrase, different limit, on purpose.
 - A roster `names <n> games; the limit is 8`, while a stats sheet `records more than 8 games`. A
   roster names games it plans; a sheet records games that happened.
-- `its version is not 1, 2, 3, 4 or 5` names **all five** versions this app reads rather than only the
+- `its version is not 1, 2, 3, 4, 5 or 6` names **all six** versions this app reads rather than only the
   one that refused, because a coach who pasted the wrong thing needs to know what is acceptable, not
   which branch said no. The v1 validators still say `its version is not 1`; they are only reachable
   through the day decoders, which have already dispatched on the body's `v`.
@@ -650,19 +736,42 @@ the per-set loop, after the set's player list is read. A set with no `servers` s
 - `game "<gid>" set <n> names server "<id>", who has no stat line in that set` — an entry that is
   not `null` is not a legal id, or has no line in that set's `players`.
 
+### Contract v6 roster additions
+
+Same form, `The roster payload is malformed: <detail>.`. These run after **every** other roster
+check, over the whole day, so a game over its cap is reported as `game "<gid>" names <n> players;
+the limit is 16` rather than as a 17-character serve order. Within a game they run in the order
+below, set by set. `<gid>` is the game id, `<n>` the set number, `<i>` a decoded index and `<N>` the
+directory's length.
+
+- `game "<gid>" has no serve list with one entry per set` — `serve` is missing, not an array, or
+  a different length from `sets`.
+- `game "<gid>" set <n> has a serve order that is not legal` — the entry is neither `null` nor a
+  string matching `/^[0-9a-v-]{6,16}$/`: the wrong type, a character outside `0`–`9`, `a`–`v`
+  and `-` (uppercase included), or fewer than 6 or more than 16 characters.
+- `game "<gid>" set <n> serve order names player <i>, but the payload lists only <N>` — a
+  character's index is not in the directory. This follows the v2 wording.
+- `game "<gid>" set <n> serve order names a player who is not in that set` — the index's bit is
+  not set in that set's mask.
+- `game "<gid>" set <n> serve order names nobody` — every character is `-`. The sender sends
+  `null` instead.
+
+The validator cannot tell a slot set from a Train set, so it does not check that a slot set's
+order is exactly 6 long. The Planner only ever sends 6 for a slot set.
+
 ### Contract v2 roster (legacy)
 
 Still reachable, and worth its own entry rather than a footnote: `decodeDayRoster` sends a body
 whose `v` is `2` through `validateDayRosterPayloadV2` (not exported — internal to
 `statsContract.ts`) before `normaliseRosterV2` lifts the result into the v3 day shape. A coach who
 opens an old `CIQR2.` roster email in an already-updated Client still runs it through this
-validator, so a malformed one still produces these strings, not the v3 ones above.
+validator, so a malformed one still produces these strings, not the ones listed under "Contract v6 roster and v5 stats" above.
 
-Its `it is not an object` / `its version is not 1, 2, 3, 4 or 5` / `its kind is not "roster"` / `it has no
+Its `it is not an object` / `its version is not 1, 2, 3, 4, 5 or 6` / `its kind is not "roster"` / `it has no
 date` / `it has no team name` / player-list / `it has no game list` / `it names no games` / `it
 names <n> games; the limit is 8` / `one of its games is malformed` / `one of its games has no id` /
 `game id "<gid>" appears twice` / `game "<gid>" has no opponent name` checks are worded identically
-to the v3 catalogue above — same helpers, same strings. Only the per-game roster check differs,
+to the "Contract v6 roster and v5 stats" catalogue above — same helpers, same strings. Only the per-game roster check differs,
 since this validator reads an index array rather than a set-mask array:
 
 - `game "<gid>" has no roster`
@@ -672,7 +781,7 @@ since this validator reads an index array rather than a set-mask array:
 
 `game "<gid>" names <n> players; the limit is 16` is **not** repeated here: v2 and v3 share that
 exact string (both check the same `MAX_ROSTER_PLAYERS` cap on the same kind of count), so it already
-appears once, in the v3 Roster list above.
+appears once, in the "Contract v6 roster and v5 stats" Roster list above.
 
 ## Versioning policy
 
@@ -689,6 +798,23 @@ appears once, in the v3 Roster list above.
   numbers with separate lifetimes**. `SCHEMA_VERSION` versions the file this app saves to its own
   `localStorage`; `CONTRACT_VERSION` versions the payload the two apps exchange by copy/paste.
   Bumping one never implies bumping the other.
+
+### Planned serve order (contract 6) — 2026-10-08
+
+`CONTRACT_VERSION` goes to **6**. Each roster game gains `serve`: one compact string per set naming
+the planned server of each of the team's rotation turns, or `null`
+(docs/superpowers/specs/2026-10-08-roster-serve-order-design.md). The Planner resolves rotations,
+pairs, coverage, serve overrides, availability and Train lines (`plannedServeOrder`), so the phone
+does no rotation work. It bumps for the reason v4 and v5 did: a v5 Client would validate a v6 roster
+field by field and drop every order without a word. "Made by a newer version of the Rotation
+Planner (contract 6); this app understands 5" is the better failure.
+
+The roster is now sent as `CIQR6.` (`encodeDayRoster` pinned to 6). **Stats are unchanged and
+`encodeDayStats` is pinned to 5**, so a phone at 4.6.0 still exports `CIQS5.`, which a Planner that
+predates contract 6 still reads. The Planner's stats validator still accepts body `v` 2–5; a stats
+body at 6 is "not a known version". Legacy rosters still decode: v3 lifts to v6 with `serve` all
+`null` (`normaliseRosterV3`), and v2 and v1 lift through v3. `docs/stats-contract-v6-client-guide.md`
+is the brief.
 
 ### Several roster emails a day (2026-10-04)
 
@@ -907,10 +1033,10 @@ for a stats payload is. Both apps must now produce it for both kinds.
 The same logic as `src/contract/statsContract.ts`, without types, for an implementer who is not
 using TypeScript (e.g. the Client). Shape validation is intentionally omitted here — only the
 transport codec needs to be identical between the two apps — apart from `serveTurnCount` and the
-v5 `servers` check, whose count rule both apps must agree on exactly.
+v5 `servers` check, and the v6 serve-order check and reading rule, whose rules both apps must agree on exactly.
 
 ```js
-const CONTRACT_VERSION = 5;
+const CONTRACT_VERSION = 6;
 const PREFIX = { roster: 'CIQR', stats: 'CIQS' };
 
 /** Coach-readable name for each kind, used in the kind-mismatch error. */
@@ -960,17 +1086,18 @@ function fromBase64Url(text) {
 
 /** `version` defaults to `CONTRACT_VERSION`, and exists because the prefix version and the body's
  *  own `v` must agree — `decodePayload` cross-checks them and calls any disagreement corruption.
- *  A v1 encoder must pass `1` explicitly; the roster encoder passes `3`; the stats encoder never
- *  passes it. */
+ *  A v1 encoder must pass `1` explicitly; the roster encoder passes `6` and the stats encoder
+ *  `5`. */
 function encodePayload(kind, json, version = CONTRACT_VERSION) {
   const bytes = new TextEncoder().encode(JSON.stringify(json));
   return `${PREFIX[kind]}${version}.${toBase64Url(bytes)}.${fnv1a32(bytes)}`;
 }
 
-// The two day encoders. The roster half did not change at contract 4 or 5, so its body still says v: 3
-// and the prefix must too (decodePayload calls a body `v` that differs from the prefix corruption).
-function encodeDayRoster(payload) { return encodePayload('roster', payload, 3); }
-function encodeDayStats(payload) { return encodePayload('stats', payload); }
+// The two day encoders, each pinned to the contract that last changed its kind: the roster gained
+// `serve` at 6, and stats have not changed since 5. decodePayload calls a body `v` that differs
+// from the prefix corruption, so each pin moves with its body's `v` or not at all.
+function encodeDayRoster(payload) { return encodePayload('roster', payload, 6); }
+function encodeDayStats(payload) { return encodePayload('stats', payload, 5); }
 
 // The two surviving v1 encoders. The explicit `1` is not decoration — see above.
 function encodeRoster(payload) { return encodePayload('roster', payload, 1); }
@@ -1000,11 +1127,11 @@ function decodePayload(text, expected) {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed) || parsed.v !== version || parsed.kind !== kind) {
     return { ok: false, error: corrupt(expected) };
   }
-  // Not yet shape-validated. Dispatch on `parsed.v` next: 1 and 2 are legacy payloads to validate
-  // and normalise into the day shape (a v2 roster's per-game index array becomes one set mask), 3
-  // is the current day roster (the roster is pinned at 3; stats are at 5, which adds `servers` to
-  // the point log v4 added, and still reads 2, 3 and 4). Anything else is
-  // `its version is not 1, 2, 3, 4 or 5`.
+  // Not yet shape-validated. Dispatch on `parsed.v` next. A roster: 1, 2 and 3 are legacy payloads
+  // to validate and lift to v6 (a v2 roster's per-game index array becomes one set mask; every
+  // legacy game gets `serve` all null), and 6 is the current day roster. Stats: 1 is legacy, and
+  // 2, 3, 4 and 5 are read by the current stats validator. Anything else is
+  // `its version is not 1, 2, 3, 4, 5 or 6`.
   return { ok: true, value: parsed };
 }
 
@@ -1043,6 +1170,47 @@ function serversFault(gid, n, rawServers, log, idsInSet) {
   }
   return null;
 }
+
+/** Bit `index` of a set mask, by arithmetic: `|` and `&` coerce to signed 32-bit. */
+function maskHas(mask, index) { return Math.floor(mask / 2 ** index) % 2 === 1; }
+
+/** Contract 6: one roster game's `serve` list, checked against that game's validated `sets` masks
+ *  and the directory size. Returns the detail for `The roster payload is malformed: <detail>.`, or
+ *  `null` when the list is fine. Run it after every other roster check, for every game, so a game
+ *  over its cap is reported as that. */
+function serveListFault(gid, rawServe, sets, size) {
+  if (!Array.isArray(rawServe) || rawServe.length !== sets.length) return `game "${gid}" has no serve list with one entry per set`;
+  for (let i = 0; i < rawServe.length; i += 1) {
+    const order = rawServe[i];
+    const n = i + 1;
+    if (order === null) continue;
+    if (typeof order !== 'string' || !/^[0-9a-v-]{6,16}$/.test(order)) return `game "${gid}" set ${n} has a serve order that is not legal`;
+    let named = false;
+    for (const c of order) {
+      if (c === '-') continue;
+      const index = parseInt(c, 32);
+      if (index >= size) return `game "${gid}" set ${n} serve order names player ${index}, but the payload lists only ${size}`;
+      if (!maskHas(sets[i], index)) return `game "${gid}" set ${n} serve order names a player who is not in that set`;
+      named = true;
+    }
+    if (!named) return `game "${gid}" set ${n} serve order names nobody`;
+  }
+  return null;
+}
+
+/** Contract 6's reading rule: the entry of a serve string of `length` characters that names our
+ *  server for rally `at` (0-based; `at === points.length` is the next rally) — the rally's server
+ *  while we serve it, our next server while they do. */
+function serveEntryAt(points, servedFirst, at, length) {
+  let t = 0;
+  let weServe = servedFirst;
+  for (let i = 0; i < at; i += 1) {
+    const won = points[i] === 'U';
+    if (won && !weServe) t += 1;
+    weServe = won;
+  }
+  return (weServe ? t : t + 1) % length;
+}
 ```
 
 ## Golden vectors
@@ -1058,14 +1226,72 @@ fields come in another order is perfectly valid and decodes fine, it simply will
 vector. So a Client checking itself against these should either compare the *decoded* object, or
 emit its keys in the documented order before comparing the strings.
 
-### Roster vector (contract v3)
+### Roster vector (contract v6)
+
+The v3 day below plus `serve`, one entry per set. Between them the two games cover:
+- a dash (`game-1` set 1, `"010-10"`: Grace, Zoë, Grace, nobody, Zoë, Grace);
+- `null` (`game-1` set 2, and `game-2` set 2, which has nobody in it);
+- a Train-length entry of 7 (`game-1` set 3);
+- one server for every turn (`game-2` set 1).
+
+Every index is in its set's mask. Key order on a game: `gameId`, `opponent`, `sets`, `serve`.
+Frozen: never regenerate this string.
+
+Payload:
+
+```json
+{
+  "v": 6, "kind": "roster", "date": "2026-09-19", "team": "Thunder",
+  "players": [
+    { "id": "grace", "name": "Grace", "jersey": 7 },
+    { "id": "zoie", "name": "Zoë" }
+  ],
+  "games": [
+    { "gameId": "game-1", "opponent": "Lions", "sets": [3, 1, 2], "serve": ["010-10", null, "1111111"] },
+    { "gameId": "game-2", "opponent": "Falcons", "sets": [2, 0], "serve": ["111111", null] }
+  ]
+}
+```
+
+Encoded:
+
+```
+CIQR6.eyJ2Ijo2LCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXSwic2VydmUiOlsiMDEwLTEwIixudWxsLCIxMTExMTExIl19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwib3Bwb25lbnQiOiJGYWxjb25zIiwic2V0cyI6WzIsMF0sInNlcnZlIjpbIjExMTExMSIsbnVsbF19XX0.841c281c
+```
+
+Decoding the v3, v2 and v1 roster vectors below gives the same day at `v: 6` with every `serve`
+entry `null` (`ROSTER_V3_AS_V6`, `ROSTER_V2_AS_V6`, `ROSTER_V1_AS_V6` in
+`src/contract/__fixtures__/vectors.ts`).
+
+### Serve order vector (contract v6)
+
+Pure data, not an encoded payload, so the Client can check its reading of a `serve` string
+against the Planner's replay. `SERVE_ORDER_VECTOR` in `src/contract/__fixtures__/vectors.ts`,
+built from `replaySet` on a slot set with one front/back pair and one usable serve override, then
+frozen. We receive first, and the 36 rallies hold 10 serve turns of ours, so the order wraps past
+entry 5. For every `i` where `servers[i]` is not `null`,
+`order[serveEntryAt(points, servedFirst, i, order.length)]` must equal `servers[i]`; where it is
+`null`, they served rally `i`.
+
+```json
+{
+  "order": ["emily", "lexi", "lily", "brooklyn", "melanie", "addison"],
+  "servedFirst": false,
+  "points": "TTUUUTTUTUUTTUUTUUTTUUUTUTTUUTUUTUTU",
+  "servers": [null, null, null, "lexi", "lexi", "lexi", null, null, "lily", null, "brooklyn", "brooklyn",
+              null, null, "melanie", "melanie", null, "addison", "addison", null, null, "emily", "emily", "emily",
+              null, "lexi", null, null, "lily", "lily", null, "brooklyn", "brooklyn", null, "melanie", null]
+}
+```
+
+### Roster vector (contract v3, legacy)
 
 The same two-game day as the v2 vector below, so the diff between the two shows exactly what
 changed: `roster` index arrays become one bitmask per set. `game-1` runs three sets with different
 membership each time — both players, then Grace alone, then Zoë alone — which a v2 payload could
 not express at all, since v2 only ever carried the union across a game's sets. `game-2` runs two
 sets and has nobody picked for the second, a mask of `0`, legal on purpose. A Client that ignores
-the masks and ticks everybody for every set still decodes this vector and is still wrong.
+the masks and ticks everybody for every set still decodes this vector and is still wrong. Since contract 6 it is decode-only: it decodes to this day at `v: 6` with `serve` all `null`.
 
 Payload:
 

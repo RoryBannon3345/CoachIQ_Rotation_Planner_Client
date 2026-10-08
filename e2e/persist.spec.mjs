@@ -1,4 +1,4 @@
-import { expect, openDay, rosterText, STORAGE_KEY, test } from './support/fixtures.mjs';
+import { expect, openDay, plannedPayload, rosterText, STORAGE_KEY, test } from './support/fixtures.mjs';
 
 test.describe('Saving on the device', () => {
   test('counts, points and the typed score survive a reload', async ({ page, openApp, press }) => {
@@ -48,5 +48,18 @@ test.describe('Saving on the device', () => {
     expect(saved.session).toMatchObject({ team: 'Thunder', date: '2026-09-19' });
     expect(saved.session.games[0]).toMatchObject({ gameId: 'game-1', opponent: 'Lions' });
     expect(saved.session.games[0].sets[0]).toMatchObject({ score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 } } } });
+  });
+
+  test('a re-alignment survives a reload, and Undo still takes it back', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(plannedPayload()));
+    await press(page.locator('[data-action="tap-count"][data-pid="lily"][data-stat="serve"][data-side="in"]')); // the plan says Grace
+    const serving = page.locator('.rows .row.serving .name');
+    await expect(serving).toHaveText('Lily');
+    await page.reload();
+    await expect(serving).toHaveText('Lily');
+    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo re-align');
+    await press(page.locator('[data-action="undo"]'));
+    await expect(serving).toHaveText('Grace');
   });
 });

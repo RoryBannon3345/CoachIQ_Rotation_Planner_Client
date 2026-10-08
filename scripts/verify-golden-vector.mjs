@@ -1,8 +1,8 @@
 /**
  * Boots the SHIPPED dist/ bundle in headless Edge, pastes the contract's fixed
- * cross-app golden vector (guide §8; never regenerate it -- it is quoted byte for byte
- * in reference/stats-contract-v3-client-guide.md and the planner's own test suite),
- * and asserts the four facts a hand-eyeballed check in a browser cannot leave behind
+ * cross-app contract-6 golden vector (`ROSTER_V6_VECTOR`; never regenerate it -- it is quoted byte for byte
+ * in reference/vectors.ts and the planner's own test suite),
+ * and asserts the five facts a hand-eyeballed check in a browser cannot leave behind
  * for a reviewer:
  *
  *   1. `vs Lions` (3 sets: masks [3,1,2]) shows exactly three set tabs; `vs Falcons`
@@ -14,6 +14,7 @@
  *   4. Opening the players sheet on Lions set 2 shows BOTH players -- the whole day
  *      directory, never a per-set filtered view -- with only Grace ticked. A player
  *      absent from a set's mask must still be visible and tickable there.
+ *   5. The plan reaches the screen: Lions set 1 ("010-10") after "We serve first" highlights Grace's row alone; Lions set 3 (the 7-long Train order "1111111") after "They serve first" highlights Zoë's.
  *
  * Follows the launch/boot conventions of scripts/verify-build.mjs (browser discovery,
  * incognito browser context, delegated-click driving). Exits non-zero on any failure.
@@ -41,8 +42,8 @@ if (!existsSync(SHIPPED_HTML)) {
   process.exit(2);
 }
 
-// The exact fixed golden vector from guide §8. Never regenerate this string.
-const GOLDEN_VECTOR = 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391';
+// The frozen contract-6 golden vector, ROSTER_V6_VECTOR.encoded in reference/vectors.ts. Never regenerate this string.
+const GOLDEN_VECTOR = 'CIQR6.eyJ2Ijo2LCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXSwic2VydmUiOlsiMDEwLTEwIixudWxsLCIxMTExMTExIl19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwib3Bwb25lbnQiOiJGYWxjb25zIiwic2V0cyI6WzIsMF0sInNlcnZlIjpbIjExMTExMSIsbnVsbF19XX0.841c281c';
 
 const problems = [];
 const fail = (msg) => { problems.push(msg); console.error(`FAIL: ${msg}`); };
@@ -86,6 +87,22 @@ async function switchGame(page, gameId) {
     return null;
   }, gameId);
   if (clicked) throw new Error(clicked);
+  await waitSettled(page);
+}
+
+/** Names on the highlighted (planned server's) rows. */
+async function readServingRows(page) {
+  return page.evaluate(() => [...document.querySelectorAll('.rows .row.serving .name')].map((el) => el.textContent.trim()));
+}
+
+async function clickAction(page, selector) {
+  const clicked = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    el.click();
+    return true;
+  }, selector);
+  if (!clicked) throw new Error(`no element matching ${selector}`);
   await waitSettled(page);
 }
 
@@ -147,6 +164,13 @@ try {
       fail(`Lions set 1 (mask 3) shows [${record.names.join(', ')}] -- expected both Grace and Zoë`);
     }
 
+    // --- Fact 5a: Lions set 1's plan "010-10" starts with Grace. ---
+    await clickAction(page, '[data-action="serve-first"][data-us="1"]');
+    let serving = await readServingRows(page);
+    if (serving.length !== 1 || serving[0] !== 'Grace') {
+      fail(`Lions set 1 after "We serve first" highlights [${serving.join(', ')}] -- expected Grace alone (serve order "010-10")`);
+    }
+
     // --- Fact 2: Lions set 2 (mask 1, Grace only) and set 3 (mask 2, Zoë only). ---
     await selectSet(page, 2);
     record = await readRecordScreen(page);
@@ -158,6 +182,13 @@ try {
     record = await readRecordScreen(page);
     if (!(record.names.includes('Zoë') && !record.names.includes('Grace'))) {
       fail(`Lions set 3 (mask 2) shows [${record.names.join(', ')}] -- expected Zoë only`);
+    }
+
+    // --- Fact 5b: Lions set 3's 7-long Train order "1111111" -- receiving, our next server is entry 1, Zoë. ---
+    await clickAction(page, '[data-action="serve-first"][data-us="0"]');
+    serving = await readServingRows(page);
+    if (serving.length !== 1 || serving[0] !== 'Zoë') {
+      fail(`Lions set 3 after "They serve first" highlights [${serving.join(', ')}] -- expected Zoë alone (serve order "1111111")`);
     }
 
     // --- Fact 4: players sheet on Lions set 2 -- whole directory, only Grace ticked. ---
@@ -200,7 +231,8 @@ try {
 }
 
 if (problems.length === 0) {
-  console.log('PASS: golden vector CIQR3… decodes and renders correctly in the shipped dist/ bundle.');
+  console.log('PASS: golden vector CIQR6… decodes and renders correctly in the shipped dist/ bundle.');
+  console.log('  Plan: Lions set 1 "We serve first" highlights Grace; set 3 "They serve first" highlights Zoë (7-long order).');
   console.log('  vs Lions: 3 set tabs, set 1 = Grace+Zoë, set 2 = Grace only, set 3 = Zoë only.');
   console.log('  vs Falcons: 2 set tabs, set 2 (mask 0) shows the empty state, no error banner.');
   console.log('  Lions set 2 players sheet: whole directory (Grace, Zoë), only Grace ticked.');

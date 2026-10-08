@@ -65,20 +65,20 @@ out.transcript = (function () {
   // 1. runSelfCheck — the codec's own golden-vector check, encode AND decode.
   rec('runSelfCheck', runSelfCheck());
 
-  // 2. decodeDayRoster — a two-game v3 day. Names carry the characters most likely to
+  // 2. decodeDayRoster — a two-game contract-6 day. Names carry the characters most likely to
   //    be disturbed by the string array (markup, quotes, ampersand, non-ASCII). Two
   //    games so the day directory (s.players) is genuinely shared state, not a single
   //    game's own roster wearing a day-shaped label. GAME has one set (mask 3, both
   //    players); GAME2 has two sets (mask 1 each, p1 only) so setCount varies per game.
   const rosterText = encodeDayRoster({
-    v: 3, kind: 'roster', date: '2026-09-19', team: 'Home & Co <b>',
+    v: 6, kind: 'roster', date: '2026-09-19', team: 'Home & Co <b>',
     players: [
       { id: 'p1', name: 'Ada <&> "Q"', jersey: 7 },
       { id: 'p2', name: "Zo\\u00eb O'Brien" },
     ],
     games: [
-      { gameId: GAME, opponent: 'Away "FC"', sets: [3] },
-      { gameId: GAME2, opponent: 'Second "FC"', sets: [1, 1] },
+      { gameId: GAME, opponent: 'Away "FC"', sets: [3], serve: ['010101'] },
+      { gameId: GAME2, opponent: 'Second "FC"', sets: [1, 1], serve: ['000000', null] },
     ],
   });
   rec('encodeDayRoster', rosterText);
@@ -136,9 +136,9 @@ out.transcript = (function () {
   //     reading one of these strings back through the obfuscated bundle, a mangled
   //     label (e.g. a key renamed but not its lookup, or vice versa) would ship as
   //     "undefined" in a coach-facing error message and nothing here would catch it.
-  //     "CIQR6." is a version above CONTRACT_VERSION (5) -- decodePayload refuses it
+  //     "CIQR7." is a version above CONTRACT_VERSION (6) -- decodePayload refuses it
   //     before it ever checks the checksum, so garbage after the version is fine.
-  const tooNew = decodeDayRoster('CIQR6.x.00000000');
+  const tooNew = decodeDayRoster('CIQR7.x.00000000');
   rec('decodeDayRoster.tooNew', tooNew);
   //     A roster-prefixed payload handed to the stats decoder: the kind check runs
   //     before the checksum too, so the valid rosterText from step 2 works here as-is.
@@ -166,6 +166,15 @@ out.transcript = (function () {
   rec('undo.count', getCount(undone.session.games[0], 1, 'p2'));
   rec('undo.history', undone.session.games[0].history);
 
+  // 13. A serve tap by a player outside the plan stands her in: \`{ ...standIns, [idx]: playerId }\`
+  //     is a computed key inside a spread, the same hazard as applyDelta. GAME2 set 1's plan names p1 only.
+  let r = tap(undone.session, GAME2, 1, 'p2', 'serve', 'in', 1);
+  rec('realign.set', r.games[1].sets[0]);
+  rec('realign.top', r.games[1].history[r.games[1].history.length - 1]);
+  rec('realign.planned', plannedServer(r.games[1].sets[0], r.games[1].serveOrders[0]));
+  r = undo(r, GAME2).session;
+  rec('realign.undone', r.games[1].sets[0].standIns);
+
   return log.join('\\n');
 })();
 `;
@@ -192,7 +201,7 @@ test('the real codec/session data path survives hardening unchanged', async () =
   for (const step of ['runSelfCheck', 'decodeDayRoster', 'openDayRoster.session', 'tap2.count',
     'setScore', 'parseSession', 'buildDayStatsPayload', 'encodeDayStats', 'decodeDayStats',
     'decodeDayRoster.tooNew', 'decodeDayStats.kindMismatch',
-    'clamp.atMax', 'clamp.atMin', 'undo.entry']) {
+    'clamp.atMax', 'clamp.atMin', 'undo.entry', 'realign.top']) {
     assert.ok(baseline.includes(step + ' =>'), `baseline reached ${step}`);
   }
 
@@ -216,6 +225,9 @@ test('the real codec/session data path survives hardening unchanged', async () =
   assert.ok(baseline.includes('encodeDayStats.matchesBuilt => true'), 'encodeDayStats agrees with buildDayStatsPayload');
   assert.ok(baseline.includes('decodeDayStats => {"ok":true'), 'day stats payload decoded back');
   assert.ok(baseline.includes('undo.entry => {"kind":"count","n":1,"playerId":"p2","stat":"return","side":"in","delta":-999,"pendingBefore":"return"}'), 'undo popped the clamped delta (a cancelling minus carries pendingBefore)');
+  assert.ok(baseline.includes('realign.top => {"kind":"align","n":1,"at":0,"rule":"standIn","playerId":"p2","forId":"p1","shiftBefore":0,"standInsBefore":{}}'), 'a stand-in re-align recorded');
+  assert.ok(baseline.includes('realign.planned => "p2"'), 'the stand-in is predicted');
+  assert.ok(baseline.includes('realign.undone => {}'), 'Undo took the stand-in back');
 
   // AUTHOR_LABEL / KIND_LABEL, read through decodePayload's computed-key lookups. If
   // either object literal were mangled by transformObjectKeys -- a key renamed but not
@@ -223,7 +235,7 @@ test('the real codec/session data path survives hardening unchanged', async () =
   // come back as "undefined" instead of failing to parse; nothing else in this suite
   // reads a coach-facing error string all the way through the obfuscated bundle.
   assert.ok(
-    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 6); this app understands 5."}'),
+    baseline.includes('decodeDayRoster.tooNew => {"ok":false,"error":"This payload was made by a newer version of the Rotation Planner (contract 7); this app understands 6."}'),
     'AUTHOR_LABEL[expected] resolved correctly for a too-new roster'
   );
   assert.ok(

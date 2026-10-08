@@ -13,10 +13,11 @@ export const APP_PATH = fileURLToPath(new URL('../../dist/CoachIQ_Rotation_Plann
 export const APP_URL = pathToFileURL(APP_PATH).href;
 export const STORAGE_KEY = 'coachiq-stats-client';
 
-/** A valid v3 day roster: Thunder on 2026-09-19, three players, one game vs Lions with two sets. */
+/** A valid contract-6 day roster: Thunder on 2026-09-19, three players, one game vs Lions with two
+ *  sets and no planned serve order. */
 export function rosterPayload(overrides = {}) {
   return {
-    v: 3,
+    v: 6,
     kind: 'roster',
     date: '2026-09-19',
     team: 'Thunder',
@@ -25,13 +26,29 @@ export function rosterPayload(overrides = {}) {
       { id: 'zoie', name: 'Zoë' },
       { id: 'lily', name: 'Lily' },
     ],
-    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [7, 3] }],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [7, 3], serve: [null, null] }],
     ...overrides,
   };
 }
 
+/** The same day with a plan for set 1 — Grace, Zoë, Lily, Grace, Zoë, Lily — and Ava ticked for
+ *  set 1 but in no plan, so she can only stand in. Set 2 has no plan. */
+export function plannedPayload() {
+  return rosterPayload({
+    players: [
+      { id: 'grace', name: 'Grace', jersey: 7 },
+      { id: 'zoie', name: 'Zoë' },
+      { id: 'lily', name: 'Lily' },
+      { id: 'ava', name: 'Ava' },
+    ],
+    games: [{ gameId: 'game-1', opponent: 'Lions', sets: [15, 3], serve: ['012012', null] }],
+  });
+}
+
+/** Encodes a day roster at contract 6. A game given without `serve` gets no plan (one null per set),
+ *  so a test that does not care about the serve order need not spell it out. */
 export function rosterText(payload = rosterPayload()) {
-  return encodeDayRoster(payload);
+  return encodeDayRoster({ ...payload, games: payload.games.map((g) => (g.serve === undefined ? { ...g, serve: g.sets.map(() => null) } : g)) });
 }
 
 export async function openDay(page, text) {

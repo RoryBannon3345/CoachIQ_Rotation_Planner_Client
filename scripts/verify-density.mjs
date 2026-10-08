@@ -28,12 +28,13 @@ const ROW_FLOOR = 38;
 
 const NAMES = ['Addison', 'Brooklyn', 'Brynn', 'Emily', 'Grace', 'Hailey', 'Lexi', 'Lily', 'Melanie', 'Maya', 'Nora', 'Zoie', 'Olivia', 'Piper', 'Quinn', 'Ruby'];
 
-/** A one-game day whose single set names every player, so all `n` rows render. */
+/** A one-game day whose single set names every player, so all `n` rows render, with a planned
+ *  serve order naming each of them once (contract 6). */
 function rosterFor(n) {
   return encodeDayRoster({
-    v: 3, kind: 'roster', date: '2026-09-18', team: 'Blizzard',
+    v: 6, kind: 'roster', date: '2026-09-18', team: 'Blizzard',
     players: NAMES.slice(0, n).map((name, i) => ({ id: `p${i + 1}`, name })),
-    games: [{ gameId: 'g1', opponent: 'Practice_9_18', sets: [2 ** n - 1] }],
+    games: [{ gameId: 'g1', opponent: 'Practice_9_18', sets: [2 ** n - 1], serve: ['0123456789abcdef'.slice(0, n)] }],
   });
 }
 

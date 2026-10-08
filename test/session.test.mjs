@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/session.js';
-import { decodeDayRoster, decodeDayStats, encodeDayStats, MAX_SETS } from '../src/codec.js';
-import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V4_AS_V5, POINTS_46, ROSTER_V3_VECTOR, ROSTER_V1_AS_DAY, ROSTER_V2_AS_V3 } from '../src/vectors.js';
+import { decodeDayRoster, decodeDayStats, encodeDayStats, MAX_SETS, MAX_POINTS } from '../src/codec.js';
+import { ROSTER_VECTOR, ROSTER_V2_VECTOR, STATS_V4_AS_V5, POINTS_46, ROSTER_V3_VECTOR, ROSTER_V6_VECTOR, ROSTER_V1_AS_V6, ROSTER_V2_AS_V6, ROSTER_V3_AS_V6, SERVE_ORDER_VECTOR } from '../src/vectors.js';
 
-// The v2 golden day re-expressed at contract v3, which is the only roster shape the session model
-// reads now. game-1 gets FIVE set masks (mask 3 = maskOf([0, 1]) = both players) and game-2 two
+// The v2 golden day re-expressed at contract v3. The session model reads the v6 day; a raw v3-shaped
+// object like this one has no `serve`, which the session reads as "no plan". game-1 gets FIVE set masks (mask 3 = maskOf([0, 1]) = both players) and game-2 two
 // (mask 2 = maskOf([1]) = Zoë). The counts are deliberate, not minimal: several tests below visit
 // set 3 or tap set 5 on game-1, and a faithful one-set conversion would make those assertions
 // vacuous the moment setActiveSet is clamped to the game's set count.
@@ -638,18 +638,11 @@ test('envelope round-trips and rejects junk; schema 1 is accepted and migrated',
 
 test('self-check passes', () => { assert.deepEqual(S.runSelfCheck(), { ok: true }); });
 
-test('decodeDayRoster normalises all three roster versions (v1, v2, v3) to the current day shape', () => {
-  const v1 = decodeDayRoster(ROSTER_VECTOR.encoded);
-  assert.equal(v1.ok, true);
-  assert.deepEqual(v1.value, ROSTER_V1_AS_DAY);
-
-  const v2 = decodeDayRoster(ROSTER_V2_VECTOR.encoded);
-  assert.equal(v2.ok, true);
-  assert.deepEqual(v2.value, ROSTER_V2_AS_V3);
-
-  const v3 = decodeDayRoster(ROSTER_V3_VECTOR.encoded);
-  assert.equal(v3.ok, true);
-  assert.deepEqual(v3.value, ROSTER_V3_VECTOR.payload);
+test('decodeDayRoster normalises every roster version (v1, v2, v3, v6) to the contract-6 day shape', () => {
+  assert.deepEqual(decodeDayRoster(ROSTER_VECTOR.encoded), { ok: true, value: ROSTER_V1_AS_V6 });
+  assert.deepEqual(decodeDayRoster(ROSTER_V2_VECTOR.encoded), { ok: true, value: ROSTER_V2_AS_V6 });
+  assert.deepEqual(decodeDayRoster(ROSTER_V3_VECTOR.encoded), { ok: true, value: ROSTER_V3_AS_V6 });
+  assert.deepEqual(decodeDayRoster(ROSTER_V6_VECTOR.encoded), { ok: true, value: ROSTER_V6_VECTOR.payload });
 });
 
 test('gameLabel prefers the opponent and falls back to an ordinal', () => {
@@ -864,7 +857,7 @@ test('a schema-1 union of exactly 32 players still loads', () => {
 
 test('schema 4: the first tap of a fresh set answers serve-first and opens a rally', () => {
   const s = S.tap(open(), 'game-1', 1, 'grace', 'serve', 'in', 1);
-  assert.deepEqual(s.games[0].sets[0], { score: null, counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: true, points: '', pending: 'serve', serveBy: { 0: 'grace' } });
+  assert.deepEqual(s.games[0].sets[0], { score: null, counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: true, points: '', pending: 'serve', serveBy: { 0: 'grace' }, shift: 0, standIns: {} });
   assert.deepEqual(s.games[0].history[0], { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1, serveAt: 0, servedFirstSet: true, pendingBefore: null });
 });
 
@@ -959,7 +952,7 @@ test('a schema-3 save migrates: sets gain the log fields, history entries gain k
   assert.equal(migrated.ok, true);
   assert.equal(migrated.schema, 3);
   const g = migrated.value.games[0];
-  assert.deepEqual(g.sets[0], { score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '', pending: null, serveBy: {} });
+  assert.deepEqual(g.sets[0], { score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '', pending: null, serveBy: {}, shift: 0, standIns: {} });
   assert.deepEqual(g.history, [{ kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 }]);
   assert.equal(S.SESSION_SCHEMA, 4);
   assert.match(S.serialiseSession(migrated.value), /"schema":4/);
@@ -1388,4 +1381,332 @@ test('a saved session keeps serveBy, reads a missing one as empty, and skips a b
   assert.deepEqual(S.parseSession(JSON.stringify(envelope)).value.games[0].sets[0].serveBy, {});
   envelope.session.games[0].sets[0].serveBy = { 0: 'grace', x: 'zoie', 5: 7 };
   assert.deepEqual(S.parseSession(JSON.stringify(envelope)).value.games[0].sets[0].serveBy, { 0: 'grace' });
+});
+
+// ---- the planned server (docs/superpowers/specs/2026-10-08-server-highlight-design.md) ----
+const ORDER6 = ['ana', 'bea', 'cat', 'dee', 'eve', 'fay'];
+/** A logged set at the given serve-first answer and log, with no alignment unless `extra` adds one. */
+const logged = (servedFirst, points, extra = {}) => ({ score: null, counts: {}, servedFirst, points, pending: null, serveBy: {}, shift: 0, standIns: {}, ...extra });
+
+test('plannedServerAt follows the reading rule: our server while we serve, our next server while they do', () => {
+  assert.equal(S.plannedServerAt(logged(true, ''), ORDER6, 0), 'ana', 'we serve first: entry 0');
+  assert.equal(S.plannedServerAt(logged(false, ''), ORDER6, 0), 'bea', 'we receive first: our next server is entry 1');
+  assert.equal(S.plannedServerAt(logged(false, 'U'), ORDER6, 1), 'bea', 'our first side-out moves to rotation 2');
+  assert.equal(S.plannedServerAt(logged(false, 'T'), ORDER6, 1), 'bea', 'they hold serve: still waiting for entry 1');
+  assert.equal(S.plannedServerAt(logged(true, 'T'), ORDER6, 1), 'bea', 'we lose our first rally: entry 1 is next');
+  assert.equal(S.plannedServerAt(logged(true, 'TU'), ORDER6, 2), 'bea');
+  assert.equal(S.plannedServerAt(logged(true, 'UU'), ORDER6, 2), 'ana', 'a run of our rallies is one turn');
+});
+
+test('plannedServerAt wraps past entry 5, and a Train-length order wraps at its own length', () => {
+  const sixTurns = 'TU'.repeat(6);
+  assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER6, 10), 'fay');
+  assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER6, 12), 'ana', 'turn 6 wraps to entry 0');
+  const ORDER7 = [...ORDER6, 'gia'];
+  assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER7, 12), 'gia', 'turn 6 of a 7-long order is entry 6');
+  assert.equal(S.plannedServerAt(logged(true, 'TU'.repeat(7)), ORDER7, 14), 'ana');
+});
+
+test('plannedServerAt adds the shift, prefers a stand-in, and is null for an empty spot or no prediction', () => {
+  assert.equal(S.plannedServerAt(logged(true, '', { shift: 2 }), ORDER6, 0), 'cat');
+  assert.equal(S.plannedServerAt(logged(false, '', { shift: 5 }), ORDER6, 0), 'ana', '1 + 5 wraps to 0');
+  assert.equal(S.plannedServerAt(logged(true, '', { standIns: { 0: 'gia' } }), ORDER6, 0), 'gia');
+  assert.equal(S.plannedServerAt(logged(false, ''), ['ana', null, 'cat', 'dee', 'eve', 'fay'], 0), null, 'an empty spot');
+  assert.equal(S.plannedServerAt(logged(true, ''), null, 0), null, 'no plan');
+  assert.equal(S.plannedServerAt(null, ORDER6, 0), null, 'an untouched set');
+  assert.equal(S.plannedServerAt(logged(null, ''), ORDER6, 0), null, 'serve-first unanswered');
+  assert.equal(S.plannedServerAt({ ...logged(null, ''), score: [25, 20] }, ORDER6, 0), null, 'a typed set');
+});
+
+test('plannedServer reads at the end of the log: an open rally is predicted either way', () => {
+  assert.equal(S.plannedServer(logged(true, 'U', { pending: 'serve' }), ORDER6), 'ana', 'our open rally: its server');
+  assert.equal(S.plannedServer(logged(false, '', { pending: 'return' }), ORDER6), 'bea', 'their open rally: our next server');
+  assert.equal(S.plannedServer(null, ORDER6), null);
+});
+
+test('plannedServerAt agrees with the Planner on all 19 rallies we serve in SERVE_ORDER_VECTOR', () => {
+  const v = SERVE_ORDER_VECTOR;
+  const set = logged(v.servedFirst, v.points);
+  let ours = 0;
+  for (let i = 0; i < v.points.length; i += 1) {
+    const weServe = i === 0 ? v.servedFirst : v.points[i - 1] === 'U';
+    if (!weServe) continue;
+    assert.equal(S.plannedServerAt(set, v.order, i), v.servers[i], `rally ${i}`);
+    ours += 1;
+  }
+  assert.equal(ours, 19, 'receiving first, 36 rallies, 10 serve turns of ours');
+});
+
+test('serveOrderVectorFails passes the frozen vector and catches a bent copy, so the self-check leg can fail', () => {
+  assert.equal(S.serveOrderVectorFails(SERVE_ORDER_VECTOR), false);
+  const servers = [...SERVE_ORDER_VECTOR.servers];
+  assert.equal(servers[3], 'lexi');
+  servers[3] = 'emily'; // rally 3 is Lexi's, our first serve after the side-out
+  assert.equal(S.serveOrderVectorFails({ ...SERVE_ORDER_VECTOR, servers }), true);
+  assert.equal(S.serveOrderVectorFails({ ...SERVE_ORDER_VECTOR, order: [...SERVE_ORDER_VECTOR.order].reverse() }), true);
+  assert.equal(S.serveOrderVectorFails({ ...SERVE_ORDER_VECTOR, servedFirst: true }), true, 'serving first shifts every turn');
+  assert.deepEqual(S.runSelfCheck(), { ok: true });
+});
+
+test('a new set carries shift 0 and no stand-ins; a save keeps them, reads missing ones as 0 and {}, and resets bad values', () => {
+  const s = S.setServedFirst(open(), 'game-1', 1, true);
+  assert.deepEqual([s.games[0].sets[0].shift, s.games[0].sets[0].standIns], [0, {}]);
+  const envelope = JSON.parse(S.serialiseSession(s));
+  const raw = envelope.session.games[0].sets[0];
+  const read = () => S.parseSession(JSON.stringify(envelope)).value.games[0].sets[0];
+  raw.shift = 3;
+  raw.standIns = { 0: 'zoie', 15: 'grace' };
+  assert.deepEqual([read().shift, read().standIns], [3, { 0: 'zoie', 15: 'grace' }]);
+  delete raw.shift;
+  delete raw.standIns;
+  assert.deepEqual([read().shift, read().standIns], [0, {}], 'a 4.5.0 save has neither');
+  for (const bad of [-1, 16, 1.5, '2', null]) {
+    raw.shift = bad;
+    assert.equal(read().shift, 0, JSON.stringify(bad));
+  }
+  raw.standIns = { 0: 'zoie', 16: 'grace', x: 'grace', 123: 'grace', 2: 'not an id!', 3: 7 };
+  assert.deepEqual(read().standIns, { 0: 'zoie' });
+  raw.standIns = 'zoie';
+  assert.deepEqual(read().standIns, {});
+});
+
+const NOW = '2026-09-19T09:00:00Z';
+/** Eight players; set 1 ticks all eight with a slot order of the first six, set 2 a 7-long Train
+ * order, set 3 no plan. Gia and Hal are ticked but in no plan. */
+const PLANNED = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: ['Ana Lopez', 'Bea', 'Cat', 'Dee', 'Eve', 'Fay', 'Gia', 'Hal'].map((name) => ({ id: name.slice(0, 3).toLowerCase(), name })),
+  games: [{ gameId: 'g', opponent: 'Lions', sets: [255, 255, 63], serve: ['012345', '0123456', null] }],
+};
+const planned = (serve = PLANNED.games[0].serve) => S.newDayFromRoster({ ...PLANNED, games: [{ ...PLANNED.games[0], serve }] }, NOW);
+const pset = (s, n = 1) => s.games[0].sets[n - 1];
+const order = (s, n = 1) => s.games[0].serveOrders[n - 1];
+
+test('ingest resolves each set’s serve string to player ids: base 32, "-" an empty spot, null no plan', () => {
+  assert.deepEqual(planned(['01-345', '0123456', null]).games[0].serveOrders, [
+    ['ana', 'bea', null, 'dee', 'eve', 'fay'], ['ana', 'bea', 'cat', 'dee', 'eve', 'fay', 'gia'], null, null, null,
+  ]);
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+  const wide = S.newDayFromRoster({ v: 6, kind: 'roster', date: 'd', team: 't', players: twelve, games: [{ gameId: 'g', opponent: 'o', sets: [4095], serve: ['ab0123'] }] }, NOW);
+  assert.deepEqual(wide.games[0].serveOrders[0], ['p10', 'p11', 'p0', 'p1', 'p2', 'p3']);
+  assert.deepEqual(S.newDayFromRoster(rosterV3, NOW).games[0].serveOrders, [null, null, null, null, null], 'an older roster has no plan');
+});
+
+test('a re-paste takes each covered set’s incoming order; a changed order resets that set’s alignment and its Undo steps, an unchanged one keeps them', () => {
+  let s = S.setServedFirst(S.openDayRoster(S.newSession(), PLANNED, NOW).session, 'g', 1, true);
+  const align = { kind: 'align', n: 1, at: 0, rule: 'shift', playerId: 'cat', forId: 'ana', shiftBefore: 0, standInsBefore: {} };
+  const minus = { kind: 'count', n: 1, playerId: 'cat', stat: 'serve', side: 'in', delta: -1, alignBefore: { shift: 2, standIns: {} } };
+  const g = s.games[0];
+  s = { ...s, games: [{ ...g, sets: [{ ...g.sets[0], shift: 2, standIns: { 4: 'gia' } }, ...g.sets.slice(1)], history: [align, minus] }] };
+
+  const same = S.openDayRoster(s, PLANNED, NOW);
+  assert.equal(same.kind, 'sameDay');
+  assert.deepEqual([pset(same.session).shift, pset(same.session).standIns, same.session.games[0].history], [2, { 4: 'gia' }, [align, minus]]);
+
+  const changed = S.openDayRoster(s, { ...PLANNED, games: [{ ...PLANNED.games[0], sets: [255], serve: ['102345'] }] }, NOW).session;
+  assert.deepEqual(order(changed), ['bea', 'ana', 'cat', 'dee', 'eve', 'fay']);
+  assert.deepEqual([pset(changed).shift, pset(changed).standIns], [0, {}]);
+  const { alignBefore, ...plainMinus } = minus;
+  assert.deepEqual(changed.games[0].history, [plainMinus], 'no Undo can restore an alignment of the old plan');
+  assert.deepEqual(order(changed, 2), ['ana', 'bea', 'cat', 'dee', 'eve', 'fay', 'gia'], 'a slot the roster no longer covers keeps its order');
+});
+
+test('a re-paste appends a new game with its own plan, and leaves a game it does not name untouched', () => {
+  const s = S.openDayRoster(S.newSession(), PLANNED, NOW).session;
+  const merged = S.openDayRoster(s, { ...PLANNED, games: [{ gameId: 'g2', opponent: 'Falcons', sets: [3], serve: ['101010'] }] }, NOW).session;
+  assert.deepEqual(merged.games[1].serveOrders, [['bea', 'ana', 'bea', 'ana', 'bea', 'ana'], null, null, null, null]);
+  assert.deepEqual(merged.games[0].serveOrders, s.games[0].serveOrders);
+});
+
+test('a saved day keeps serveOrders, reads a missing list as five nulls, and nulls a bad entry', () => {
+  const day = planned();
+  assert.deepEqual(S.parseSession(S.serialiseSession(day)).value.games[0].serveOrders, day.games[0].serveOrders);
+  const envelope = JSON.parse(S.serialiseSession(day));
+  const read = () => S.parseSession(JSON.stringify(envelope)).value.games[0].serveOrders;
+  delete envelope.session.games[0].serveOrders;
+  assert.deepEqual(read(), [null, null, null, null, null], 'a 4.5.0 save has none');
+  envelope.session.games[0].serveOrders = 'nope';
+  assert.deepEqual(read(), [null, null, null, null, null]);
+  envelope.session.games[0].serveOrders = [
+    ['ana'], // too short
+    ['ana', 'bea', 'cat', 'dee', 'eve', 'zed'], // zed is not in the directory
+    '012345', // not resolved
+    ['ana', null, 'cat', 'dee', 'eve', 'fay'], // an empty spot is fine
+    Array(17).fill('ana'), // too long
+  ];
+  assert.deepEqual(read(), [null, null, null, ['ana', null, 'cat', 'dee', 'eve', 'fay'], null]);
+});
+
+const pt = (s, pid, stat, side, delta = 1, n = 1) => S.tap(s, 'g', n, pid, stat, side, delta);
+const kinds = (s) => s.games[0].history.map((h) => h.kind);
+
+test('a Serve tap for the planned server changes nothing', () => {
+  const s = pt(planned(), 'ana', 'serve', 'in');
+  assert.deepEqual(kinds(s), ['count']);
+  assert.deepEqual([pset(s).shift, pset(s).standIns], [0, {}]);
+});
+
+test('a Serve tap for another planned player re-aligns the plan to her (rule 2); later taps in the turn never re-align', () => {
+  let s = pt(planned(), 'cat', 'serve', 'in');
+  assert.equal(pset(s).shift, 2);
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'align', n: 1, at: 0, rule: 'shift', playerId: 'cat', forId: 'ana', shiftBefore: 0, standInsBefore: {} });
+  assert.equal(S.plannedServer(pset(s), order(s)), 'cat');
+  s = pt(s, 'cat', 'serve', 'out'); // rally 0 to Us, then her next serve is out
+  assert.deepEqual(kinds(s), ['count', 'align', 'count'], 'a later serve tap in the same turn never re-aligns');
+  assert.equal(S.plannedServer(pset(s), order(s)), 'dee', 'the plan carries on from her');
+});
+
+test('rule 2 picks the nearest spot round the order, forward on a tie', () => {
+  const shiftFor = (serve) => pset(pt(planned([serve, null, null]), 'cat', 'serve', 'in')).shift;
+  assert.equal(shiftFor('012342'), 5, 'Cat at 2 and 5: one back beats two forward');
+  assert.equal(shiftFor('012325'), 2, 'Cat at 2 and 4: a tie, so forward');
+});
+
+test('a player outside the plan stands in (rule 3), and the planned player comes back in for her (rule 1)', () => {
+  let s = pt(planned(), 'gia', 'serve', 'out');
+  assert.deepEqual(pset(s).standIns, { 0: 'gia' });
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'align', n: 1, at: 0, rule: 'standIn', playerId: 'gia', forId: 'ana', shiftBefore: 0, standInsBefore: {} });
+  for (const pid of ['bea', 'cat', 'dee', 'eve', 'fay']) s = pt(s, pid, 'serve', 'out'); // side-out, then lost: one turn each
+  assert.equal(kinds(s).filter((k) => k === 'align').length, 1, 'the plan held all the way round');
+  assert.equal(S.plannedServer(pset(s), order(s)), 'gia', 'her spot comes round again');
+  s = pt(s, 'ana', 'serve', 'out');
+  assert.deepEqual(pset(s).standIns, {});
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'align', n: 1, at: 12, rule: 'back', playerId: 'ana', forId: 'ana', shiftBefore: 0, standInsBefore: { 0: 'gia' } });
+});
+
+test('on an empty spot the tapped player stands in for nobody', () => {
+  const s = pt(planned(['-12345', null, null]), 'gia', 'serve', 'in');
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'align', n: 1, at: 0, rule: 'standIn', playerId: 'gia', forId: null, shiftBefore: 0, standInsBefore: {} });
+  assert.equal(S.plannedServer(pset(s), order(s)), 'gia');
+});
+
+test('the first Serve tap of our turn re-aligns even when it settles their rally; a set with no plan never does', () => {
+  let s = pt(planned(), 'bea', 'return', 'in'); // they serve first; rally 0 open
+  s = pt(s, 'cat', 'serve', 'in'); // rally 0 to Us; Cat serves our first turn — the plan says Bea
+  assert.equal(s.games[0].history.at(-2).points, 'U');
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'align', n: 1, at: 1, rule: 'shift', playerId: 'cat', forId: 'bea', shiftBefore: 0, standInsBefore: {} });
+  assert.deepEqual(kinds(pt(planned(), 'cat', 'serve', 'in', 1, 3)), ['count'], 'set 3 has no plan');
+});
+
+test('a tap that replaces the rally’s server is still the turn’s first, so it is checked again', () => {
+  let s = S.setServedFirst(planned(), 'g', 1, true);
+  s = { ...s, games: [{ ...s.games[0], sets: [{ ...pset(s), serveBy: { 0: 'ana' } }, ...s.games[0].sets.slice(1)] }] };
+  s = pt(s, 'cat', 'serve', 'in');
+  assert.equal(s.games[0].history.at(-2).serveBefore, 'ana');
+  assert.equal(s.games[0].history.at(-1).rule, 'shift');
+});
+
+test('Undo takes back the re-align first and keeps the stat; a second Undo takes back the tap', () => {
+  let u = S.undo(pt(planned(), 'cat', 'serve', 'in'), 'g');
+  assert.equal(u.undone.kind, 'align');
+  let s = u.session;
+  assert.deepEqual([pset(s).shift, pset(s).serveBy, S.getCount(s.games[0], 1, 'cat').serve.in], [0, { 0: 'cat' }, 1]);
+  assert.equal(S.plannedServer(pset(s), order(s)), 'ana');
+  u = S.undo(s, 'g');
+  assert.equal(u.undone.kind, 'count');
+  s = u.session;
+  assert.deepEqual([pset(s).serveBy, pset(s).servedFirst, S.getCount(s.games[0], 1, 'cat').serve.in], [{}, null, 0]);
+  const standIn = S.undo(pt(planned(), 'gia', 'serve', 'in'), 'g').session;
+  assert.deepEqual(pset(standIn).standIns, {});
+});
+
+test('a minus on the opener reverses its re-align, and Undo of that minus restores it', () => {
+  let s = pt(planned(), 'gia', 'serve', 'in'); // Gia stands in; rally 0 open
+  s = pt(s, 'gia', 'serve', 'in', -1);
+  assert.deepEqual([pset(s).pending, pset(s).serveBy, pset(s).standIns], [null, {}, {}]);
+  assert.deepEqual(s.games[0].history.at(-1).alignBefore, { shift: 0, standIns: { 0: 'gia' } });
+  s = S.undo(s, 'g').session;
+  assert.deepEqual([pset(s).pending, pset(s).serveBy, pset(s).standIns], ['serve', { 0: 'gia' }, { 0: 'gia' }]);
+});
+
+test('minus on the opener reverses its re-align even with other entries in between; a minus elsewhere leaves it', () => {
+  let s = pt(planned(), 'ana', 'serve', 'out'); // rally 0: Ana served as planned, and lost it
+  s = pt(s, 'bea', 'return', 'in'); // they serve rally 1; Bea's return opens it
+  s = pt(s, 'cat', 'serve', 'in'); // rally 1 to Us; Cat serves rally 2 — the plan says Bea
+  assert.equal(pset(s).shift, 1);
+  s = pt(s, 'ana', 'serve', 'out', -1); // an old miscount fixed: not the opener, nothing cancelled
+  s = S.tap(s, 'g', 2, 'dee', 'return', 'in', 1); // a tap in set 2 in between
+  assert.equal(pset(s).shift, 1);
+  s = pt(s, 'cat', 'serve', 'in', -1); // the wrong row: cancels rally 2 and its re-align
+  assert.deepEqual([pset(s).pending, pset(s).serveBy[2], pset(s).shift], [null, undefined, 0]);
+  assert.deepEqual(s.games[0].history.at(-1).alignBefore, { shift: 1, standIns: {} });
+  s = S.undo(s, 'g').session;
+  assert.deepEqual([pset(s).pending, pset(s).serveBy[2], pset(s).shift], ['serve', 'cat', 1]);
+  const settled = pt(pt(planned(), 'cat', 'serve', 'out'), 'cat', 'serve', 'out', -1); // no open rally
+  assert.equal(pset(settled).shift, 2, 'a minus with nothing open leaves the alignment alone');
+});
+
+test('clear points, a typed score and replacing the log reset the alignment and drop its Undo steps', () => {
+  const plain = (s) => [pset(s).shift, pset(s).standIns, kinds(s)];
+  const lostRally = pt(planned(), 'cat', 'serve', 'out'); // shift 2, log 'T'
+  assert.deepEqual(plain(S.clearPoints(lostRally, 'g', 1)), [0, {}, ['count']]);
+  assert.deepEqual(plain(S.replaceLogWithScore(lostRally, 'g', 1, [25, 20])), [0, {}, ['count']]);
+  const openRally = pt(planned(), 'gia', 'serve', 'in'); // stand-in, rally open, no letters yet
+  assert.deepEqual(plain(S.setScore(openRally, 'g', 1, [25, 20])), [0, {}, ['count']]);
+  const cleared = S.clearPoints(pt(pt(planned(), 'cat', 'serve', 'in'), 'cat', 'serve', 'in', -1), 'g', 1);
+  assert.deepEqual(kinds(cleared), ['count', 'count']);
+  assert.equal('alignBefore' in cleared.games[0].history[1], false, 'stripInference strips alignBefore');
+});
+
+test('flipping serve-first keeps the alignment and works the prediction out again', () => {
+  let s = pt(planned(), 'cat', 'serve', 'in'); // shift 2
+  s = S.setServedFirst(s, 'g', 1, false);
+  assert.equal(pset(s).shift, 2);
+  assert.equal(S.plannedServer(pset(s), order(s)), 'dee', 'receiving first: our next server is entry 1 + 2');
+});
+
+test('a serve tap that would serve past MAX_POINTS records no server and never re-aligns', () => {
+  let s = S.setServedFirst(planned(), 'g', 1, true);
+  s = { ...s, games: [{ ...s.games[0], sets: [{ ...pset(s), points: 'T'.repeat(MAX_POINTS - 1) }, ...s.games[0].sets.slice(1)] }] };
+  s = pt(s, 'cat', 'serve', 'in'); // the side-out fills the last rally; the one Cat would serve is past the cap
+  assert.equal(pset(s).points.length, MAX_POINTS);
+  assert.deepEqual([pset(s).serveBy, pset(s).shift, kinds(s)], [{}, 0, ['count']]);
+});
+
+test('at the 400-entry history cap a re-align keeps both its entries, and both still undo', () => {
+  let s = planned();
+  const filler = Array.from({ length: S.UNDO_LIMIT }, () => ({ kind: 'point', n: 2, winner: 'U' }));
+  s = { ...s, games: [{ ...s.games[0], history: filler }] };
+  s = pt(s, 'cat', 'serve', 'in');
+  assert.equal(s.games[0].history.length, S.UNDO_LIMIT);
+  assert.deepEqual(kinds(s).slice(-2), ['count', 'align']);
+  s = S.undo(s, 'g').session;
+  assert.equal(pset(s).shift, 0);
+  s = S.undo(s, 'g').session;
+  assert.equal(S.getCount(s.games[0], 1, 'cat').serve.in, 0);
+});
+
+test('a saved session keeps align entries and alignBefore; a bad one is refused like any bad history entry', () => {
+  let s = pt(planned(), 'cat', 'serve', 'in');
+  s = pt(s, 'cat', 'serve', 'in', -1); // history: count, align, count with alignBefore
+  const round = S.parseSession(S.serialiseSession(s));
+  assert.equal(round.ok, true);
+  assert.deepEqual(round.value.games[0].history, s.games[0].history);
+  // The day's only game is dropped, so the day is unreadable — the same as a bad count entry today.
+  for (const bad of [{ rule: 'oops' }, { at: -1 }, { at: MAX_POINTS }, { shiftBefore: 16 }, { standInsBefore: { 0: 7 } }, { standInsBefore: null }, { forId: 'not an id!' }, { playerId: undefined }]) {
+    const envelope = JSON.parse(S.serialiseSession(s));
+    Object.assign(envelope.session.games[0].history[1], bad);
+    assert.equal(S.parseSession(JSON.stringify(envelope)).ok, false, JSON.stringify(bad));
+  }
+  for (const alignBefore of [{ shift: 2, standIns: { x: 'cat' } }, { shift: -1, standIns: {} }, 'x']) {
+    const envelope = JSON.parse(S.serialiseSession(s));
+    envelope.session.games[0].history[2].alignBefore = alignBefore;
+    assert.equal(S.parseSession(JSON.stringify(envelope)).ok, false, JSON.stringify(alignBefore));
+  }
+});
+
+test('a 4.5.0 save (no serveOrders, shift or standIns) loads cleanly and records as before', () => {
+  const s = S.tap(open(), 'game-1', 1, 'grace', 'serve', 'in', 1);
+  const envelope = JSON.parse(S.serialiseSession(s));
+  for (const g of envelope.session.games) {
+    delete g.serveOrders;
+    for (const set of g.sets) if (set) { delete set.shift; delete set.standIns; }
+  }
+  const loaded = S.parseSession(JSON.stringify(envelope));
+  assert.equal(loaded.ok, true);
+  const g = loaded.value.games[0];
+  assert.deepEqual([g.serveOrders, g.sets[0].shift, g.sets[0].standIns], [[null, null, null, null, null], 0, {}]);
+  assert.equal(S.plannedServer(g.sets[0], g.serveOrders[0]), null);
+  const next = S.tap(loaded.value, 'game-1', 1, 'zoie', 'serve', 'in', 1);
+  assert.deepEqual(next.games[0].history.map((h) => h.kind), ['count', 'count'], 'no plan, no re-align');
 });

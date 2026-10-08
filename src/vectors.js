@@ -74,6 +74,8 @@ export const STATS_V2_VECTOR = {
  * `game-1` runs three sets with different membership each time (both players, then Grace alone,
  * then Zoe alone) — the shape that could not be expressed at all before v3. `game-2` runs two
  * sets and has nobody picked for the second: a mask of `0`, legal on purpose.
+ *
+ * Frozen and decode-only since contract 6: `decodeDayRoster` lifts it to `ROSTER_V3_AS_V6` below.
  */
 const ROSTER_V3_PAYLOAD = {
   v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
@@ -87,6 +89,61 @@ const ROSTER_V3_PAYLOAD = {
 export const ROSTER_V3_VECTOR = {
   payload: ROSTER_V3_PAYLOAD,
   encoded: 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391',
+};
+
+/**
+ * The v6 roster vector: the v3 day plus contract 6's `serve`, one entry per set. Between them the two
+ * games cover:
+ * - a dash (`game-1` set 1: Grace, Zoë, Grace, nobody, Zoë, Grace);
+ * - `null` (`game-1` set 2, and `game-2` set 2, which has nobody in it);
+ * - a Train-length entry of 7 (`game-1` set 3);
+ * - a single server for every turn (`game-2` set 1).
+ *
+ * Generated once with the real encoder and frozen: never regenerate the encoded string.
+ */
+const ROSTER_V6_PAYLOAD = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2], serve: ['010-10', null, '1111111'] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0], serve: ['111111', null] },
+  ],
+};
+
+export const ROSTER_V6_VECTOR = {
+  payload: ROSTER_V6_PAYLOAD,
+  encoded: 'CIQR6.eyJ2Ijo2LCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXSwic2VydmUiOlsiMDEwLTEwIixudWxsLCIxMTExMTExIl19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwib3Bwb25lbnQiOiJGYWxjb25zIiwic2V0cyI6WzIsMF0sInNlcnZlIjpbIjExMTExMSIsbnVsbF19XX0.841c281c',
+};
+
+/**
+ * What `decodeDayRoster` must return for each legacy roster vector, written by hand and never
+ * computed: comparing the decoder against its own normaliser would pass even when the normaliser is
+ * wrong. Each is the legacy day at `v: 6` with `serve` all `null`, because a legacy roster carried no
+ * serve order. A v2 game, and the single game of a v1 roster, becomes one set holding its whole
+ * roster (`normaliseRosterV2`).
+ */
+export const ROSTER_V3_AS_V6 = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2], serve: [null, null, null] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0], serve: [null, null] },
+  ],
+};
+
+export const ROSTER_V2_AS_V6 = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3], serve: [null] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2], serve: [null] },
+  ],
+};
+
+export const ROSTER_V1_AS_V6 = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3], serve: [null] }],
 };
 
 /**
@@ -155,33 +212,29 @@ export const STATS_V5_VECTOR = {
 };
 
 /**
- * `ROSTER_V1_AS_DAY` — the day shape `normaliseRosterV1`/`decodeDayRoster` must produce from
- * `ROSTER_VECTOR.payload` at v3. A v1 roster is a one-game day whose directory is that game's
- * players, so its single set names every one of them: two players, indices 0 and 1, mask 3.
+ * Contract 6's serve-order check: pure data, so the phone can test its own reading of a `serve`
+ * string against the Planner. Built once from `replaySet` on `plannedServeOrder.test.ts`'s
+ * `vectorSet()` (six slots, Lily/Brynn a front/back pair, and a usable serve override: Lily serves
+ * rotation 3 for Brynn), then frozen. That test checks it against a fresh replay; never regenerate it.
+ *
+ * `order` is `plannedServeOrder` of that set: player ids, entry r-1 = rotation r. We receive first,
+ * so our first serve is entry 1. The 36 rallies hold 10 serve turns of ours, so the order wraps past
+ * entry 5 back to Emily. `servers[i]` is who served rally `i` for us, or `null` while they served.
  */
-export const ROSTER_V1_AS_DAY = {
-  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
-  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
-  games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3] }],
-};
-
-/**
- * `ROSTER_V2_AS_V3` — the day shape `decodeDayRoster` must produce from `ROSTER_V2_VECTOR.payload`.
- * A v2 game carried no set structure, so each normalises to ONE set holding its whole roster:
- * `game-1`'s `roster: [0, 1]` becomes mask 3, `game-2`'s `roster: [1]` becomes mask 2.
- */
-export const ROSTER_V2_AS_V3 = {
-  v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
-  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
-  games: [
-    { gameId: 'game-1', opponent: 'Lions', sets: [3] },
-    { gameId: 'game-2', opponent: 'Falcons', sets: [2] },
+export const SERVE_ORDER_VECTOR = {
+  order: ['emily', 'lexi', 'lily', 'brooklyn', 'melanie', 'addison'],
+  servedFirst: false,
+  points: 'TTUUUTTUTUUTTUUTUUTTUUUTUTTUUTUUTUTU',
+  servers: [
+    null, null, null, 'lexi', 'lexi', 'lexi', null, null, 'lily', null, 'brooklyn', 'brooklyn',
+    null, null, 'melanie', 'melanie', null, 'addison', 'addison', null, null, 'emily', 'emily', 'emily',
+    null, 'lexi', null, null, 'lily', 'lily', null, 'brooklyn', 'brooklyn', null, 'melanie', null,
   ],
 };
 
 /**
  * `STATS_V1_AS_DAY` — the day shape `normaliseStatsV1`/`decodeDayStats` must produce from
- * `STATS_VECTOR.payload` at v5. Written by hand for the same reason as `ROSTER_V1_AS_DAY`. Key order
+ * `STATS_VECTOR.payload` at v5. Written by hand for the same reason as `ROSTER_V1_AS_V6`. Key order
  * matches `normaliseStatsV1`'s own literal order (v, kind, recordedAt, players, games).
  */
 export const STATS_V1_AS_DAY = {

@@ -37,12 +37,12 @@ if (!executablePath) {
 
 // A roster the app will accept, carrying characters that exercise the HTML
 // escaper -- the construct most at risk from `transformObjectKeys`.
-// Built with the app's own encoder so the envelope (CIQR3.<base64url>.<fnv1a32>)
+// Built with the app's own encoder so the envelope (CIQR6.<base64url>.<fnv1a32>)
 // is always valid; hand-rolling it would silently decay as the codec evolves.
 // Shape and limits per validateDayRosterPayload in src/codec.js: v/kind/date/
 // team/players/games, ids matching ID_PATTERN, names <= 64 chars.
 //
-// A two-game v3 day, per the contract's headline failure mode (guide §8): "A Client
+// A two-game contract-6 day (game 1 set 1 carries a planned serve order, so the planned-server path runs under both builds), per the contract's headline failure mode (guide §8): "A Client
 // that ignores the masks and ticks everybody still decodes this vector and is
 // still wrong." Game 1 has THREE sets -- [15, 15, 3] -- with sets 1 and 2 pre-selecting
 // every one of ROSTER_NAMES (mask 15 = indices [0,1,2,3]) so checkExpectations' per-name
@@ -60,14 +60,14 @@ const OPPONENT = 'Away "FC"';
 const SECOND_GAME_ID = 'verify-2';
 
 const ROSTER_TEXT = encodeDayRoster({
-  v: 3,
+  v: 6,
   kind: 'roster',
   date: '2026-09-13',
   team: TEAM,
   players: ROSTER_NAMES.map((name, i) => ({ id: `p${i + 1}`, name })),
   games: [
-    { gameId: 'verify-1', opponent: OPPONENT, sets: [15, 15, 3] },
-    { gameId: SECOND_GAME_ID, opponent: 'Second "FC"', sets: [3, 0] },
+    { gameId: 'verify-1', opponent: OPPONENT, sets: [15, 15, 3], serve: ['012301', null, null] },
+    { gameId: SECOND_GAME_ID, opponent: 'Second "FC"', sets: [3, 0], serve: [null, null] },
   ],
 });
 

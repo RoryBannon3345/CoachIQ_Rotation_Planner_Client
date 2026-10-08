@@ -9,7 +9,7 @@
  * `encodeRoster`/`encodeStats` pin `version: 1` now that `CONTRACT_VERSION` is 2 — see
  * `encodePayload`'s docblock.
  */
-import type { DayRosterPayload, DayStatsPayload, RosterPayload, StatsPayload } from '../statsContract';
+import type { DayRosterGame, DayRosterPayload, DayStatsPayload, RosterPayload, StatsPayload } from '../statsContract';
 
 const ROSTER_PAYLOAD: RosterPayload = {
   v: 1, kind: 'roster', gameId: 'game-1', team: 'Thunder', opponent: 'Lions', date: '2026-09-19',
@@ -91,8 +91,10 @@ export const STATS_V2_VECTOR = {
  * `game-1` runs three sets with different membership each time (both players, then Grace alone,
  * then Zoë alone), which is the shape that could not be expressed at all before v3. `game-2` runs
  * two sets and has nobody picked for the second — a mask of `0`, legal on purpose.
+ *
+ * Frozen and decode-only since contract 6: `decodeDayRoster` lifts it to `ROSTER_V3_AS_V6` below.
  */
-const ROSTER_V3_PAYLOAD: DayRosterPayload = {
+const ROSTER_V3_PAYLOAD: Omit<DayRosterPayload, 'v' | 'games'> & { v: 3; games: Omit<DayRosterGame, 'serve'>[] } = {
   v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder',
   players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
   games: [
@@ -123,6 +125,61 @@ const STATS_V3_PAYLOAD: Omit<DayStatsPayload, 'v'> & { v: 3 } = {
 export const ROSTER_V3_VECTOR = {
   payload: ROSTER_V3_PAYLOAD,
   encoded: 'CIQR3.eyJ2IjozLCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXX0seyJnYW1lSWQiOiJnYW1lLTIiLCJvcHBvbmVudCI6IkZhbGNvbnMiLCJzZXRzIjpbMiwwXX1dfQ.e9e26391',
+};
+
+/**
+ * The v6 roster vector: the v3 day plus contract 6's `serve`, one entry per set. Between them the two
+ * games cover:
+ * - a dash (`game-1` set 1: Grace, Zoë, Grace, nobody, Zoë, Grace);
+ * - `null` (`game-1` set 2, and `game-2` set 2, which has nobody in it);
+ * - a Train-length entry of 7 (`game-1` set 3);
+ * - a single server for every turn (`game-2` set 1).
+ *
+ * Generated once with the real encoder and frozen: never regenerate the encoded string.
+ */
+const ROSTER_V6_PAYLOAD: DayRosterPayload = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2], serve: ['010-10', null, '1111111'] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0], serve: ['111111', null] },
+  ],
+};
+
+export const ROSTER_V6_VECTOR = {
+  payload: ROSTER_V6_PAYLOAD,
+  encoded: 'CIQR6.eyJ2Ijo2LCJraW5kIjoicm9zdGVyIiwiZGF0ZSI6IjIwMjYtMDktMTkiLCJ0ZWFtIjoiVGh1bmRlciIsInBsYXllcnMiOlt7ImlkIjoiZ3JhY2UiLCJuYW1lIjoiR3JhY2UiLCJqZXJzZXkiOjd9LHsiaWQiOiJ6b2llIiwibmFtZSI6Ilpvw6sifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJvcHBvbmVudCI6Ikxpb25zIiwic2V0cyI6WzMsMSwyXSwic2VydmUiOlsiMDEwLTEwIixudWxsLCIxMTExMTExIl19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwib3Bwb25lbnQiOiJGYWxjb25zIiwic2V0cyI6WzIsMF0sInNlcnZlIjpbIjExMTExMSIsbnVsbF19XX0.841c281c',
+};
+
+/**
+ * What `decodeDayRoster` must return for each legacy roster vector, written by hand and never
+ * computed: comparing the decoder against its own normaliser would pass even when the normaliser is
+ * wrong. Each is the legacy day at `v: 6` with `serve` all `null`, because a legacy roster carried no
+ * serve order. A v2 game, and the single game of a v1 roster, becomes one set holding its whole
+ * roster (`normaliseRosterV2`).
+ */
+export const ROSTER_V3_AS_V6: DayRosterPayload = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3, 1, 2], serve: [null, null, null] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2, 0], serve: [null, null] },
+  ],
+};
+
+export const ROSTER_V2_AS_V6: DayRosterPayload = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [
+    { gameId: 'game-1', opponent: 'Lions', sets: [3], serve: [null] },
+    { gameId: 'game-2', opponent: 'Falcons', sets: [2], serve: [null] },
+  ],
+};
+
+export const ROSTER_V1_AS_V6: DayRosterPayload = {
+  v: 6, kind: 'roster', date: '2026-09-19', team: 'Thunder',
+  players: [{ id: 'grace', name: 'Grace', jersey: 7 }, { id: 'zoie', name: 'Zoë' }],
+  games: [{ gameId: 'game-1', opponent: 'Lions', sets: [3], serve: [null] }],
 };
 
 /** Set 2 vs Falcons from `docs/points-on-court-mockup.html`: we served first, 46 rallies, 25–21. */
@@ -176,4 +233,25 @@ const STATS_V5_PAYLOAD: DayStatsPayload = {
 export const STATS_V5_VECTOR = {
   payload: STATS_V5_PAYLOAD,
   encoded: 'CIQS5.eyJ2Ijo1LCJraW5kIjoic3RhdHMiLCJyZWNvcmRlZEF0IjoiMjAyNi0wOS0xOVQyMTowNDowMFoiLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwibmFtZSI6IkdyYWNlIn0seyJpZCI6ImN4LThmMmsxcSIsIm5hbWUiOiJBdmEifV0sImdhbWVzIjpbeyJnYW1lSWQiOiJnYW1lLTEiLCJzZXRzIjpbeyJuIjoxLCJzY29yZSI6WzI1LDIxXSwicGxheWVycyI6W3siaWQiOiJncmFjZSIsInNlcnZlIjp7ImluIjo4LCJvdXQiOjJ9LCJyZXR1cm4iOnsiaW4iOjUsIm91dCI6MX19LHsiaWQiOiJjeC04ZjJrMXEiLCJzZXJ2ZSI6eyJpbiI6MCwib3V0IjowfSwicmV0dXJuIjp7ImluIjozLCJvdXQiOjB9fV0sInNlcnZlZEZpcnN0Ijp0cnVlLCJwb2ludHMiOiJVVVRVVFRVVVVUVFVUVFVVVFVUVFRVVVVUVVRUVVVUVVRUVVVVVFRVVFVVVFVVIiwic2VydmVycyI6WyJncmFjZSIsbnVsbCwiY3gtOGYyazFxIixudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGxdfSx7Im4iOjIsInNjb3JlIjpudWxsLCJwbGF5ZXJzIjpbeyJpZCI6ImdyYWNlIiwic2VydmUiOnsiaW4iOjQsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjoyfX1dfV19LHsiZ2FtZUlkIjoiZ2FtZS0yIiwic2V0cyI6W3sibiI6MSwic2NvcmUiOlsyNSwxOF0sInBsYXllcnMiOlt7ImlkIjoiY3gtOGYyazFxIiwic2VydmUiOnsiaW4iOjYsIm91dCI6MX0sInJldHVybiI6eyJpbiI6Miwib3V0IjowfX1dfV19XX0.2ded0a1d',
+};
+
+/**
+ * Contract 6's serve-order check: pure data, so the phone can test its own reading of a `serve`
+ * string against the Planner. Built once from `replaySet` on `plannedServeOrder.test.ts`'s
+ * `vectorSet()` (six slots, Lily/Brynn a front/back pair, and a usable serve override: Lily serves
+ * rotation 3 for Brynn), then frozen. That test checks it against a fresh replay; never regenerate it.
+ *
+ * `order` is `plannedServeOrder` of that set: player ids, entry r-1 = rotation r. We receive first,
+ * so our first serve is entry 1. The 36 rallies hold 10 serve turns of ours, so the order wraps past
+ * entry 5 back to Emily. `servers[i]` is who served rally `i` for us, or `null` while they served.
+ */
+export const SERVE_ORDER_VECTOR: { order: (string | null)[]; servedFirst: boolean; points: string; servers: (string | null)[] } = {
+  order: ['emily', 'lexi', 'lily', 'brooklyn', 'melanie', 'addison'],
+  servedFirst: false,
+  points: 'TTUUUTTUTUUTTUUTUUTTUUUTUTTUUTUUTUTU',
+  servers: [
+    null, null, null, 'lexi', 'lexi', 'lexi', null, null, 'lily', null, 'brooklyn', 'brooklyn',
+    null, null, 'melanie', 'melanie', null, 'addison', 'addison', null, null, 'emily', 'emily', 'emily',
+    null, 'lexi', null, null, 'lily', 'lily', null, 'brooklyn', 'brooklyn', null, 'melanie', null,
+  ],
 };
