@@ -206,7 +206,7 @@ test('a merge retiring a set slot prunes that slot out of history too, so undo c
 
   // Undo now reverses the last SURVIVING entry (set 1), not a phantom set-4 replay.
   const u = S.undo(res.session, 'g');
-  assert.deepEqual(u.undone, { kind: 'count', n: 1, playerId: 'p0', stat: 'serve', side: 'in', delta: 1, servedFirstSet: true, pendingBefore: null });
+  assert.deepEqual(u.undone, { kind: 'count', n: 1, playerId: 'p0', stat: 'serve', side: 'in', delta: 1, serveAt: 0, servedFirstSet: true, pendingBefore: null });
   assert.equal(S.getCount(u.session.games[0], 4, 'p0').serve.in, 0, 'set 4 stays at zero -- no phantom reactivation');
 });
 
@@ -864,8 +864,8 @@ test('a schema-1 union of exactly 32 players still loads', () => {
 
 test('schema 4: the first tap of a fresh set answers serve-first and opens a rally', () => {
   const s = S.tap(open(), 'game-1', 1, 'grace', 'serve', 'in', 1);
-  assert.deepEqual(s.games[0].sets[0], { score: null, counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: true, points: '', pending: 'serve' });
-  assert.deepEqual(s.games[0].history[0], { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1, servedFirstSet: true, pendingBefore: null });
+  assert.deepEqual(s.games[0].sets[0], { score: null, counts: { grace: { serve: { in: 1, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: true, points: '', pending: 'serve', serveBy: { 0: 'grace' } });
+  assert.deepEqual(s.games[0].history[0], { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1, serveAt: 0, servedFirstSet: true, pendingBefore: null });
 });
 
 test('tapPoint is refused until servedFirst is answered, then appends and records history', () => {
@@ -959,7 +959,7 @@ test('a schema-3 save migrates: sets gain the log fields, history entries gain k
   assert.equal(migrated.ok, true);
   assert.equal(migrated.schema, 3);
   const g = migrated.value.games[0];
-  assert.deepEqual(g.sets[0], { score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '', pending: null });
+  assert.deepEqual(g.sets[0], { score: [25, 20], counts: { grace: { serve: { in: 2, out: 0 }, return: { in: 0, out: 0 } } }, servedFirst: null, points: '', pending: null, serveBy: {} });
   assert.deepEqual(g.history, [{ kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: 1 }]);
   assert.equal(S.SESSION_SCHEMA, 4);
   assert.match(S.serialiseSession(migrated.value), /"schema":4/);
@@ -1123,7 +1123,7 @@ test('one Undo reverses a two-letter tap: count, both letters and the open rally
   s = t(s, 'grace', 'serve', 'out');
   assert.deepEqual([set1(s).points, set1(s).pending], ['UT', null]);
   const top = s.games[0].history.at(-1);
-  assert.deepEqual(top, { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'out', delta: 1, points: 'UT', pendingBefore: 'serve' });
+  assert.deepEqual(top, { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'out', delta: 1, serveAt: 1, points: 'UT', pendingBefore: 'serve' });
   const u = S.undo(s, 'game-1');
   assert.deepEqual(u.undone, top);
   assert.deepEqual([set1(u.session).points, set1(u.session).pending, S.getCount(u.session.games[0], 1, 'grace').serve.out], ['', 'serve', 0]);
@@ -1149,7 +1149,7 @@ test('minus mode infers no letters; the opener minus only closes the rally, and 
   s = t(s, 'grace', 'serve', 'in'); // U, rally open
   s = t(s, 'grace', 'serve', 'in', -1); // a correction on the opener: cancels the open rally
   assert.deepEqual([set1(s).points, set1(s).pending], ['U', null]);
-  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, pendingBefore: 'serve' });
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, serveCleared: 1, pendingBefore: 'serve' });
   const u = S.undo(s, 'game-1').session;
   assert.deepEqual([set1(u).points, set1(u).pending, S.getCount(u.games[0], 1, 'grace').serve.in], ['U', 'serve', 2]);
 });
@@ -1260,7 +1260,7 @@ test('a minus on the tap that opened the rally cancels it: no phantom point', ()
   s = t(s, 'grace', 'serve', 'in'); // rally 1 to Us; Grace's second serve opens a rally — the wrong row
   s = t(s, 'grace', 'serve', 'in', -1);
   assert.deepEqual([set1(s).points, set1(s).pending], ['U', null]);
-  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, pendingBefore: 'serve' });
+  assert.deepEqual(s.games[0].history.at(-1), { kind: 'count', n: 1, playerId: 'grace', stat: 'serve', side: 'in', delta: -1, serveCleared: 1, pendingBefore: 'serve' });
   assert.equal(S.parseSession(S.serialiseSession(s)).ok, true);
   s = t(s, 'zoie', 'serve', 'in'); // the right row opens the rally afresh
   assert.deepEqual([set1(s).points, set1(s).pending], ['U', 'serve']);
@@ -1313,4 +1313,79 @@ test('a minus with no open rally, or in a typed set, cancels nothing', () => {
   typed = t(typed, 'grace', 'serve', 'in', -1);
   assert.equal(set1(typed).pending, null);
   assert.equal('pendingBefore' in typed.games[0].history.at(-1), false, 'typed set');
+});
+
+test('serve taps record who served each rally, and the payload names each serve turn’s server (contract v5)', () => {
+  let s = open();
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);    // we serve first: rally 0, Grace
+  s = S.tapPoint(s, 'game-1', 1, 'U');                       // rally 0 won
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'out', 1);    // rally 1, Grace, out: lost, they serve
+  s = S.tap(s, 'game-1', 1, 'zoie', 'return', 'in', 1);     // rally 2, their serve, returned
+  s = S.tap(s, 'game-1', 1, 'zoie', 'serve', 'in', 1);      // rally 2 won (side-out); rally 3, Zoie
+  s = S.tapPoint(s, 'game-1', 1, 'T');                       // rally 3 lost
+  const set = s.games[0].sets[0];
+  assert.equal(set.points, 'UTUT');
+  assert.deepEqual(set.serveBy, { 0: 'grace', 1: 'grace', 3: 'zoie' });
+  assert.deepEqual(S.serveTurnServers(set, new Set(['grace', 'zoie'])), ['grace', 'zoie']);
+  assert.deepEqual(S.serveTurnServers(set, new Set(['zoie'])), [null, 'zoie']);
+  const built = S.buildDayStatsPayload(s, '2026-09-19T21:00:00Z');
+  assert.equal(built.ok, true);
+  assert.equal(built.value.payload.v, 5);
+  assert.deepEqual(built.value.payload.games[0].sets[0].servers, ['grace', 'zoie']);
+  assert.ok(built.value.text.startsWith('CIQS5.'));
+});
+
+test('a set whose serves were never tapped sends no servers', () => {
+  let s = open();
+  s = S.setServedFirst(s, 'game-1', 1, true);
+  s = S.tapPoint(s, 'game-1', 1, 'U');
+  s = S.tap(s, 'game-1', 1, 'grace', 'return', 'in', 0 + 1);
+  const built = S.buildDayStatsPayload(s, '2026-09-19T21:00:00Z');
+  assert.equal(built.ok, true);
+  assert.equal('servers' in built.value.payload.games[0].sets[0], false);
+});
+
+test('undo takes a serve tap’s server back off its rally, and the minus that cancels an open serve rally takes it off too', () => {
+  let s = open();
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  assert.deepEqual(s.games[0].sets[0].serveBy, { 0: 'grace' });
+  s = S.undo(s, 'game-1').session;
+  assert.deepEqual(s.games[0].sets[0].serveBy, {});
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', -1);    // the minus on the opener cancels the rally
+  assert.equal(s.games[0].sets[0].pending, null);
+  assert.deepEqual(s.games[0].sets[0].serveBy, {});
+  s = S.undo(s, 'game-1').session;                            // re-opens it
+  assert.equal(s.games[0].sets[0].pending, 'serve');
+  assert.deepEqual(s.games[0].sets[0].serveBy, { 0: 'grace' });
+});
+
+test('a later serve tap for the same rally replaces the earlier one, and undo brings the earlier one back', () => {
+  let s = open();
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', 1);
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'in', -1);    // cancels rally 0, Grace's tap goes
+  s = S.tap(s, 'game-1', 1, 'zoie', 'serve', 'in', 1);      // rally 0 is Zoie's
+  assert.deepEqual(s.games[0].sets[0].serveBy, { 0: 'zoie' });
+});
+
+test('clearing the log, typing a score or clearing the set forgets who served', () => {
+  let s = open();
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'out', 1);
+  assert.deepEqual(s.games[0].sets[0].serveBy, { 0: 'grace' });
+  assert.deepEqual(S.clearPoints(s, 'game-1', 1).games[0].sets[0].serveBy, {});
+  assert.deepEqual(S.replaceLogWithScore(s, 'game-1', 1, [25, 20]).games[0].sets[0].serveBy, {});
+  assert.equal(S.clearSet(s, 'game-1', 1).games[0].sets[0], null);
+});
+
+test('a saved session keeps serveBy, reads a missing one as empty, and skips a bad entry', () => {
+  let s = open();
+  s = S.tap(s, 'game-1', 1, 'grace', 'serve', 'out', 1);
+  const round = S.parseSession(S.serialiseSession(s));
+  assert.equal(round.ok, true);
+  assert.deepEqual(round.value.games[0].sets[0].serveBy, { 0: 'grace' });
+  const envelope = JSON.parse(S.serialiseSession(s));
+  delete envelope.session.games[0].sets[0].serveBy;
+  assert.deepEqual(S.parseSession(JSON.stringify(envelope)).value.games[0].sets[0].serveBy, {});
+  envelope.session.games[0].sets[0].serveBy = { 0: 'grace', x: 'zoie', 5: 7 };
+  assert.deepEqual(S.parseSession(JSON.stringify(envelope)).value.games[0].sets[0].serveBy, { 0: 'grace' });
 });

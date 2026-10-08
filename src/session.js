@@ -6,7 +6,7 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.4.0';
+export const APP_VERSION = '4.5.0';
 export const AUTHOR_NAME = 'Rory Bannon';
 export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
@@ -29,9 +29,10 @@ function zeroCount() {
  * question (or the first stat tap answers it); `points` is one letter per rally (`U` we won it,
  * `T` they did) and is the set's score once it is non-empty; `pending` is the stat whose In tap
  * opened a rally nobody has won yet. Invariants: `points !== ''` implies `servedFirst !== null`;
- * `pending !== null` implies `servedFirst !== null` and no typed score. */
+ * `pending !== null` implies `servedFirst !== null` and no typed score.
+ * `serveBy` maps a rally's index in `points` to the player whose serve tap served it (contract v5's `servers` is built from it). */
 function emptySet() {
-  return { score: null, counts: {}, servedFirst: null, points: '', pending: null };
+  return { score: null, counts: {}, servedFirst: null, points: '', pending: null, serveBy: {} };
 }
 
 function isTypedSet(set) {
@@ -449,6 +450,18 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
       const counted = game.sets[n - 1];
       sets = game.sets.slice();
       sets[n - 1] = { ...counted, servedFirst: inferred.servedFirst, points: counted.points + appended, pending: inferred.pending };
+      if (stat === 'serve') {
+        // The rally this serve tap served: after any rally the tap closed (a side-out or a
+        // resolve), and the one its own Out closes. A later tap for the same rally replaces it.
+        const at = prevSet.points.length + inferred.letters.filter((l) => l.why !== 'out').length;
+        if (at < MAX_POINTS) {
+          const serveBy = { ...(sets[n - 1].serveBy ?? {}) };
+          entry.serveAt = at;
+          if (serveBy[at] !== undefined) entry.serveBefore = serveBy[at];
+          serveBy[at] = playerId;
+          sets[n - 1] = { ...sets[n - 1], serveBy };
+        }
+      }
       if (appended !== '') entry.points = appended;
       if (prevSet.servedFirst === null) entry.servedFirstSet = true;
       if (pendingBefore !== inferred.pending) entry.pendingBefore = pendingBefore;
@@ -459,6 +472,14 @@ export function tap(s, gameId, n, playerId, stat, side, delta) {
       if (opener && opener.playerId === playerId && opener.stat === stat && opener.side === 'in') {
         sets = game.sets.slice();
         sets[n - 1] = { ...game.sets[n - 1], pending: null };
+        const openAt = prevSet.points.length;
+        const serveBy = prevSet.serveBy ?? {};
+        if (stat === 'serve' && serveBy[openAt] === playerId) {
+          const rest = { ...serveBy };
+          delete rest[openAt];
+          sets[n - 1] = { ...sets[n - 1], serveBy: rest };
+          entry.serveCleared = openAt;
+        }
         entry.pendingBefore = prevSet.pending;
       }
     }
@@ -472,6 +493,29 @@ export function pointTally(points) {
   let us = 0;
   for (const c of points) if (c === 'U') us += 1;
   return [us, points.length - us];
+}
+
+/** Who served each of our serve turns in a set's log (contract v5's `servers`): the first rally
+ * of the turn a serve tap names, or null when none does or she is not in `knownIds`. One entry per
+ * turn, in order, so the list's length is the contract's `serveTurnCount`. */
+export function serveTurnServers(set, knownIds) {
+  const out = [];
+  let weServe = set.servedFirst === true;
+  let current = -1;
+  for (let i = 0; i < set.points.length; i += 1) {
+    if (weServe) {
+      if (current === -1) {
+        out.push(null);
+        current = out.length - 1;
+      }
+      const id = (set.serveBy ?? {})[i];
+      if (out[current] === null && id !== undefined && knownIds.has(id)) out[current] = id;
+    } else {
+      current = -1;
+    }
+    weServe = set.points[i] === 'U';
+  }
+  return out;
 }
 
 /** Who serves the next rally: the winner of the last one, else the serve-first answer, else
@@ -506,7 +550,7 @@ export function inferTap(setRecord, stat, side) {
 function stripInference(history, n) {
   return history.map((h) => {
     if (h.kind !== 'count' || h.n !== n) return h;
-    const { points, servedFirstSet, pendingBefore, ...plain } = h;
+    const { points, servedFirstSet, pendingBefore, serveAt, serveBefore, serveCleared, ...plain } = h;
     return plain;
   });
 }
@@ -551,7 +595,7 @@ export function clearPoints(s, gameId, n) {
     const set = g.sets[n - 1];
     if (!set || (set.points === '' && set.servedFirst === null)) return g;
     const sets = g.sets.slice();
-    sets[n - 1] = { ...set, servedFirst: null, points: '', pending: null };
+    sets[n - 1] = { ...set, servedFirst: null, points: '', pending: null, serveBy: {} };
     const history = stripInference(g.history.filter((h) => !(h.kind === 'point' && h.n === n)), n);
     return { ...g, sets, history };
   });
@@ -581,6 +625,13 @@ export function undo(s, gameId) {
     if (last.points && next.points.endsWith(last.points)) next = { ...next, points: next.points.slice(0, -last.points.length) };
     if ('pendingBefore' in last) next = { ...next, pending: last.pendingBefore };
     if (last.servedFirstSet && next.points === '' && next.servedFirst === (last.stat === 'serve')) next = { ...next, servedFirst: null };
+    if (last.serveAt !== undefined && (next.serveBy ?? {})[last.serveAt] === last.playerId) {
+      const serveBy = { ...next.serveBy };
+      if (last.serveBefore !== undefined) serveBy[last.serveAt] = last.serveBefore;
+      else delete serveBy[last.serveAt];
+      next = { ...next, serveBy };
+    }
+    if (last.serveCleared !== undefined) next = { ...next, serveBy: { ...(next.serveBy ?? {}), [last.serveCleared]: last.playerId } };
     if ((isTypedSet(next) || next.servedFirst === null) && next.pending !== null) next = { ...next, pending: null };
     if (next === set) return { ...reverted, history };
     const sets = reverted.sets.slice();
@@ -599,7 +650,7 @@ export function setScore(s, gameId, n, score) {
       sets[n - 1] = { ...set, score: null };
       return { ...g, sets };
     }
-    sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null };
+    sets[n - 1] = { ...set, score: [score[0], score[1]], servedFirst: null, pending: null, serveBy: {} };
     return { ...g, sets, history: stripInference(g.history, n) };
   });
 }
@@ -660,6 +711,11 @@ export function buildDayStatsPayload(day, nowIso) {
       if (set.points !== '') {
         out.servedFirst = set.servedFirst;
         out.points = set.points;
+        // Contract v5: who served each of our serve turns, only those with a line in this set (the
+        // planner refuses a server it cannot put on the set's roster). Sent only when it names one.
+        const lined = new Set(lines.map((line) => line.id));
+        const servers = serveTurnServers(set, lined);
+        if (servers.some((id) => id !== null)) out.servers = servers;
       }
       sets.push(out);
     });
@@ -675,7 +731,7 @@ export function buildDayStatsPayload(day, nowIso) {
     usedIds.size > 0
       ? day.players.filter((p) => usedIds.has(p.id)).map((p) => ({ id: p.id, name: p.name }))
       : day.players.map((p) => ({ id: p.id, name: p.name }));
-  const payload = { v: 4, kind: 'stats', recordedAt: nowIso, players: playersOut, games: gamesOut };
+  const payload = { v: 5, kind: 'stats', recordedAt: nowIso, players: playersOut, games: gamesOut };
   const valid = validateDayStatsPayload(payload);
   if (!valid.ok) return valid;
   const totalSets = gamesOut.reduce((sum, g) => sum + g.sets.length, 0);
@@ -739,7 +795,14 @@ function parseSetRecord(value) {
   const pending = value.pending === undefined ? null : value.pending;
   if (!PENDING_VALUES.includes(pending)) return undefined;
   if (pending !== null && (value.servedFirst === null || (value.points === '' && score !== null))) return undefined;
-  return { score, counts, servedFirst: value.servedFirst, points: value.points, pending };
+  // contract v5's who-served map: missing in an older save, and a bad entry is skipped, never fatal.
+  const serveBy = {};
+  if (isPlainObject(value.serveBy)) {
+    for (const [k, id] of Object.entries(value.serveBy)) {
+      if (/^\d{1,3}$/.test(k) && Number(k) < MAX_POINTS && typeof id === 'string' && ID_PATTERN.test(id)) serveBy[k] = id;
+    }
+  }
+  return { score, counts, servedFirst: value.servedFirst, points: value.points, pending, serveBy };
 }
 
 // Contract unchanged: { id, name, sub }.
@@ -782,6 +845,19 @@ function parseHistoryEntry(value) {
   if (value.pendingBefore !== undefined) {
     if (!PENDING_VALUES.includes(value.pendingBefore)) return undefined;
     count.pendingBefore = value.pendingBefore;
+  }
+  const isRallyIndex = (x) => Number.isInteger(x) && x >= 0 && x < MAX_POINTS;
+  if (value.serveAt !== undefined) {
+    if (!isRallyIndex(value.serveAt)) return undefined;
+    count.serveAt = value.serveAt;
+  }
+  if (value.serveBefore !== undefined) {
+    if (typeof value.serveBefore !== 'string' || !ID_PATTERN.test(value.serveBefore)) return undefined;
+    count.serveBefore = value.serveBefore;
+  }
+  if (value.serveCleared !== undefined) {
+    if (!isRallyIndex(value.serveCleared)) return undefined;
+    count.serveCleared = value.serveCleared;
   }
   return count;
 }

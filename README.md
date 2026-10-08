@@ -213,6 +213,8 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] Tap Zoë Serve In, then Grace Serve In (the wrong row), then − and Grace Serve In → the toast says "Open rally cancelled" and the pills stop being dashed; Zoë Serve In then opens a fresh rally and the score stays at Us 1.
   A minus on the counter that opened the current rally always cancels that rally. To fix an older miscount on the player who is serving, wait until the rally is settled (or Undo the minus).
 - [ ] On a set with a rally log, Menu → Type the final score… → the sheet shows the log's tally and warns it replaces the log; Replace log with 25–23 → the bar shows 25–23 typed and the counts are unchanged.
+- [ ] (4.5.0) On a fresh set tap Grace Serve In, Us, then Grace Serve Out → Export starts `CIQS5.`; paste it into the planner → the import is accepted, and that set's As played card on the Stats page either reads "The phone’s servers match this set as played." or names Grace as the phone's server.
+  Each serve tap records the rally it served; a set whose serves were never tapped sends no servers, and the planner still imports a 4.4.0 phone's `CIQS4.` export.
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract
