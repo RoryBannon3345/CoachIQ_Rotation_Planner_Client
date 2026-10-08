@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server highlight — mockup</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none;max-width:100%}
+.cap{font-size:11.5px;color:var(--fg-2);margin:8px 0 0;line-height:1.55}
+.cap b{color:var(--fg)}
+.step{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px;background:var(--accent);color:#fff}
+.frame{position:relative;height:500px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3)}
+.title{font-size:12.5px;font-weight:600}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:0 0 78px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg span{flex:1;text-align:center;padding:12px 2px;font-size:13px;color:var(--fg-2)}
+.seg span.on{background:var(--accent);color:#fff;font-weight:600}
+.pt{flex:1;min-width:0;min-height:44px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:13px}
+.pt .big{font-size:22px}
+.pt.us{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.pt.them{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.pt.open{border-style:dashed}
+.pt.serving::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.pt.typed{flex-direction:column;gap:0;line-height:1.2;color:var(--fg-2);font-weight:600}
+.pt small{font-weight:400;color:var(--fg-3);font-size:10.5px}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8px;font-weight:700;text-transform:uppercase;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.colhead span:first-child{text-align:left}
+.idle{opacity:.5}
+.rows{flex:1;overflow:hidden}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:38px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+/* NEW — the server's row */
+.row.serving,.row.serving:nth-child(even){background:var(--info-bg);box-shadow:inset 4px 0 0 var(--accent)}
+.name{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:4px;overflow:hidden;white-space:nowrap}
+.cnt{font-size:16px;font-weight:700;height:36px;border-radius:8px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.cnt.hit{box-shadow:0 0 0 3px rgba(47,125,225,.55)}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:12.5px;color:var(--fg)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.undo{justify-content:flex-start;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11.5px}
+.btn.minusbtn{font-size:18px;font-weight:800}
+.toast{position:absolute;left:10px;right:10px;bottom:68px;background:#16202b;color:#fff;font-size:12.5px;font-weight:600;text-align:center;border-radius:8px;padding:8px 10px;z-index:2}
+.note{max-width:960px;margin:14px 0 0;padding:11px 13px;border-radius:10px;background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+.plan{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:12.5px;color:var(--fg-2)}
+.plan .chip{background:var(--bg-2);border:1px solid var(--line-2);border-radius:999px;padding:3px 10px;color:var(--fg);font-weight:600}
+.plan .chip i{font-style:normal;color:var(--fg-3);font-weight:400;margin-right:4px}
+@media (max-width:420px){body{padding:16px}.phone{width:100%}}
+</style>
+</head>
+<body>
+<h1>Server highlight — mockup</h1>
+<p class="lede">The record screen highlights the player who should serve. It works this out from the set's planned rotation (sent by the Planner in roster contract 6) and the rallies logged so far. These are static frames of the real screen; nothing here changes the app. What's new is the <b>blue row with the accent bar</b>.</p>
+<div class="plan">Set 1 plan from the Planner:
+  <span class="chip"><i>1</i>Grace</span><span class="chip"><i>2</i>Addison</span><span class="chip"><i>3</i>Hailey</span><span class="chip"><i>4</i>Brynn</span><span class="chip"><i>5</i>Jade</span><span class="chip"><i>6</i>Kara</span>
+  <span>· Ivy on the bench</span>
+</div>
+
+<h2>1 &middot; Following the plan <span class="sub">one look, whether we serve or receive</span></h2>
+<div class="strip" id="plan"></div>
+<p class="note"><b>The rule:</b> while we serve, the row is the server of this rally. While they serve, it's <b>our next server</b>, the player who serves once we win the ball back. That way the right row is already marked when the first serve of a turn is tapped. The rotation moves only when we win the ball back, as on the Planner's Rally replay.</p>
+
+<h2>2 &middot; A different player serves <span class="sub">the phone follows the coach</span></h2>
+<div class="strip" id="change"></div>
+<p class="note"><b>The rule:</b> only the first Serve tap of each of our serve turns can change the plan. If it names someone else:
+<b>(1)</b> she's the planned player coming back for her stand-in → "back in";
+<b>(2)</b> she's elsewhere in the order → the rotation <b>re-aligns</b> to her;
+<b>(3)</b> she's not in the order → she <b>stands in</b> for the planned player in that spot for the rest of the set.
+Each change is its own Undo step (<b>↶ Undo re-align</b>), so Undo takes back the change and keeps the serve stat. A minus on that tap (the "wrong row" fix) also takes it back.</p>
+
+<h2>3 &middot; No highlight <span class="sub">when the phone can't know</span></h2>
+<div class="strip" id="none"></div>
+<p class="note">No highlight when: the roster came from an older Planner (no plan), the set has a typed score, serve-first isn't answered, the plan has an empty spot there, or the planned player isn't ticked for the set.</p>
+
+<script>
+const players = ['Addison', 'Brynn', 'Grace', 'Hailey', 'Ivy', 'Jade', 'Kara'];
+function rows(counts, o) {
+  return players.map((p) => {
+    const c = counts[p] || [0, 0, 0, 0];
+    const idleS = o.idle === 'serve' ? ' idle' : '';
+    const idleR = o.idle === 'return' ? ' idle' : '';
+    const hit = (i) => (o.hit && o.hit[0] === p && o.hit[1] === i ? ' hit' : '');
+    return `<div class="row${o.server === p ? ' serving' : ''}"><div class="name">${p}</div><div class="cnt in${idleS}${hit(0)}">${c[0]}</div><div class="cnt out${idleS}${hit(1)}">${c[1]}</div><div class="cnt in${idleR}${hit(2)}">${c[2]}</div><div class="cnt out${idleR}${hit(3)}">${c[3]}</div></div>`;
+  }).join('');
+}
+function frame(o) {
+  const ch = (stat) => (o.idle === stat ? ' class="idle"' : '');
+  return `<div class="frame">
+    <div class="topbar"><span class="btn">Games ▾</span><span class="title-group"><span class="title-team">Blizzards</span><span class="title">vs Game 3 · 10 Oct</span></span><span class="btn">⋯</span></div>
+    <div class="setbar"><div class="seg"><span class="on">1</span><span>2</span><span>3</span></div>${o.strip}</div>
+    <div class="colhead"><span>Player</span><span${ch('serve')}>Serve In</span><span${ch('serve')}>Serve Out</span><span${ch('return')}>Return In</span><span${ch('return')}>Return Out</span></div>
+    <div class="rows">${rows(o.counts, o)}</div>
+    ${o.toast ? `<div class="toast">${o.toast}</div>` : ''}
+    <div class="bottombar"><span class="btn undo">${o.undo}</span><span class="btn minusbtn">−</span><span class="btn primary">Export</span></div>
+  </div>`;
+}
+const pills = (us, them, serving, open) =>
+  `<span class="pt us${serving === 'U' ? ' serving' : ''}${open ? ' open' : ''}">Us <span class="big">${us}</span></span><span class="pt them${serving === 'T' ? ' serving' : ''}${open ? ' open' : ''}"><span class="big">${them}</span> Them</span>`;
+const phone = (step, cap, fr) => `<div class="phone"><span class="step">${step}</span>${fr}<p class="cap">${cap}</p></div>`;
+
+const base = { Addison: [2, 0, 3, 1], Brynn: [3, 1, 2, 0], Grace: [4, 0, 1, 0], Hailey: [1, 0, 3, 1], Ivy: [0, 0, 0, 0], Jade: [2, 1, 2, 0], Kara: [1, 0, 2, 1] };
+const bump = (counts, p, i) => ({ ...counts, [p]: counts[p].map((v, k) => (k === i ? v + 1 : v)) });
+
+document.getElementById('plan').innerHTML = [
+  phone('1 · we serve', 'Grace is serving (rotation 1). Her row is highlighted for as long as we keep the serve.',
+    frame({ strip: pills(12, 9, 'U', true), counts: base, idle: 'return', server: 'Grace', hit: ['Grace', 0], undo: '↶ Undo Grace S in' })),
+  phone('2 · they serve', 'They won it back. While they serve, the highlight moves to <b>our next server, Addison</b>. Hailey\'s reception is open (dashed pills).',
+    frame({ strip: pills(12, 10, 'T', true), counts: bump(base, 'Hailey', 2), idle: 'serve', server: 'Addison', hit: ['Hailey', 2], undo: '↶ Undo Hailey R in' })),
+  phone('3 · side-out', 'We win the rally, and the coach taps <b>Addison Serve In</b>, the highlighted row. Nothing new to read; the toast is today\'s.',
+    frame({ strip: pills(13, 10, 'U', true), counts: bump(bump(base, 'Hailey', 2), 'Addison', 0), idle: 'return', server: 'Addison', hit: ['Addison', 0], toast: 'Us +1 · we serve', undo: '↶ Undo Addison S in' })),
+].join('');
+
+const c2 = bump(base, 'Hailey', 2);
+document.getElementById('change').innerHTML = [
+  phone('1 · re-align', 'Addison was expected, but the coach taps <b>Hailey Serve In</b> (she was 3rd in the plan). The rotation re-aligns to Hailey. The <b>Undo</b> button now undoes just the re-align.',
+    frame({ strip: pills(13, 10, 'U', true), counts: bump(c2, 'Hailey', 0), idle: 'return', server: 'Hailey', hit: ['Hailey', 0], toast: 'Us +1 · we serve. Re-aligned to Hailey', undo: '↶ Undo re-align' })),
+  phone('2 · stand-in', 'Later, Brynn\'s turn. <b>Ivy</b> (bench, not in the plan) serves instead: she stands in for Brynn in that spot for the rest of the set.',
+    frame({ strip: pills(17, 14, 'U', true), counts: bump(c2, 'Ivy', 0), idle: 'return', server: 'Ivy', hit: ['Ivy', 0], toast: 'Us +1 · side-out. Ivy serving for Brynn', undo: '↶ Undo re-align' })),
+  phone('3 · back in', 'Next time round that spot, <b>Brynn</b> serves again. The stand-in ends and the plan carries on from her.',
+    frame({ strip: pills(22, 19, 'U', true), counts: bump(c2, 'Brynn', 0), idle: 'return', server: 'Brynn', hit: ['Brynn', 0], toast: 'Us +1 · side-out. Brynn back in', undo: '↶ Undo re-align' })),
+  phone('4 · undo', 'Undo after step 1 takes back only the re-align. Hailey\'s serve stays counted, and the highlight goes back to Addison until the next re-align.',
+    frame({ strip: pills(13, 10, 'U', true), counts: bump(c2, 'Hailey', 0), idle: 'return', server: 'Addison', undo: '↶ Undo Hailey S in' })),
+].join('');
+
+document.getElementById('none').innerHTML = [
+  phone('older roster', 'A roster from before contract 6, or a set with no lineup: the screen looks exactly as it does today.',
+    frame({ strip: pills(12, 9, 'U', false), counts: base, idle: 'return', undo: '↶ Undo point Us' })),
+  phone('typed set', 'A typed final score never infers anything, so there\'s no highlight.',
+    frame({ strip: '<span class="pt typed">25–23<small>typed</small></span>', counts: base, undo: '↶ Undo Jade R in' })),
+].join('');
+</script>
+</body>
+</html>
