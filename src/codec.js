@@ -1,6 +1,7 @@
 // codec.js — verbatim port of the CoachIQ stats contract codec.
 // Source: reference/stats-contract-v4-client-guide.md (the v4 migration guide) and
 // reference/statsContract.ts (constants, validators, v1-v5 functions), with TypeScript type syntax stripped.
+// v5 has no separate client guide: reference/stats-contract.md covers it.
 // Do not edit; re-copy from those sources if the contract changes.
 
 export const CONTRACT_VERSION = 5;

@@ -2,9 +2,9 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS4… stats payloads with the planner by copy and paste, with no server or network required.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR3… roster payloads (with per-set membership bitmasks) and CIQS5… stats payloads with the planner by copy and paste, with no server or network required.
 
-Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v4).
+Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v5).
 
 ## Develop
 
@@ -224,8 +224,9 @@ The payload format is frozen in `reference/stats-contract.md` and is the source 
 ## `reference/`
 
 Verbatim copies from the planner repo. `stats-contract.md`, `statsContract.ts`, `vectors.ts` and
-`stats-contract-v3-client-guide.md` and `stats-contract-v4-client-guide.md` are current as of planner
-commit `d5249c2` (the v4 point-log work, merged to main). `stats-contract-v2-client-guide.md`
+`stats-contract-v3-client-guide.md` and `stats-contract-v4-client-guide.md` are current as of the
+planner's as-played work (contract 5, which has no separate client guide: `stats-contract.md` covers
+it). `stats-contract-v2-client-guide.md`
 is kept alongside it for historical context on the v1→v2 move. `stats-mockup.html` and
 `StatsDialog.tsx` are still from the earlier v1 copy at commit `2c57064`, kept for mockup/vocabulary
 reference only — neither affects the wire contract this app implements, and the planner has since
@@ -234,11 +235,11 @@ the planner's contract changes, re-copy the affected files.
 
 | File | What it is |
 |---|---|
-| `stats-contract.md` | The shared payload contract, v1 to v4. Source of truth for both apps. |
+| `stats-contract.md` | The shared payload contract, v1 to v5. Source of truth for both apps. |
 | `stats-contract-v2-client-guide.md` | The v2 migration guide written for this app's author — what changed from v1 to v2 and why, including the index-vs-id rationale for roster ticking. |
 | `stats-contract-v3-client-guide.md` | The v3 migration guide written for this app's author — what changed from v2 to v3 (per-set membership bitmasks replacing a single per-game roster) and why. |
 | `stats-contract-v4-client-guide.md` | The v4 migration guide written for this app's author — the optional per-set point log (`servedFirst`, `points`), the version bump and why. |
-| `statsContract.ts` | The planner's codec and validators, v1 to v4 (zero imports, copyable). |
-| `vectors.ts` | The golden test vectors both apps check against, v1 to v4. |
+| `statsContract.ts` | The planner's codec and validators, v1 to v5 (zero imports, copyable). |
+| `vectors.ts` | The golden test vectors both apps check against, v1 to v5. |
 | `stats-mockup.html` | The planner's v1 Stats dialog mockup, for matching look and vocabulary. |
 | `StatsDialog.tsx` | The planner's v1 Stats card — how it produced the roster payload and imported the stats payload back, before the day-scoped v2 dialogs split that. |

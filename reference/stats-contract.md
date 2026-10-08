@@ -34,7 +34,8 @@ decode.
 ## The encoded form
 
 ```
-CIQS4.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 4
+CIQS5.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 5
+CIQS4.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 4 (accepted)
 CIQR3.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 3 (still what the Planner sends)
 CIQS3.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 3 (accepted)
 CIQR2.<base64url of UTF-8 JSON>.<8 hex chars>      roster payload, contract 2 (legacy)
@@ -46,14 +47,14 @@ CIQS1.<base64url of UTF-8 JSON>.<8 hex chars>      stats payload, contract 1 (le
 - `CIQR` / `CIQS` name the payload **kind** (roster / stats). A decoder reads this before
   touching the body, so it can say "this is a roster, not stats" without attempting to parse
   anything.
-- The digit immediately after the kind letters (`4` today) is the **contract major version**
-  (`CONTRACT_VERSION`). The roster half is still sent at `3`: it did not change at contract 4, and
+- The digit immediately after the kind letters (`5` today) is the **contract major version**
+  (`CONTRACT_VERSION`). The roster half is still sent at `3`: it did not change at contract 4 or 5, and
   `encodeDayRoster` is pinned to 3 so that an un-updated Client keeps reading `CIQR3.`. A decoder
   refuses a payload whose version is higher than the one it understands, before attempting to
   decode the body.
 - The two literal `.` characters separate three fields: `<prefix+version>.<body>.<checksum>`.
 
-**The algorithm itself is unchanged by the version 2, 3 or 4 bump.** Same Base64URL, same FNV-1a over the
+**The algorithm itself is unchanged by the version 2, 3, 4 or 5 bump.** Same Base64URL, same FNV-1a over the
 same UTF-8 bytes, same whitespace stripping, same order of checks. Only the JSON inside the
 envelope is different — which is precisely why it earned a major bump rather than passing as a
 widening: fields moved and were renamed, so an older decoder would not merely ignore something new,
@@ -75,12 +76,12 @@ it would be wrong about what it had.
 
 `encodePayload` takes that `version` as a third argument, defaulting to `CONTRACT_VERSION`. It is
 not decoration: the prefix version and the body's own `v` must agree, and `decodePayload` calls any
-disagreement corruption. Now that `CONTRACT_VERSION` is 4, a v1 body encoded with the default would
-go out as `CIQS4.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
+disagreement corruption. Now that `CONTRACT_VERSION` is 5, a v1 body encoded with the default would
+go out as `CIQS5.` wrapped around `"v":1` and be refused by this very module. So the surviving v1
 encoders pass `1` explicitly — which is also what keeps the v1 golden vectors below byte-identical.
-`encodeDayRoster` passes `3` for the same reason: the roster half did not change at contract 4, so
-its body still says `"v":3`, and a `CIQR4.` prefix around it would be refused as corruption. A stats
-encoder (`encodeDayStats`) never passes it, and sends `"v":4`.
+`encodeDayRoster` passes `3` for the same reason: the roster half did not change at contract 4 or 5, so
+its body still says `"v":3`, and a `CIQR5.` prefix around it would be refused as corruption. A stats
+encoder (`encodeDayStats`) never passes it, and sends `"v":5`.
 
 **Decoding** (`decodePayload`), in this exact order:
 
