@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rotation number — five placements</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none;max-width:100%}
+.cap{font-size:11.5px;color:var(--fg-2);margin:8px 0 0;line-height:1.55}
+.cap b{color:var(--fg)}
+.step{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px;background:var(--accent);color:#fff}
+.frame{position:relative;height:500px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3)}
+.title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:0 0 78px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg span{flex:1;text-align:center;padding:12px 2px;font-size:13px;color:var(--fg-2)}
+.seg span.on{background:var(--accent);color:#fff;font-weight:600}
+.pt{flex:1;min-width:0;min-height:44px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:13px}
+.pt .big{font-size:22px}
+.pt.us{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.pt.them{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.pt.open{border-style:dashed}
+.pt.serving::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8px;font-weight:700;text-transform:uppercase;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none;align-items:center}
+.colhead span:first-child{text-align:left}
+.idle{opacity:.5}
+.rows{flex:1;overflow:hidden}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:38px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.row:nth-child(even){background:var(--bg-3)}
+.row.serving,.row.serving:nth-child(even){background:var(--info-bg);box-shadow:inset 4px 0 0 var(--accent)}
+.name{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:5px;overflow:hidden;white-space:nowrap}
+.cnt{font-size:16px;font-weight:700;height:36px;border-radius:8px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.bottombar.four{grid-template-columns:1fr 56px 56px 1fr}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:12.5px;color:var(--fg)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.undo{justify-content:flex-start;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11.5px}
+.btn.minusbtn{font-size:18px;font-weight:800}
+
+/* ---- NEW: the rotation number, one style per option ---- */
+/* A: chip in the set bar, between the set segment and the score pills */
+.rchip{flex:none;min-height:44px;min-width:40px;padding:0 7px;border-radius:8px;border:1px solid var(--accent);background:var(--info-bg);color:#1d4e8f;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05}
+.rchip b{font-size:17px;font-weight:800}
+.rchip small{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+/* B: inside the title line */
+.title .rot{color:var(--accent)}
+/* C: in the Player column header */
+.colhead .rot{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:8px;letter-spacing:.04em}
+/* D: a badge on the highlighted row, in the accent colour */
+.name .rot{flex:none;font-size:10px;font-weight:800;padding:1px 5px;border-radius:5px;background:var(--accent);color:#fff;letter-spacing:.02em}
+/* E: a read-only tile in the bottom bar */
+.btn.rtile{flex-direction:column;line-height:1.05;gap:0;background:var(--info-bg);border-color:var(--accent);color:#1d4e8f;padding:4px 0}
+.btn.rtile b{font-size:16px;font-weight:800}
+.btn.rtile small{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+
+.note{max-width:960px;margin:14px 0 0;padding:11px 13px;border-radius:10px;background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+.plan{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:12.5px;color:var(--fg-2)}
+.plan .chip{background:var(--bg-2);border:1px solid var(--line-2);border-radius:999px;padding:3px 10px;color:var(--fg);font-weight:600}
+.plan .chip i{font-style:normal;color:var(--fg-3);font-weight:400;margin-right:4px}
+.plan .chip.on{background:var(--info-bg);border-color:var(--accent)}
+.reco{max-width:960px;margin:14px 0 4px;padding:12px 14px;border-radius:10px;background:var(--bg-2);border:2px solid var(--accent);font-size:13px;line-height:1.6}
+.reco ul{margin:6px 0 8px;padding-left:20px}
+.reco li{margin:2px 0}
+.reco .why{display:block;font-size:12px;color:var(--fg-2);border-top:1px solid var(--line);padding-top:8px}
+h2 .tag{text-transform:none;letter-spacing:.02em;font-size:10px;font-weight:700;background:var(--accent);color:#fff;border-radius:4px;padding:2px 7px;margin-left:8px;vertical-align:middle}
+table.cmp{border-collapse:collapse;font-size:12.5px;margin-top:14px;max-width:960px;background:var(--bg-2)}
+table.cmp th,table.cmp td{border:1px solid var(--line-2);padding:6px 10px;text-align:left;vertical-align:top}
+table.cmp th{background:var(--bg-3);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-2)}
+@media (max-width:420px){body{padding:16px}.phone{width:100%}}
+</style>
+</head>
+<body>
+<h1>Rotation number — five placements</h1>
+<p class="lede">The record screen shows the rotation the phone thinks we're in. It is worked out from serve-first, the rally log and any re-align, by the same count that drives the server highlight: <b>rotation = (side-outs we've won + re-align shift) mod 6, plus 1</b>. No roster plan is needed for the number, so it shows on an older roster too. All five options also make the Undo button say plain <b>↶ Undo</b>. Every frame below is the same moment: set 1, we're serving at 14–11, <b>rotation 3</b>, Hailey serving.</p>
+<div class="reco"><b>Recommendation: C, the pill in the Player column header.</b>
+<ul>
+<li>It sits directly above the rows, where the coach's eyes already are, and lines up with the highlighted row's accent bar, so "rotation 3, Hailey" reads as one thing.</li>
+<li>It costs nothing: no height (the density guard measures the column header, so the pill is sized to fit the line it is on), no width taken from the Us/Them pills, and no extra cell in the bottom bar. It touches one line of HTML and one CSS rule.</li>
+<li>It shows on an older roster with no plan, which D cannot.</li>
+<li>Its only cost is size: the pill is small. If a bigger number matters more than keeping the score pills full width, <b>A</b> is the runner-up.</li>
+</ul>
+<span class="why">Why not the others: <b>A</b> narrows the two buttons tapped every rally. <b>B</b> is the easiest to miss and competes with long opponent names. <b>D</b> disappears without a plan. <b>E</b> puts the number farthest from the rows and adds a fourth cell to a bar that fits three.</span>
+</div>
+<div class="plan">Set 1 plan from the Planner:
+  <span class="chip"><i>1</i>Addison</span><span class="chip"><i>2</i>Brooklyn</span><span class="chip on"><i>3</i>Hailey</span><span class="chip"><i>4</i>Brynn</span><span class="chip"><i>5</i>Emily</span><span class="chip"><i>6</i>Grace</span>
+  <span>· Lexi and Lily on the bench</span>
+</div>
+
+<h2>A &middot; Chip in the set bar <span class="sub">between the set tabs and the score</span></h2>
+<div class="strip" id="optA"></div>
+<p class="note">A blue tile the same height as the score pills. The pills give up about 46px of width, so Us/Them get a little narrower on an iPhone SE. No height is added, so the 12-row density guard is safe. The most visible of the five.</p>
+
+<h2>B &middot; In the title line <span class="sub">next to the game and date</span></h2>
+<div class="strip" id="optB"></div>
+<p class="note">Costs nothing in layout. The title line already truncates long opponent names, so a long name plus the number may show an ellipsis. The easiest to miss mid-rally, because the eye is on the rows.</p>
+
+<h2>C &middot; In the Player column header <span class="tag">Recommended</span><span class="sub">a pill beside "PLAYER"</span></h2>
+<div class="strip" id="optC"></div>
+<p class="note">Sits right above the rows where the coach is already looking, and the header has unused width on the left. The header text is small, so the number has to stay a short "R3" pill. Zero height change.</p>
+
+<h2>D &middot; Badge on the highlighted row <span class="sub">travels with the server</span></h2>
+<div class="strip" id="optD"></div>
+<p class="note">The number sits next to the server's name, so "who" and "where" read together. <b>Limitation:</b> with no plan (older roster) there is no highlighted row, so there is nowhere to put the number and it would not show. Long names truncate a little earlier to make room for the badge.</p>
+
+<h2>E &middot; Tile in the bottom bar <span class="sub">next to the minus button</span></h2>
+<div class="strip" id="optE"></div>
+<p class="note">Possible only because Undo is becoming plain "↶ Undo" and no longer needs the width. A read-only tile beside the "−" button; it is not a button. Keeps the set bar and rows exactly as they are today.</p>
+
+<h2>What all five share</h2>
+<table class="cmp">
+<tr><th>Situation</th><th>What shows</th></tr>
+<tr><td>We serve</td><td>The rotation we are in. The highlighted row is its server.</td></tr>
+<tr><td>They serve</td><td>Still the rotation we are standing in. The highlighted row is our <b>next</b> server, who is one rotation ahead, because we rotate only when we win the ball back.</td></tr>
+<tr><td>Coach taps Serve for someone else (re-align)</td><td>The number moves with the re-align, and Undo moves it back.</td></tr>
+<tr><td>Older roster, no plan</td><td>The number still shows (except in option D), from serve-first and the rally log alone.</td></tr>
+<tr><td>Train set (plan longer than 6)</td><td>Nothing. The plan walks a line of spots, not rotations 1 to 6.</td></tr>
+<tr><td>Serve-first unanswered, or a typed score</td><td>Nothing, as with the highlight.</td></tr>
+</table>
+
+<script>
+const players = ['Addison', 'Brooklyn', 'Brynn', 'Emily', 'Grace', 'Hailey', 'Lexi', 'Lily'];
+const base = { Addison: [2, 1, 1, 0], Brooklyn: [1, 0, 2, 0], Brynn: [1, 0, 3, 1], Emily: [0, 0, 1, 0], Grace: [2, 0, 2, 1], Hailey: [3, 0, 1, 0], Lexi: [0, 0, 0, 0], Lily: [0, 0, 0, 0] };
+function rows(o) {
+  return players.map((p) => {
+    const c = base[p];
+    const isServer = o.server === p;
+    const badge = isServer && o.rowBadge ? '<span class="rot">R3</span>' : '';
+    return `<div class="row${isServer ? ' serving' : ''}"><div class="name">${badge}${p}</div><div class="cnt in">${c[0]}</div><div class="cnt out">${c[1]}</div><div class="cnt in idle">${c[2]}</div><div class="cnt out idle">${c[3]}</div></div>`;
+  }).join('');
+}
+const pills = '<span class="pt us serving open">Us <span class="big">14</span></span><span class="pt them open"><span class="big">11</span> Them</span>';
+function frame(o) {
+  return `<div class="frame">
+    <div class="topbar"><span class="btn">Games ▾</span><span class="title-group"><span class="title-team">Sample</span><span class="title">vs Game 1 · 8 Oct${o.titleRot ? ' · <span class="rot">R3</span>' : ''}</span></span><span class="btn">⋯</span></div>
+    <div class="setbar"><div class="seg"><span class="on">1</span><span>2</span><span>3</span></div>${o.chip ? '<span class="rchip"><small>Rot</small><b>3</b></span>' : ''}${pills}</div>
+    <div class="colhead"><span>Player${o.headRot ? '<span class="rot">R3</span>' : ''}</span><span>Serve In</span><span>Serve Out</span><span class="idle">Return In</span><span class="idle">Return Out</span></div>
+    <div class="rows">${rows(o)}</div>
+    <div class="bottombar${o.tile ? ' four' : ''}"><span class="btn undo">↶ Undo</span><span class="btn minusbtn">−</span>${o.tile ? '<span class="btn rtile"><small>Rot</small><b>3</b></span>' : ''}<span class="btn primary">Export</span></div>
+  </div>`;
+}
+const phone = (step, cap, fr) => `<div class="phone"><span class="step">${step}</span>${fr}<p class="cap">${cap}</p></div>`;
+function option(id, key, capWith, capWithout) {
+  document.getElementById(id).innerHTML = [
+    phone('with a plan', capWith, frame({ server: 'Hailey', [key]: true })),
+    phone('older roster', capWithout, frame({ [key]: true })),
+  ].join('');
+}
+option('optA', 'chip', 'The tile reads "Rot 3". Hailey\'s row is highlighted as today.', 'No highlight, but the number still shows from the rally log.');
+option('optB', 'titleRot', '"· R3" in blue at the end of the title line.', 'The same, without the highlight.');
+option('optC', 'headRot', 'An "R3" pill beside PLAYER, above the rows.', 'The same, without the highlight.');
+option('optD', 'rowBadge', 'An "R3" badge before Hailey\'s name on the highlighted row.', 'No highlighted row, so <b>no number</b>. This is the trade-off of D.');
+option('optE', 'tile', 'A "Rot 3" tile between − and Export. Undo is shorter now, so the bar has room.', 'The same, without the highlight.');
+</script>
+</body>
+</html>
