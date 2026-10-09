@@ -14,7 +14,7 @@ const state = {
   session: newSession(),
   screen: 'paste', // 'paste' | 'record' | 'export'
   sheet: null, // null | { kind, ... }
-  minusMode: false,
+  undoOpenedAt: 0, // Date.now() the Take back sheet opened; see onUndo
   banner: null, // null | { kind: 'err'|'warn', text }
   pasteError: null,
   pasteText: '',
@@ -72,6 +72,29 @@ function alignText(day, align) {
   if (align.rule === 'back') return `${p} back in`;
   if (align.rule === 'shift') return `Re-aligned to ${p}`;
   return align.forId ? `${p} serving for ${firstName(day, align.forId)}` : `${p} serving`;
+}
+
+const STAT_WORD = { serve: 'Serve', return: 'Return' };
+const SIDE_WORD = { in: 'In', out: 'Out' };
+
+/** 'UT' → 'Us +1, Them +1': the letters a tap appended, in the toast's words. */
+function lettersLabel(points) {
+  return [...points].map((c) => (c === 'U' ? 'Us +1' : 'Them +1')).join(', ');
+}
+
+/** One history entry as the Take back sheet reads it (undo-list spec §2). First names. `n` is the
+ * set on screen: a row from another set says so, so an Undo that reaches into it is no surprise. */
+function entryText(day, h, n) {
+  let text;
+  if (h.kind === 'point') text = h.winner === 'U' ? 'Us +1' : 'Them +1';
+  else if (h.kind === 'align') text = alignText(day, h);
+  else text = `${firstName(day, h.playerId)} · ${STAT_WORD[h.stat]} ${SIDE_WORD[h.side]} ${h.delta > 0 ? '+' : '−'}${Math.abs(h.delta)}${h.points ? ` · ${lettersLabel(h.points)}` : ''}`;
+  return esc(text);
+}
+
+/** The "set N" tag for a row from a set other than the one on screen, else ''. */
+function setTag(h, n) {
+  return h.n !== n ? `<span class="set">set ${h.n}</span>` : '';
 }
 
 /** This player's counts in one set — used to decide whether a row in the (now per-set) players
@@ -567,6 +590,38 @@ function renderConfirmNewDaySheet() {
 </div>`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Take back sheet (undo-list spec §2) — the game's history newest first. The top row is Undo.
+// ---------------------------------------------------------------------------------------------
+
+function renderUndoSheet() {
+  const day = currentDay();
+  const game = currentGame();
+  if (!game || game.history.length === 0) return '';
+  const n = clampedActiveSet(game);
+  const rows = game.history.slice().reverse().map((h, i) => {
+    const text = entryText(day, h, n);
+    if (i === 0) return `<li><button type="button" data-action="undo"><span class="what">${text}</span>${setTag(h, n)}<span class="pill">↶ Undo</span></button></li>`;
+    if (h.kind === 'count' && h.delta > 0) {
+      // −1 is a minus tap on that cell: the letters its +1 appended stay. Nothing to take at 0.
+      const zero = getCount(game, h.n, h.playerId)[h.stat][h.side] === 0;
+      return `<li><button type="button" data-action="undo-minus" data-n="${h.n}" data-pid="${esc(h.playerId)}" data-stat="${h.stat}" data-side="${h.side}"${zero ? ' disabled' : ''}><span class="what">${text}</span>${setTag(h, n)}<span class="pill minus">−1</span></button></li>`;
+    }
+    // A point, a re-align or an earlier −1: shown so the list reads as history, never acted on
+    // from below the top — undoing back to it would also discard the right taps after it.
+    return `<li class="muted-line context"><span>${text}</span>${setTag(h, n)}</li>`;
+  }).join('');
+  // Backdrop closes, like the Games and Menu sheets: no Cancel button.
+  return `
+<div class="screen sheet-host" data-action="close-sheet">
+  <div class="sheet">
+    <h3>Take back</h3>
+    <p class="helper">Newest first. The top row undoes it, points and all. A −1 takes one from that count and leaves the points alone.</p>
+    <ul class="menu undo-list">${rows}</ul>
+  </div>
+</div>`;
+}
+
 function renderSheet() {
   const sheet = state.sheet;
   if (sheet.kind === 'score') return renderScoreSheet(sheet);
@@ -574,6 +629,7 @@ function renderSheet() {
   if (sheet.kind === 'players') return renderPlayersSheet(sheet);
   if (sheet.kind === 'switcher') return renderSwitcherSheet();
   if (sheet.kind === 'menu') return renderMenuSheet();
+  if (sheet.kind === 'undo') return renderUndoSheet();
   if (sheet.kind === 'replaceDay') return renderReplaceDaySheet(sheet);
   if (sheet.kind === 'confirmDelete') return renderConfirmDeleteSheet(sheet);
   if (sheet.kind === 'confirmClearPoints') return renderConfirmClearPointsSheet(sheet);
@@ -654,9 +710,8 @@ function renderRecord() {
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
   }
   const undoDisabled = game.history.length === 0 ? 'disabled' : '';
-  const minusPressed = state.minusMode ? 'true' : 'false';
   return `
-<div class="screen${state.minusMode ? ' minus' : ''}">
+<div class="screen">
   <div class="topbar">
     <button type="button" class="btn icon sm" data-action="open-switcher">Games ▾</button>
     <span class="title-group">
@@ -674,8 +729,7 @@ function renderRecord() {
   ${rowsHtml}
   ${state.toast ? `<div class="toast" role="status" aria-live="polite">${esc(state.toast.text)}</div>` : ''}
   <div class="bottombar">
-    <button type="button" class="btn sm undo" data-action="undo" ${undoDisabled}>↶ Undo</button>
-    <button type="button" class="btn icon sm minus${state.minusMode ? ' primary' : ''}" data-action="toggle-minus" aria-pressed="${minusPressed}">−</button>
+    <button type="button" class="btn sm undo" data-action="open-undo" ${undoDisabled}>↶ Undo ▾</button>
     <button type="button" class="btn sm primary" data-action="export" ${state.selfCheckOk ? '' : 'disabled'}>Export</button>
   </div>
 </div>`;
@@ -694,13 +748,9 @@ function onTapCount(btn) {
   const pid = btn.dataset.pid;
   const stat = btn.dataset.stat;
   const side = btn.dataset.side;
-  const delta = state.minusMode ? -1 : 1;
   const previousSession = state.session;
   const setBefore = game.sets[n - 1];
-  const tapped = tap(state.session, game.gameId, n, pid, stat, side, delta);
-  // one-shot: only switches itself off when the tap actually changed something — a no-op tap
-  // (count already at 0) must not silently consume minus mode.
-  if (state.minusMode && tapped !== previousSession) state.minusMode = false;
+  const tapped = tap(state.session, game.gameId, n, pid, stat, side, 1);
   if (tapped !== previousSession) {
     const after = tapped.games.find((g) => g.gameId === game.gameId);
     const top = after.history[after.history.length - 1];
@@ -712,7 +762,6 @@ function onTapCount(btn) {
     if (entry && entry.kind === 'count' && entry.points) phrases.push(toastText(inferTap(setBefore, stat, side).letters.slice(0, entry.points.length), stat));
     if (align) phrases.push(alignText(tapped, align));
     if (phrases.length > 0) showToast(phrases.join('. '));
-    else if (entry && entry.kind === 'count' && entry.delta < 0 && 'pendingBefore' in entry) showToast('Open rally cancelled');
   }
   commit({ ...tapped, lastChangedAt: new Date().toISOString() });
 }
@@ -720,7 +769,11 @@ function onTapCount(btn) {
 function onUndo() {
   const game = currentGame();
   if (!game || game.history.length === 0) return;
+  // The sheet's bottom row sits over the bar button that opened it; the second tap of a double
+  // tap must not act on a row. Same 300 ms window as serve-first.
+  if (state.sheet && state.sheet.kind === 'undo' && Date.now() - state.undoOpenedAt < 300) return;
   const result = undo(state.session, game.gameId);
+  state.sheet = null;
   commit({ ...result.session, lastChangedAt: new Date().toISOString() });
 }
 
@@ -732,8 +785,7 @@ function onServeFirst(btn) {
   commit({ ...setServedFirst(state.session, game.gameId, n, btn.dataset.us === '1'), lastChangedAt: new Date().toISOString() });
 }
 
-// Not subject to minus mode: a mis-tapped point is undone with Undo, and the "−" button stays
-// armed for the count it was pressed for.
+// A mis-tapped point is undone with Undo (the top row of the Take back sheet).
 function onTapPoint(btn) {
   // The serve-first buttons sit exactly where Us/Them appear, so a double tap would answer and then
   // log a phantom rally; 300ms is a double-tap, not a rally.
@@ -801,6 +853,34 @@ function onOpenScore() {
 function onOpenSwitcher() {
   state.sheet = { kind: 'switcher' };
   render();
+}
+
+function onOpenUndo() {
+  const game = currentGame();
+  if (!game || game.history.length === 0) return;
+  state.sheet = { kind: 'undo' };
+  state.undoOpenedAt = Date.now();
+  render();
+}
+
+/** A −1 row of the Take back sheet: the same minus tap the − button used to make, on that row's
+ * cell, in that row's set. tap() keeps its rule that a minus on the cell that opened the open rally
+ * cancels the rally (minus spec §1); the opener is always the newest +1 for its set, so that fires
+ * only for an older row on the same player and cell, and the toast says so. */
+function onUndoMinus(btn) {
+  const game = currentGame();
+  if (!game) return;
+  // The sheet's bottom row sits over the bar button that opened it; the second tap of a double
+  // tap must not act on a row. Same 300 ms window as serve-first.
+  if (state.sheet && state.sheet.kind === 'undo' && Date.now() - state.undoOpenedAt < 300) return;
+  const previousSession = state.session;
+  const tapped = tap(state.session, game.gameId, Number(btn.dataset.n), btn.dataset.pid, btn.dataset.stat, btn.dataset.side, -1);
+  state.sheet = null;
+  if (tapped === previousSession) return render();
+  const after = tapped.games.find((g) => g.gameId === game.gameId);
+  const entry = after.history[after.history.length - 1];
+  if (entry && entry.kind === 'count' && entry.delta < 0 && 'pendingBefore' in entry) showToast('Open rally cancelled');
+  commit({ ...tapped, lastChangedAt: new Date().toISOString() });
 }
 
 function onOpenMenu() {
@@ -1064,8 +1144,9 @@ function runAction(btn) {
   if (action === 'close-sheet') { state.sheet = null; return render(); }
   if (action === 'select-set') return onSelectSet(Number(btn.dataset.n));
   if (action === 'tap-count') return onTapCount(btn);
-  if (action === 'toggle-minus') { state.minusMode = !state.minusMode; return render(); }
   if (action === 'undo') return onUndo();
+  if (action === 'open-undo') return onOpenUndo();
+  if (action === 'undo-minus') return onUndoMinus(btn);
   if (action === 'serve-first') return onServeFirst(btn);
   if (action === 'tap-point') return onTapPoint(btn);
   if (action === 'menu-flip-serve-first') return onMenuFlipServeFirst();

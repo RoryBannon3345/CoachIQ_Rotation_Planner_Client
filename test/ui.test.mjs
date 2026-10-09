@@ -69,6 +69,17 @@ function click(document, selector) {
   return el;
 }
 
+/** A tap on a Take back row, after the sheet's 300 ms double-tap guard has passed (undo-list spec §2). */
+function clickRow(document, selector) {
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 1000;
+    return click(document, selector);
+  } finally {
+    Date.now = realNow;
+  }
+}
+
 /** Boots a fresh ui.js instance pre-loaded with `session` (already the internal day/session shape —
  * e.g. straight from `newDayFromRoster`, not an encoded payload) written into fake localStorage
  * under STORAGE_KEY, so boot()'s own load() reads it back exactly as given. */
@@ -364,7 +375,7 @@ test('the set bar asks who serves first on a fresh set, shows the live score onc
   html = await renderWith(day, 'g1');
   assert.match(html, /data-action="tap-point" data-winner="U"[^>]*>Us <span class="big">2<\/span>/);
   assert.match(html, /data-action="tap-point" data-winner="T"[^>]*><span class="big">1<\/span> Them/);
-  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
 
   day = setScore(newDayFromRoster(roster, '2026-09-19T09:00:00Z'), 'g1', 1, [25, 21]);
   html = await renderWith(day, 'g1');
@@ -378,17 +389,16 @@ test('the set bar asks who serves first on a fresh set, shows the live score onc
   assert.doesNotMatch(html, /data-action="tap-point"/);
 });
 
-test('tapping Us records a rally and stamps lastChangedAt; minus mode is not consumed', async () => {
+test('tapping Us records a rally and stamps lastChangedAt', async () => {
   const { store, document } = freshEnv();
   const day = setServedFirst(newDayFromRoster({ v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] }, '2026-09-19T09:00:00Z'), 'g1', 1, true);
   store.set(STORAGE_KEY, serialiseSession(day));
   await bootUi();
-  click(document, '[data-action="toggle-minus"]');
   click(document, '[data-action="tap-point"][data-winner="U"]');
   const saved = parseSession(store.get(STORAGE_KEY)).value;
   assert.equal(saved.games[0].sets[0].points, 'U');
   assert.ok(saved.lastChangedAt);
-  assert.match(document.getElementById('app').innerHTML, /aria-pressed="true"/, 'minus mode still armed');
+  assert.doesNotMatch(document.getElementById('app').innerHTML, /toggle-minus|aria-pressed/, 'there is no minus mode');
 });
 
 test('the menu offers the serve-first flip and Clear points only for a logged set, and Set score only for an unlogged one', async () => {
@@ -539,8 +549,8 @@ test('a stat tap that scores shows a toast naming why', async () => {
   click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="out"]');
   html = document.getElementById('app').innerHTML;
   assert.match(html, /<div class="toast" role="status" aria-live="polite">Us \+1 · we serve, then Them \+1 · Serve out<\/div>/);
-  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
-  click(document, '[data-action="toggle-minus"]');
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
+  click(document, '[data-action="open-undo"]');
   assert.doesNotMatch(document.getElementById('app').innerHTML, /class="toast"/, 'the next action of any kind clears it');
 });
 
@@ -568,15 +578,65 @@ test('a typed-score set shows no dot, no idle columns and no toast', async () =>
   assert.doesNotMatch(html, /idle|data-serving|data-open|class="toast"/);
 });
 
-test('a minus that cancels the open rally says so, and the pills stop looking open', async () => {
+test('a −1 on an older row for the open rally\'s own cell cancels that rally, says so, and the pills stop looking open', async () => {
   let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
-  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // rally open
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // rally 1 open
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // rally 1 to Us; rally 2 open, opened by this tap
   const { document } = await bootWithSession(day);
-  click(document, '[data-action="toggle-minus"]');
-  click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
-  const html = document.getElementById('app').innerHTML;
+  click(document, '[data-action="open-undo"]');
+  let html = document.getElementById('app').innerHTML;
+  assert.match(html, /<li><button type="button" data-action="undo"><span class="what">Grace · Serve In \+1 · Us \+1<\/span><span class="pill">↶ Undo<\/span><\/button><\/li><li><button type="button" data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="in"><span class="what">Grace · Serve In \+1<\/span><span class="pill minus">−1<\/span><\/button><\/li>/);
+  clickRow(document, '[data-action="undo-minus"]');
+  html = document.getElementById('app').innerHTML;
+  assert.doesNotMatch(html, /undo-list/, 'the sheet closed');
   assert.match(html, /<div class="toast" role="status" aria-live="polite">Open rally cancelled<\/div>/);
   assert.doesNotMatch(html, /data-open="1"/);
+});
+
+// ---- the Undo list (docs/superpowers/specs/2026-10-09-undo-list-design.md) ----
+test('the bar reads ↶ Undo ▾, disabled on an empty history, and opens the Take back sheet', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  let html = await renderWith(day, 'g1');
+  assert.match(html, /<button type="button" class="btn sm undo" data-action="open-undo" disabled>↶ Undo ▾<\/button>/);
+  assert.doesNotMatch(html, /undo-list/, 'no sheet on a fresh set');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // answers serve-first, opens a rally, no letters
+  const { document } = await bootWithSession(day);
+  html = document.getElementById('app').innerHTML;
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
+  click(document, '[data-action="open-undo"]');
+  html = document.getElementById('app').innerHTML;
+  assert.match(html, /<div class="screen sheet-host" data-action="close-sheet">\s*<div class="sheet">\s*<h3>Take back<\/h3>/);
+  assert.match(html, /<p class="helper">Newest first\. The top row undoes it, points and all\. A −1 takes one from that count and leaves the points alone\.<\/p>/);
+  assert.match(html, /<ul class="menu undo-list"><li><button type="button" data-action="undo"><span class="what">Grace · Serve In \+1<\/span><span class="pill">↶ Undo<\/span><\/button><\/li><\/ul>/);
+});
+
+test('the top row undoes whatever kind of entry it is, and the sheet closes', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // log UT: they serve
+  day = tapPoint(day, 'g1', 1, 'T'); // log UTT
+  const { store, document } = await bootWithSession(day);
+  click(document, '[data-action="open-undo"]');
+  let html = document.getElementById('app').innerHTML;
+  // Newest first: the point is the top row and gets the Undo pill; the two taps below it carry a −1.
+  assert.match(html, /<ul class="menu undo-list"><li><button type="button" data-action="undo"><span class="what">Them \+1<\/span><span class="pill">↶ Undo<\/span><\/button><\/li>/);
+  assert.match(html, /<li><button type="button" data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="out"><span class="what">Grace · Serve Out \+1 · Us \+1, Them \+1<\/span><span class="pill minus">−1<\/span><\/button><\/li><li><button type="button" data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="in"><span class="what">Grace · Serve In \+1<\/span><span class="pill minus">−1<\/span><\/button><\/li><\/ul>/);
+  clickRow(document, '[data-action="undo"]');
+  html = document.getElementById('app').innerHTML;
+  assert.doesNotMatch(html, /undo-list/, 'the sheet closed');
+  const saved = parseSession(store.get(STORAGE_KEY)).value.games[0].sets[0];
+  assert.equal(saved.points, 'UT', 'the point came back off');
+  assert.ok(parseSession(store.get(STORAGE_KEY)).value.lastChangedAt);
+});
+
+test('the backdrop closes the Take back sheet without undoing anything', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  const { store, document } = await bootWithSession(day);
+  click(document, '[data-action="open-undo"]');
+  click(document, '.screen.sheet-host');
+  assert.doesNotMatch(document.getElementById('app').innerHTML, /undo-list/);
+  assert.equal(getCount(parseSession(store.get(STORAGE_KEY)).value.games[0], 1, 'grace').serve.in, 1);
 });
 
 test('a logged set offers Type the final score…; the sheet replaces the log with the typed score', async () => {
@@ -670,11 +730,12 @@ test('a Serve tap for someone else re-aligns: the toast names her, one Undo take
   let html = document.getElementById('app').innerHTML;
   assert.match(html, toastSays('Re-aligned to Cat'));
   assert.match(html, servingRow('Cat'));
-  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
-  click(document, '[data-action="undo"]');
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
+  click(document, '[data-action="open-undo"]');
+  clickRow(document, '[data-action="undo"]');
   html = document.getElementById('app').innerHTML;
   assert.match(html, servingRow('Ana Lopez'));
-  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
   assert.match(html, /data-pid="cat" data-stat="serve" data-side="in">1<\/button>/);
 });
 
@@ -740,14 +801,112 @@ test('a re-align moves the rotation, and Undo brings it back', async () => {
   const { document } = await bootWithSession(planDay());
   click(document, serveIn('cat')); // answers "we serve first"; the plan says Ana (rotation 1), Cat is rotation 3
   assert.match(document.getElementById('app').innerHTML, pill(3));
-  click(document, '[data-action="undo"]');
+  click(document, '[data-action="open-undo"]');
+  clickRow(document, '[data-action="undo"]');
   assert.match(document.getElementById('app').innerHTML, pill(1));
 });
 
-test('the Undo button is plain ↶ Undo, disabled with no history and enabled with some', async () => {
+test('the Undo button is ↶ Undo ▾, disabled with no history and enabled with some', async () => {
   const day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
-  assert.match(await renderWith(day, 'g1'), /data-action="undo" disabled>↶ Undo<\/button>/);
+  assert.match(await renderWith(day, 'g1'), /data-action="open-undo" disabled>↶ Undo ▾<\/button>/);
   const html = await renderWith(tap(day, 'g1', 1, 'grace', 'serve', 'in', 1), 'g1');
-  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
+  assert.match(html, /data-action="open-undo" >↶ Undo ▾<\/button>/);
   assert.doesNotMatch(html, /Undo Grace|Undo point|Undo re-align/);
+});
+
+test('older +1 rows get a −1 that is disabled at 0; points, re-aligns and earlier −1s are context only', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1); // rally open
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // UT: they serve
+  day = tapPoint(day, 'g1', 1, 'T'); // UTT
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', -1); // nothing open: a plain −1, Serve In back to 0
+  day = tap(day, 'g1', 1, 'grace', 'return', 'in', 1); // we receive: opens a rally, no letters
+  const { document } = await bootWithSession(day);
+  click(document, '[data-action="open-undo"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /<ul class="menu undo-list"><li><button type="button" data-action="undo"><span class="what">Grace · Return In \+1<\/span><span class="pill">↶ Undo<\/span><\/button><\/li><li class="muted-line context"><span>Grace · Serve In −1<\/span><\/li><li class="muted-line context"><span>Them \+1<\/span><\/li><li><button type="button" data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="out"><span class="what">Grace · Serve Out \+1 · Us \+1, Them \+1<\/span><span class="pill minus">−1<\/span><\/button><\/li><li><button type="button" data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="in" disabled><span class="what">Grace · Serve In \+1<\/span><span class="pill minus">−1<\/span><\/button><\/li><\/ul>/);
+});
+
+test('a −1 row takes one from that cell, leaves the points alone, and closes the sheet', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // UT
+  day = tap(day, 'g1', 1, 'grace', 'return', 'in', 1); // rally open
+  const { store, document } = await bootWithSession(day);
+  click(document, '[data-action="open-undo"]');
+  clickRow(document, '[data-action="undo-minus"][data-stat="serve"][data-side="out"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.doesNotMatch(html, /undo-list/, 'the sheet closed');
+  assert.doesNotMatch(html, /class="toast"/, 'not the opener\'s cell: no cancel, no toast');
+  const saved = parseSession(store.get(STORAGE_KEY)).value;
+  const set = saved.games[0].sets[0];
+  assert.equal(getCount(saved.games[0], 1, 'grace').serve.out, 0);
+  assert.equal(set.points, 'UT', 'the letters the Out tap appended stay');
+  assert.equal(set.pending, 'return', 'the open rally stays open');
+  assert.ok(saved.lastChangedAt);
+  // The −1 is now the top row, and Undo takes it back.
+  click(document, '[data-action="open-undo"]');
+  assert.match(document.getElementById('app').innerHTML, /<li><button type="button" data-action="undo"><span class="what">Grace · Serve Out −1<\/span>/);
+  clickRow(document, '[data-action="undo"]');
+  assert.equal(getCount(parseSession(store.get(STORAGE_KEY)).value.games[0], 1, 'grace').serve.out, 1);
+});
+
+test('a row from another set says so, and its −1 changes that set', async () => {
+  const TWO_SETS = { ...ONE_SET, games: [{ gameId: 'g1', opponent: 'Lions', sets: [1, 1] }] };
+  let day = newDayFromRoster(TWO_SETS, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'out', 1); // set 1: UT
+  day = tap(day, 'g1', 2, 'grace', 'return', 'in', 1); // set 2: a rally open
+  const { store, document } = await bootWithSession(day);
+  click(document, '[data-action="select-set"][data-n="2"]');
+  click(document, '[data-action="open-undo"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /<span class="what">Grace · Return In \+1<\/span><span class="pill">↶ Undo<\/span>/, 'the set on screen carries no tag');
+  assert.match(html, /data-action="undo-minus" data-n="1" data-pid="grace" data-stat="serve" data-side="out"><span class="what">Grace · Serve Out \+1 · Us \+1, Them \+1<\/span><span class="set">set 1<\/span><span class="pill minus">−1<\/span>/);
+  clickRow(document, '[data-action="undo-minus"][data-n="1"][data-side="out"]');
+  const game = parseSession(store.get(STORAGE_KEY)).value.games[0];
+  assert.equal(getCount(game, 1, 'grace').serve.out, 0, 'set 1 changed');
+  assert.equal(getCount(game, 2, 'grace').return.in, 1, 'set 2 did not');
+  assert.doesNotMatch(document.getElementById('app').innerHTML, /undo-list/);
+});
+
+test('a row tapped inside 300 ms of opening the sheet does nothing: the sheet opens under the thumb', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  day = tap(day, 'g1', 1, 'grace', 'return', 'in', 1);
+  const { store, document } = await bootWithSession(day);
+  const realNow = Date.now;
+  try {
+    let t = 1_700_000_000_000;
+    Date.now = () => t;
+    click(document, '[data-action="open-undo"]');
+    click(document, '[data-action="undo-minus"]'); // the second tap of a double tap
+    assert.match(document.getElementById('app').innerHTML, /undo-list/, 'the sheet stays open');
+    assert.equal(getCount(parseSession(store.get(STORAGE_KEY)).value.games[0], 1, 'grace').serve.in, 1, 'nothing taken');
+    click(document, '[data-action="undo"]');
+    assert.match(document.getElementById('app').innerHTML, /undo-list/, 'Undo is guarded too');
+    t += 350;
+    click(document, '[data-action="undo-minus"]');
+    assert.doesNotMatch(document.getElementById('app').innerHTML, /undo-list/);
+    assert.equal(getCount(parseSession(store.get(STORAGE_KEY)).value.games[0], 1, 'grace').serve.in, 0);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('a re-align is the top row of the list: its text, the Undo pill, then the count row below', async () => {
+  const { document } = await bootWithSession(planDay());
+  click(document, serveIn('cat'));
+  click(document, '[data-action="open-undo"]');
+  const html = document.getElementById('app').innerHTML;
+  assert.match(html, /<ul class="menu undo-list"><li><button type="button" data-action="undo"><span class="what">Re-aligned to Cat<\/span><span class="pill">↶ Undo<\/span><\/button><\/li><li><button type="button" data-action="undo-minus"/);
+});
+
+test('the bar is two buttons and the screen never carries the minus class', async () => {
+  let day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  day = tap(day, 'g1', 1, 'grace', 'serve', 'in', 1);
+  const html = await renderWith(day, 'g1');
+  assert.match(html, /<div class="screen">/);
+  assert.match(html, /<div class="bottombar">\s*<button type="button" class="btn sm undo" data-action="open-undo" >↶ Undo ▾<\/button>\s*<button type="button" class="btn sm primary" data-action="export" >Export<\/button>\s*<\/div>/);
+  assert.doesNotMatch(html, /toggle-minus|aria-pressed|class="btn icon sm minus/);
 });

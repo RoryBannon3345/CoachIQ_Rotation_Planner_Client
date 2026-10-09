@@ -12,32 +12,40 @@ test.describe('Recording a set', () => {
       await press(count(page, 'grace', stat, side));
       await expect(count(page, 'grace', stat, side)).toHaveText('1');
     }
-    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
-    await press(page.locator('[data-action="undo"]'));
+    const open = page.locator('[data-action="open-undo"]');
+    await expect(open).toBeEnabled();
+    await expect(open).toHaveText('↶ Undo ▾');
+    await press(open);
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await expect(page.locator('.undo-list li').first()).toContainText('Grace · Return Out +1');
+    await press(page.locator('.undo-list [data-action="undo"]'));
+    await expect(page.locator('.undo-list')).toHaveCount(0);
     await expect(count(page, 'grace', 'return', 'out')).toHaveText('0');
     // Only the last tap came back.
     await expect(count(page, 'grace', 'return', 'in')).toHaveText('1');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo');
   });
 
-  test('minus subtracts once, and a tap at 0 does not use it up', async ({ page, openApp, press }) => {
+  test('the Take back sheet takes one from an older tap and leaves the newer one alone', async ({ page, openApp, press }) => {
     await openApp();
     await openDay(page, rosterText());
-    const c = count(page, 'grace', 'serve', 'in');
-    await press(c);
-    await press(c);
-    await expect(c).toHaveText('2');
-    const minus = page.locator('[data-action="toggle-minus"]');
-    await expect(minus).toHaveAttribute('aria-pressed', 'false');
-    await press(minus);
-    await expect(minus).toHaveAttribute('aria-pressed', 'true');
-    await expect(count(page, 'grace', 'serve', 'out')).toHaveText('0');
-    await press(count(page, 'grace', 'serve', 'out')); // at 0: no change, minus stays on
-    await expect(count(page, 'grace', 'serve', 'out')).toHaveText('0');
-    await expect(minus).toHaveAttribute('aria-pressed', 'true');
-    await press(c);
-    await expect(c).toHaveText('1');
-    await expect(minus).toHaveAttribute('aria-pressed', 'false');
+    await press(count(page, 'grace', 'serve', 'in'));
+    await press(count(page, 'grace', 'return', 'in'));
+    await expect(count(page, 'grace', 'serve', 'in')).toHaveText('1');
+    await expect(page.locator('[data-action="toggle-minus"]')).toHaveCount(0);
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    const rows = page.locator('.undo-list li');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('.pill')).toHaveText('↶ Undo');
+    await expect(rows.nth(1).locator('.pill')).toHaveText('−1');
+    await press(rows.nth(1).locator('[data-action="undo-minus"]'));
+    await expect(page.locator('.undo-list')).toHaveCount(0);
+    await expect(count(page, 'grace', 'serve', 'in')).toHaveText('0');
+    await expect(count(page, 'grace', 'return', 'in')).toHaveText('1');
+    // At 0 the row's −1 is disabled.
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await expect(page.locator('.undo-list [data-action="undo-minus"][data-side="in"][data-stat="serve"]')).toBeDisabled();
   });
 
   test('serve-first, then point taps; a tap inside 300 ms is ignored', async ({ page, openApp, press }) => {
@@ -54,14 +62,14 @@ test.describe('Recording a set', () => {
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 0');
     await press(us); // 0 ms after the answer, inside ui.js's 300 ms double-tap guard: ignored
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 0');
-    await expect(page.locator('[data-action="undo"]')).toBeDisabled();
+    await expect(page.locator('[data-action="open-undo"]')).toBeDisabled();
     await page.clock.runFor(350); // past ui.js's 300 ms guard
     await press(us);
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
     await press(them);
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 1');
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
-    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
+    await expect(page.locator('[data-action="open-undo"]')).toBeEnabled();
   });
 
   test('set tabs switch, and an empty set offers Tick players…', async ({ page, openApp, press }) => {
@@ -94,23 +102,26 @@ test.describe('Recording a set', () => {
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 1');
     await expect(them).toHaveAttribute('data-serving', '1');
     await expect(page.locator('.toast')).toHaveText('Us +1 · we serve, then Them +1 · Serve out');
-    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
-    await press(page.locator('[data-action="undo"]'));
+    await expect(page.locator('[data-action="open-undo"]')).toBeEnabled();
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await press(page.locator('.undo-list [data-action="undo"]'));
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 0');
     await expect(us).toHaveAttribute('data-open', '1');
     await expect(count(page, 'grace', 'serve', 'out')).toHaveText('0');
   });
 
-  test('a minus on the wrong row cancels the open rally, so the right row starts it afresh', async ({ page, openApp, press }) => {
+  test('a −1 on the open rally\'s own cell cancels the rally, so the right row starts it afresh', async ({ page, openApp, press }) => {
     await openApp();
     await openDay(page, rosterText());
     const us = page.locator('[data-action="tap-point"][data-winner="U"]');
-    await press(count(page, 'zoie', 'serve', 'in')); // answers serve-first, rally open
-    await press(count(page, 'grace', 'serve', 'in')); // rally 1 to Us; Grace's tap opens rally 2 — but Zoë served
+    await press(count(page, 'grace', 'serve', 'in')); // answers serve-first, rally 1 open
+    await press(count(page, 'grace', 'serve', 'in')); // rally 1 to Us; rally 2 open, opened by this tap
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
-    await press(page.locator('[data-action="toggle-minus"]'));
-    await press(count(page, 'grace', 'serve', 'in'));
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await press(page.locator('.undo-list [data-action="undo-minus"]')); // the older Grace Serve In: the opener's cell
     await expect(page.locator('.toast')).toHaveText('Open rally cancelled');
     await expect(us).not.toHaveAttribute('data-open', '1');
     await press(count(page, 'zoie', 'serve', 'in')); // the right row: a fresh rally, no phantom point
@@ -153,11 +164,12 @@ test.describe('Recording a set', () => {
     await openApp();
     await openDay(page, rosterText(plannedPayload()));
     const serving = page.locator('.rows .row.serving .name');
-    const undo = page.locator('[data-action="undo"]');
     await press(count(page, 'lily', 'serve', 'in')); // answers "we serve first"; the plan says Grace
     await expect(page.locator('.toast')).toHaveText('Re-aligned to Lily');
     await expect(serving).toHaveText('Lily');
-    await press(undo);
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await press(page.locator('.undo-list [data-action="undo"]'));
     await expect(serving).toHaveText('Grace');
     await expect(count(page, 'lily', 'serve', 'in')).toHaveText('1');
   });

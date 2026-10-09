@@ -58,7 +58,9 @@ test.describe('Saving on the device', () => {
     await expect(serving).toHaveText('Lily');
     await page.reload();
     await expect(serving).toHaveText('Lily');
-    await press(page.locator('[data-action="undo"]'));
+    await press(page.locator('[data-action="open-undo"]'));
+    await page.waitForTimeout(350); // past ui.js's 300 ms Take back guard
+    await press(page.locator('.undo-list [data-action="undo"]'));
     await expect(serving).toHaveText('Grace');
   });
 });
