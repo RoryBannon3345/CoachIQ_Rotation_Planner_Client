@@ -1385,6 +1385,7 @@ test('a saved session keeps serveBy, reads a missing one as empty, and skips a b
 
 // ---- the planned server (docs/superpowers/specs/2026-10-08-server-highlight-design.md) ----
 const ORDER6 = ['ana', 'bea', 'cat', 'dee', 'eve', 'fay'];
+const ORDER7 = [...ORDER6, 'gia'];
 /** A logged set at the given serve-first answer and log, with no alignment unless `extra` adds one. */
 const logged = (servedFirst, points, extra = {}) => ({ score: null, counts: {}, servedFirst, points, pending: null, serveBy: {}, shift: 0, standIns: {}, ...extra });
 
@@ -1402,7 +1403,6 @@ test('plannedServerAt wraps past entry 5, and a Train-length order wraps at its 
   const sixTurns = 'TU'.repeat(6);
   assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER6, 10), 'fay');
   assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER6, 12), 'ana', 'turn 6 wraps to entry 0');
-  const ORDER7 = [...ORDER6, 'gia'];
   assert.equal(S.plannedServerAt(logged(true, sixTurns), ORDER7, 12), 'gia', 'turn 6 of a 7-long order is entry 6');
   assert.equal(S.plannedServerAt(logged(true, 'TU'.repeat(7)), ORDER7, 14), 'ana');
 });
@@ -1435,6 +1435,62 @@ test('plannedServerAt agrees with the Planner on all 19 rallies we serve in SERV
     ours += 1;
   }
   assert.equal(ours, 19, 'receiving first, 36 rallies, 10 serve turns of ours');
+});
+
+// ---- the rotation number (docs/superpowers/specs/2026-10-08-rotation-number-design.md) ----
+test('rotationAt is the rotation we stand in: side-outs we win move it, lost rallies do not', () => {
+  assert.equal(S.rotationAt(logged(true, ''), ORDER6, 0), 1, 'we serve first: rotation 1');
+  assert.equal(S.rotationAt(logged(false, ''), ORDER6, 0), 1, 'we receive first: still rotation 1 (the next server is rotation 2)');
+  assert.equal(S.rotationAt(logged(false, 'T'), ORDER6, 1), 1, 'they hold serve: no rotation');
+  assert.equal(S.rotationAt(logged(false, 'U'), ORDER6, 1), 2, 'our first side-out: rotation 2');
+  assert.equal(S.rotationAt(logged(true, 'T'), ORDER6, 1), 1, 'we lose our first rally: still rotation 1 while they serve');
+  assert.equal(S.rotationAt(logged(true, 'TU'), ORDER6, 2), 2, 'we win it back: rotation 2');
+  assert.equal(S.rotationAt(logged(true, 'UU'), ORDER6, 2), 1, 'a run of our rallies is one rotation');
+  assert.equal(S.rotationAt(logged(true, 'TUTU'), ORDER6, 2), 2, 'at reads a prefix of the log');
+});
+
+test('rotationAt wraps past 6, adds the shift, and ignores stand-ins', () => {
+  assert.equal(S.rotationAt(logged(true, 'TU'.repeat(5)), ORDER6, 10), 6);
+  assert.equal(S.rotationAt(logged(true, 'TU'.repeat(6)), ORDER6, 12), 1, 'six side-outs wrap to rotation 1');
+  assert.equal(S.rotationAt(logged(true, '', { shift: 2 }), ORDER6, 0), 3);
+  assert.equal(S.rotationAt(logged(false, '', { shift: 5 }), ORDER6, 0), 6, 'rotation 6; the next server after the side-out is entry 0');
+  assert.equal(S.rotationAt(logged(true, '', { standIns: { 0: 'gia' } }), ORDER6, 0), 1);
+});
+
+test('rotationAt is null for a Train-length plan, a typed set, an unanswered set or no set, and counts without a plan', () => {
+  assert.equal(S.rotationAt(logged(true, 'TU'), ORDER7, 2), null, 'a 7-long plan walks spots, not rotations');
+  assert.equal(S.rotationAt(logged(true, 'TU'), null, 2), 2, 'no plan: the log alone');
+  assert.equal(S.rotationAt(logged(true, 'TU'), undefined, 2), 2);
+  assert.equal(S.rotationAt({ ...logged(true, ''), score: [25, 20], points: '' }, ORDER6, 0), null, 'a typed set');
+  assert.equal(S.rotationAt(logged(null, ''), ORDER6, 0), null, 'serve-first unanswered');
+  assert.equal(S.rotationAt(null, ORDER6, 0), null, 'an untouched set');
+});
+
+test('rotation reads the end of the log, and while we serve its server is the planned server', () => {
+  assert.equal(S.rotation(logged(true, 'TUU'), ORDER6), 2);
+  assert.equal(S.rotation(null, ORDER6), null);
+  const v = SERVE_ORDER_VECTOR;
+  const set = logged(v.servedFirst, v.points);
+  let weServe = v.servedFirst;
+  for (let i = 0; i < v.points.length; i += 1) {
+    if (weServe) assert.equal(v.order[S.rotationAt(set, v.order, i) - 1], v.servers[i], `rally ${i}`);
+    weServe = v.points[i] === 'U';
+  }
+});
+
+test('the rotation and the planned server agree for every shift and log: same rotation while we serve, one ahead while they do', () => {
+  const logs = ['', 'U', 'T', 'TU', 'UT', 'TUTU', 'TTUU', 'UUTUTUT', 'TU'.repeat(7)];
+  for (const servedFirst of [true, false]) {
+    for (let shift = 0; shift < 6; shift += 1) {
+      for (const points of logs) {
+        const set = logged(servedFirst, points, { shift });
+        const weServe = points.length ? points[points.length - 1] === 'U' : servedFirst;
+        const r = S.rotationAt(set, ORDER6, points.length);
+        const expectIdx = (r - 1 + (weServe ? 0 : 1)) % 6;
+        assert.equal(S.plannedServerAt(set, ORDER6, points.length), ORDER6[expectIdx], `servedFirst ${servedFirst}, shift ${shift}, log "${points}"`);
+      }
+    }
+  }
 });
 
 test('serveOrderVectorFails passes the frozen vector and catches a bent copy, so the self-check leg can fail', () => {

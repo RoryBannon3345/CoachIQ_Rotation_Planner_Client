@@ -3,7 +3,7 @@
 // sheets.
 // build note: import lines below are for node tests; the inliner strips single-line imports only,
 // so each import must stay on one line.
-import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, replaceLogWithScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, plannedServer, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
+import { STORAGE_KEY, UNREADABLE_KEY, newSession, gameLabel, dayLabel, formatDate, openDayRoster, replaceDay, hasUnexportedStats, setPlayerTicked, addSub, setActiveGame, deleteGame, setActiveSet, tap, undo, setScore, replaceLogWithScore, clearSet, setServedFirst, tapPoint, clearPoints, setServer, plannedServer, rotation, inferTap, pointTally, isSetPlayed, getCount, parseSession, serialiseSession, runSelfCheck, buildDayStatsPayload, gamePlayerIdsUnion, APP_VERSION, AUTHOR_NAME, COPYRIGHT_YEAR, MAX_SCORE, SESSION_SCHEMA } from './session.js';
 import { decodeDayRoster, decodeDayStats } from './codec.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -42,10 +42,6 @@ function firstName(day, playerId) {
   return space === -1 ? name : name.slice(0, space);
 }
 
-function statLetter(stat) {
-  return stat === 'serve' ? 'S' : 'R';
-}
-
 const TOAST_MS = 2500;
 const TOAST_PHRASE = {
   resolve: { U: 'Us +1 · we serve', T: 'Them +1 · they serve' },
@@ -70,17 +66,12 @@ function showToast(text) {
 }
 
 /** What a re-align did (spec §4): "<P> back in", "Re-aligned to <P>", "<P> serving for <Q>" or
- * "<P> serving" on an empty spot. First names, like the Undo label. */
+ * "<P> serving" on an empty spot. First names. */
 function alignText(day, align) {
   const p = firstName(day, align.playerId);
   if (align.rule === 'back') return `${p} back in`;
   if (align.rule === 'shift') return `Re-aligned to ${p}`;
   return align.forId ? `${p} serving for ${firstName(day, align.forId)}` : `${p} serving`;
-}
-
-/** 'UT' → 'Us, Them' for the Undo label. */
-function lettersLabel(points) {
-  return [...points].map((c) => (c === 'U' ? 'Us' : 'Them')).join(', ');
 }
 
 /** This player's counts in one set — used to decide whether a row in the (now per-set) players
@@ -633,7 +624,11 @@ function renderRecord() {
   const idleCls = (stat) => (stat === idleStat ? ' class="idle"' : '');
   // The planned server's row: null when there is no plan, the set is typed or untouched, serve-first
   // is unanswered or the spot is empty — and a player who is not ticked has no row to mark.
-  const serverId = typed ? null : plannedServer(setRecord, Array.isArray(game.serveOrders) ? game.serveOrders[n - 1] : null);
+  const order = Array.isArray(game.serveOrders) ? game.serveOrders[n - 1] : null;
+  const serverId = typed ? null : plannedServer(setRecord, order);
+  // The rotation we stand in (rotation spec §1): null when there is nothing to count or the plan is a Train line.
+  const rot = typed ? null : rotation(setRecord, order);
+  const rotHtml = rot === null ? '' : `<span class="rot" data-rotation="${rot}">R${rot}</span>`;
   // A mask of 0 (and so an empty list) is legal — never auto-tick everybody and never treat it as
   // an error; offer the players sheet instead.
   const rowsHtml = players.length === 0
@@ -658,8 +653,6 @@ function renderRecord() {
     strip = `<button type="button" class="pt ask" data-action="serve-first" data-us="1">We serve<small>first</small></button>
     <button type="button" class="pt ask" data-action="serve-first" data-us="0">They serve<small>first</small></button>`;
   }
-  const top = game.history.length ? game.history[game.history.length - 1] : null;
-  const undoLabel = !top ? '↶ Undo' : top.kind === 'point' ? `↶ Undo point ${top.winner === 'U' ? 'Us' : 'Them'}` : top.kind === 'align' ? '↶ Undo re-align' : `↶ Undo ${firstName(day, top.playerId)} ${statLetter(top.stat)} ${top.side}${top.points ? ` + ${lettersLabel(top.points)}` : ''}`;
   const undoDisabled = game.history.length === 0 ? 'disabled' : '';
   const minusPressed = state.minusMode ? 'true' : 'false';
   return `
@@ -677,11 +670,11 @@ function renderRecord() {
     <div class="seg" role="group" aria-label="Which set">${seg}</div>
     ${strip}
   </div>
-  <div class="colhead"><span>Player</span><span${idleCls('serve')}>Serve In</span><span${idleCls('serve')}>Serve Out</span><span${idleCls('return')}>Return In</span><span${idleCls('return')}>Return Out</span></div>
+  <div class="colhead"><span>Player${rotHtml}</span><span${idleCls('serve')}>Serve In</span><span${idleCls('serve')}>Serve Out</span><span${idleCls('return')}>Return In</span><span${idleCls('return')}>Return Out</span></div>
   ${rowsHtml}
   ${state.toast ? `<div class="toast" role="status" aria-live="polite">${esc(state.toast.text)}</div>` : ''}
   <div class="bottombar">
-    <button type="button" class="btn sm undo" data-action="undo" ${undoDisabled}>${esc(undoLabel)}</button>
+    <button type="button" class="btn sm undo" data-action="undo" ${undoDisabled}>↶ Undo</button>
     <button type="button" class="btn icon sm minus${state.minusMode ? ' primary' : ''}" data-action="toggle-minus" aria-pressed="${minusPressed}">−</button>
     <button type="button" class="btn sm primary" data-action="export" ${state.selfCheckOk ? '' : 'disabled'}>Export</button>
   </div>

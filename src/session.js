@@ -6,7 +6,7 @@ import { ROSTER_VECTOR, STATS_VECTOR, ROSTER_V2_VECTOR, STATS_V2_VECTOR, STATS_V
 export const STORAGE_KEY = 'coachiq-stats-client';
 export const UNREADABLE_KEY = 'coachiq-stats-client.unreadable';
 export const SESSION_SCHEMA = 4;
-export const APP_VERSION = '4.6.0';
+export const APP_VERSION = '4.7.0';
 export const AUTHOR_NAME = 'Rory Bannon';
 export const COPYRIGHT_YEAR = 2026;
 export const MAX_SCORE = 99;
@@ -655,15 +655,23 @@ function mod(a, m) {
   return ((a % m) + m) % m;
 }
 
-/** The order index for rally `at` of a logged set (spec §3 steps 1-4): count our side-outs before
- * `at`; the turn is that count while we serve rally `at`, and the next one while they do. */
-function planIndex(set, length, at) {
+/** The side-out walk for rally `at` of a logged set (spec §3 steps 1-2): `t` counts the rallies before
+ * `at` that we won while they served, and `serving` is who serves rally `at`. Shared by the planned
+ * server and the rotation number so the two can never disagree. */
+function sideOuts(set, at) {
   let serving = set.servedFirst ? 'U' : 'T';
   let t = 0;
   for (let i = 0; i < at && i < set.points.length; i += 1) {
     if (set.points[i] === 'U' && serving === 'T') t += 1;
     serving = set.points[i];
   }
+  return { t, serving };
+}
+
+/** The order index for rally `at` of a logged set (spec §3 steps 1-4): the turn is the side-out count
+ * while we serve rally `at`, and the next one while they do. */
+function planIndex(set, length, at) {
+  const { t, serving } = sideOuts(set, at);
   const turn = serving === 'U' ? t : t + 1;
   return mod(turn + (set.shift ?? 0), length);
 }
@@ -680,6 +688,22 @@ export function plannedServerAt(set, order, at) {
 /** plannedServerAt at the end of the log: the row to highlight. */
 export function plannedServer(set, order) {
   return plannedServerAt(set, order, set ? set.points.length : 0);
+}
+
+/** The rotation we are standing in for rally `at` of a logged set, 1-6: our side-outs before `at`
+ * plus the re-align shift, mod 6, plus 1. The same whether we serve or receive; while they serve,
+ * the highlighted next server is one rotation ahead. Null for an untouched or typed set, before
+ * serve-first is answered, or under a Train-length plan (a line of spots, not rotations). No plan
+ * at all still counts from the log. */
+export function rotationAt(set, order, at) {
+  if (!set || isTypedSet(set) || set.servedFirst === null) return null;
+  if (Array.isArray(order) && order.length !== 6) return null;
+  return mod(sideOuts(set, at).t + (set.shift ?? 0), 6) + 1;
+}
+
+/** rotationAt at the end of the log: the number the record screen shows. */
+export function rotation(set, order) {
+  return rotationAt(set, order, set ? set.points.length : 0);
 }
 
 /** What one stat tap says about the score, from the rule that the winner of a rally serves the

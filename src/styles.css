@@ -92,6 +92,7 @@ textarea, input { -webkit-user-select:text; user-select:text; }
 .setbar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
 .colhead { display:grid; grid-template-columns:96px repeat(4,1fr); gap:4px; padding:4px 10px 3px; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:0; white-space:nowrap; color:var(--fg-3); text-align:center; background:var(--bg-3); border-bottom:1px solid var(--line); flex:none; }
 .colhead span:first-child { text-align:left; }
+.colhead .rot { display:inline-block; margin-left:6px; padding:0 5px; border-radius:999px; background:var(--accent); color:#fff; font-size:8px; line-height:1.2; letter-spacing:.04em; vertical-align:top; }
 
 /* rows
    Rows share out whatever height is left rather than each taking a fixed 52px, so a

@@ -58,7 +58,6 @@ test.describe('Saving on the device', () => {
     await expect(serving).toHaveText('Lily');
     await page.reload();
     await expect(serving).toHaveText('Lily');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo re-align');
     await press(page.locator('[data-action="undo"]'));
     await expect(serving).toHaveText('Grace');
   });

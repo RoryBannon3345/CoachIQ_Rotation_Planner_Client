@@ -2,7 +2,7 @@
 
 ## What it is
 
-Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR6… roster payloads (with per-set membership bitmasks and each set's planned serve order) and CIQS5… stats payloads with the planner by copy and paste, with no server or network required. The record screen highlights the player who should be serving.
+Records per-player Serve In, Serve Out, Return In, and Return Out counts per set during a game, supporting up to 16 players a game and 32 a day, 5 sets a game, and 8 games a day, all sharing one player directory for the whole day. Exchanges CIQR6… roster payloads (with per-set membership bitmasks and each set's planned serve order) and CIQS5… stats payloads with the planner by copy and paste, with no server or network required. The record screen highlights the player who should be serving and shows the rotation we are in.
 
 Us / Them point taps per rally in the set bar, with 'who serves first?' once per set; the tally is the set's score and goes to the planner as a point log (contract v5).
 
@@ -200,7 +200,7 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] 12-row roster: every button hit reliably with a thumb; no double-tap zoom; no rubber-band scroll of the whole page.
 - [ ] 16-row roster scrolls; rows stay full size.
 - [ ] Tap, lock the phone 60 s, unlock → counts intact. Background the app, open five other apps, return → intact. Kill the app, relaunch → intact and on the same game/set.
-- [ ] "−" mode subtracts exactly once then turns off; Undo reverses the last tap and shows what it undid.
+- [ ] "−" mode subtracts exactly once then turns off; Undo reverses the last tap.
 - [ ] Second game in the same session; switch back and forth; counts never bleed.
 - [ ] Switch game between sets without pasting anything — Games ▾, pick the other game, counts and set tab for each game are exactly as left.
 - [ ] Tick a directory player the morning's plan did not name — ⋯ → Players…, tick someone who was never on this game's pre-selection, confirm she is now on the record screen with a clean count.
@@ -208,7 +208,7 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] Export → Share → Mail to self → paste into the planner's Stats dialog → import preview shows the right sets/scores/guests. Re-export after editing → planner shows "This replaces the stats already stored".
 - [ ] One export covers the whole day — a single Export from any game produces one payload naming every game recorded that day, not one payload per game.
 - [ ] Paste the stats string into the roster box → "This is a stats payload, not a roster payload."
-- [ ] Tap We serve first, tap Us twice and Them once → the bar reads Us 2 / 1 Them, Undo reads '↶ Undo point Them'. Export → the planner's Stats page shows the Points on court card.
+- [ ] Tap We serve first, tap Us twice and Them once → the bar reads Us 2 / 1 Them, Undo is enabled. Export → the planner's Stats page shows the Points on court card.
 - [ ] On a fresh set tap Grace Serve In twice, then Serve Out → the bar reads Us 2 / 1 Them with the dot on Them, the toast says "Us +1 · we serve, then Them +1 · Serve out", and one Undo takes back the Out tap and both of its points (Us 1 / 0 Them, both pills dashed).
 - [ ] Tap Zoë Serve In, then Grace Serve In (the wrong row), then − and Grace Serve In → the toast says "Open rally cancelled" and the pills stop being dashed; Zoë Serve In then opens a fresh rally and the score stays at Us 1.
   A minus on the counter that opened the current rally always cancels that rally. To fix an older miscount on the player who is serving, wait until the rally is settled (or Undo the minus).
@@ -216,8 +216,11 @@ Two constants must be bumped for every release, and both are easy to forget:
 - [ ] (4.5.0) On a fresh set tap Grace Serve In, Us, then Grace Serve Out → Export starts `CIQS5.`; paste it into the planner → the import is accepted, and that set's As played card on the Stats page either reads "The phone’s servers match this set as played." or names Grace as the phone's server.
   Each serve tap records the rally it served; a set whose serves were never tapped sends no servers, and the planner still imports a 4.4.0 phone's `CIQS4.` export.
 - [ ] (4.6.0) Paste a `CIQR6.` roster from the planner and tap We serve first → the planned server's row has a blue background and an accent bar on the left; tap Serve Out for her → the highlight moves to our next server while they serve.
-- [ ] (4.6.0) At the start of our serve turn tap Serve In for someone other than the highlighted player → the toast says "Re-aligned to <name>" (or "<name> serving for <name>" for a player outside the plan) and the highlight moves to her; Undo reads "↶ Undo re-align": one Undo puts the highlight back and keeps her serve count, a second takes the tap back.
+- [ ] (4.6.0) At the start of our serve turn tap Serve In for someone other than the highlighted player → the toast says "Re-aligned to <name>" (or "<name> serving for <name>" for a player outside the plan) and the highlight moves to her; one Undo puts the highlight back and keeps her serve count, a second takes the tap back.
 - [ ] (4.6.0) Paste the same `CIQR6.` roster into a phone still on 4.5.0 → it is refused as made by a newer version of the Rotation Planner (contract 6).
+- [ ] (4.7.0) Tap We serve first → the Player column header shows "R1"; tap Serve Out for the highlighted player → still "R1" while they serve (the highlight moves to our next server); tap Serve In for the newly highlighted player → "R2". Receiving first also starts at "R1".
+- [ ] (4.7.0) Open an older roster (no plan) and answer serve-first → the "R" pill still shows; a Train set (a plan longer than six) shows no pill.
+- [ ] (4.7.0) At the start of our serve turn tap Serve In for another player in the plan → the pill jumps to her rotation (a player outside the plan stands in and leaves the pill unchanged); the Undo button reads plain "↶ Undo", and one Undo puts the pill and the highlight back.
 - [ ] Airplane mode → launch from Home Screen → app opens (worker cache), and the ⋯ menu shows the current version.
 
 ## Contract

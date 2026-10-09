@@ -364,7 +364,7 @@ test('the set bar asks who serves first on a fresh set, shows the live score onc
   html = await renderWith(day, 'g1');
   assert.match(html, /data-action="tap-point" data-winner="U"[^>]*>Us <span class="big">2<\/span>/);
   assert.match(html, /data-action="tap-point" data-winner="T"[^>]*><span class="big">1<\/span> Them/);
-  assert.match(html, /↶ Undo point Them/);
+  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
 
   day = setScore(newDayFromRoster(roster, '2026-09-19T09:00:00Z'), 'g1', 1, [25, 21]);
   html = await renderWith(day, 'g1');
@@ -531,7 +531,7 @@ test('the record screen shows no brand card', async () => {
 
 const ONE_SET = { v: 3, kind: 'roster', date: '2026-09-19', team: 'Thunder', players: [{ id: 'grace', name: 'Grace' }], games: [{ gameId: 'g1', opponent: 'Lions', sets: [1] }] };
 
-test('a stat tap that scores shows a toast naming why, and Undo names the letters', async () => {
+test('a stat tap that scores shows a toast naming why', async () => {
   const { document } = await bootWithSession(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'));
   click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="in"]');
   let html = document.getElementById('app').innerHTML;
@@ -539,7 +539,7 @@ test('a stat tap that scores shows a toast naming why, and Undo names the letter
   click(document, '[data-action="tap-count"][data-pid="grace"][data-stat="serve"][data-side="out"]');
   html = document.getElementById('app').innerHTML;
   assert.match(html, /<div class="toast" role="status" aria-live="polite">Us \+1 · we serve, then Them \+1 · Serve out<\/div>/);
-  assert.match(html, /↶ Undo Grace S out \+ Us, Them/);
+  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
   click(document, '[data-action="toggle-minus"]');
   assert.doesNotMatch(document.getElementById('app').innerHTML, /class="toast"/, 'the next action of any kind clears it');
 });
@@ -664,17 +664,17 @@ test('no row is highlighted without a plan, for a typed set, before serve-first,
   await none(setServedFirst(setPlayerTicked(planDay(), 'g1', 1, 'ana', false).session, 'g1', 1, true), 1, 'the predicted player is not ticked');
 });
 
-test('a Serve tap for someone else re-aligns: the toast names her, Undo reads ↶ Undo re-align and keeps the stat', async () => {
+test('a Serve tap for someone else re-aligns: the toast names her, one Undo takes back the re-align and keeps the stat', async () => {
   const { document } = await bootWithSession(planDay());
   click(document, serveIn('cat'));
   let html = document.getElementById('app').innerHTML;
   assert.match(html, toastSays('Re-aligned to Cat'));
   assert.match(html, servingRow('Cat'));
-  assert.match(html, /data-action="undo"[^>]*>↶ Undo re-align<\/button>/);
+  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
   click(document, '[data-action="undo"]');
   html = document.getElementById('app').innerHTML;
   assert.match(html, servingRow('Ana Lopez'));
-  assert.match(html, /data-action="undo"[^>]*>↶ Undo Cat S in<\/button>/);
+  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
   assert.match(html, /data-pid="cat" data-stat="serve" data-side="in">1<\/button>/);
 });
 
@@ -706,4 +706,48 @@ test('the serving row is styled by colour alone: a background and an accent bar,
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.ok(css.includes('.row.serving, .row.serving:nth-child(even) { background:var(--info-bg); box-shadow:inset 4px 0 0 var(--accent); }'));
   assert.doesNotMatch(css, /\.row\.serving[^{]*::before/);
+});
+
+// ---- the rotation number (docs/superpowers/specs/2026-10-08-rotation-number-design.md) ----
+const pill = (n) => new RegExp(`<span>Player<span class="rot" data-rotation="${n}">R${n}</span></span>`);
+const noPill = /<span>Player<\/span>/;
+
+test('the Player header shows the rotation we stand in, through a serve, a lost rally and a side-out', async () => {
+  let day = setServedFirst(planDay(), 'g1', 1, true);
+  assert.match(await renderWith(day, 'g1'), pill(1));
+  day = tapPoint(day, 'g1', 1, 'T'); // we lose: they serve, Bea is next, but we are still in rotation 1
+  assert.match(await renderWith(day, 'g1'), pill(1));
+  day = tapPoint(day, 'g1', 1, 'U'); // side-out: rotation 2
+  assert.match(await renderWith(day, 'g1'), pill(2));
+  let recv = setServedFirst(planDay(), 'g1', 1, false);
+  assert.match(await renderWith(recv, 'g1'), pill(1), 'receiving first is still rotation 1');
+  recv = tapPoint(recv, 'g1', 1, 'U');
+  assert.match(await renderWith(recv, 'g1'), pill(2));
+});
+
+test('the rotation shows without a plan, and not before serve-first, for a typed set or under a Train plan', async () => {
+  const older = setServedFirst(newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z'), 'g1', 1, true);
+  assert.match(await renderWith(older, 'g1'), pill(1), 'an older roster');
+  assert.match(await renderWith(planDay(), 'g1'), noPill, 'serve-first unanswered');
+  assert.match(await renderWith(setScore(planDay(), 'g1', 1, [25, 20]), 'g1'), noPill, 'a typed set');
+  const train = setServedFirst(planDay(['0123456', null]), 'g1', 1, true);
+  const html = await renderWith(train, 'g1');
+  assert.match(html, noPill, 'a Train-length plan');
+  assert.equal(servingRows(html).length, 1, 'the highlight still works under a Train plan');
+});
+
+test('a re-align moves the rotation, and Undo brings it back', async () => {
+  const { document } = await bootWithSession(planDay());
+  click(document, serveIn('cat')); // answers "we serve first"; the plan says Ana (rotation 1), Cat is rotation 3
+  assert.match(document.getElementById('app').innerHTML, pill(3));
+  click(document, '[data-action="undo"]');
+  assert.match(document.getElementById('app').innerHTML, pill(1));
+});
+
+test('the Undo button is plain ↶ Undo, disabled with no history and enabled with some', async () => {
+  const day = newDayFromRoster(ONE_SET, '2026-09-19T09:00:00Z');
+  assert.match(await renderWith(day, 'g1'), /data-action="undo" disabled>↶ Undo<\/button>/);
+  const html = await renderWith(tap(day, 'g1', 1, 'grace', 'serve', 'in', 1), 'g1');
+  assert.match(html, /data-action="undo" >↶ Undo<\/button>/);
+  assert.doesNotMatch(html, /Undo Grace|Undo point|Undo re-align/);
 });

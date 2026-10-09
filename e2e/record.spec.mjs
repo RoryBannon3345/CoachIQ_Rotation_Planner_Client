@@ -12,12 +12,12 @@ test.describe('Recording a set', () => {
       await press(count(page, 'grace', stat, side));
       await expect(count(page, 'grace', stat, side)).toHaveText('1');
     }
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace R out + Them, Them');
+    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
     await press(page.locator('[data-action="undo"]'));
     await expect(count(page, 'grace', 'return', 'out')).toHaveText('0');
     // Only the last tap came back.
     await expect(count(page, 'grace', 'return', 'in')).toHaveText('1');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace R in');
+    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo');
   });
 
   test('minus subtracts once, and a tap at 0 does not use it up', async ({ page, openApp, press }) => {
@@ -54,14 +54,14 @@ test.describe('Recording a set', () => {
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 0');
     await press(us); // 0 ms after the answer, inside ui.js's 300 ms double-tap guard: ignored
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 0');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo');
+    await expect(page.locator('[data-action="undo"]')).toBeDisabled();
     await page.clock.runFor(350); // past ui.js's 300 ms guard
     await press(us);
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
     await press(them);
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 1');
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo point Them');
+    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
   });
 
   test('set tabs switch, and an empty set offers Tick players…', async ({ page, openApp, press }) => {
@@ -94,7 +94,7 @@ test.describe('Recording a set', () => {
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 1');
     await expect(them).toHaveAttribute('data-serving', '1');
     await expect(page.locator('.toast')).toHaveText('Us +1 · we serve, then Them +1 · Serve out');
-    await expect(page.locator('[data-action="undo"]')).toHaveText('↶ Undo Grace S out + Us, Them');
+    await expect(page.locator('[data-action="undo"]')).toBeEnabled();
     await press(page.locator('[data-action="undo"]'));
     await expect(us).toHaveAttribute('aria-label', 'Us scored, 1');
     await expect(them).toHaveAttribute('aria-label', 'Them scored, 0');
@@ -134,6 +134,21 @@ test.describe('Recording a set', () => {
     await expect(serving.locator('.name')).toHaveText('Zoë');
   });
 
+  test('the Player header shows the rotation, which moves only when we win the ball back', async ({ page, openApp, press }) => {
+    await openApp();
+    await openDay(page, rosterText(plannedPayload()));
+    const rot = page.locator('.colhead .rot');
+    await expect(rot).toHaveCount(0); // serve-first not answered yet
+    await press(page.locator('[data-action="serve-first"][data-us="1"]'));
+    await expect(rot).toHaveText('R1');
+    await press(count(page, 'grace', 'serve', 'out')); // rally lost: they serve; still rotation 1
+    await expect(rot).toHaveText('R1');
+    await expect(page.locator('.rows .row.serving .name')).toHaveText('Zoë');
+    await press(count(page, 'zoie', 'serve', 'in')); // side-out: rotation 2
+    await expect(rot).toHaveText('R2');
+    await expect(rot).toHaveAttribute('data-rotation', '2');
+  });
+
   test('a Serve tap for someone else re-aligns with a toast, and Undo takes it back and keeps the stat', async ({ page, openApp, press }) => {
     await openApp();
     await openDay(page, rosterText(plannedPayload()));
@@ -142,11 +157,9 @@ test.describe('Recording a set', () => {
     await press(count(page, 'lily', 'serve', 'in')); // answers "we serve first"; the plan says Grace
     await expect(page.locator('.toast')).toHaveText('Re-aligned to Lily');
     await expect(serving).toHaveText('Lily');
-    await expect(undo).toHaveText('↶ Undo re-align');
     await press(undo);
     await expect(serving).toHaveText('Grace');
     await expect(count(page, 'lily', 'serve', 'in')).toHaveText('1');
-    await expect(undo).toHaveText('↶ Undo Lily S in');
   });
 
   test('a player outside the plan stands in, and the planned player comes back in', async ({ page, openApp, press }) => {
