@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Undo and minus — ten ways to take a tap back</title>
+<style>
+:root{
+  --bg:#f2f4f7; --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --line:#dde3ea; --line-2:#c6d0da;
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5;
+  --accent:#2f7de1; --accent-fg:#ffffff;
+  --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --info-bg:#e8f1fd; --err:#cf4747; --err-bg:#fdecec; --err-border:#f3c9c9;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e4e8ee;color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 6px}
+.lede{color:var(--fg-2);font-size:13.5px;max-width:960px;margin:0 0 8px;line-height:1.6}
+h2{font-size:14px;margin:34px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-2)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--fg-3);font-size:12.5px;margin-left:8px}
+h2 .tag{text-transform:none;letter-spacing:.02em;font-size:10px;font-weight:700;background:var(--accent);color:#fff;border-radius:4px;padding:2px 7px;margin-left:8px;vertical-align:middle}
+h2 .tag.alt{background:var(--fg-2)}
+h3{font-size:12.5px;margin:40px 0 0;color:var(--fg);border-bottom:2px solid var(--line-2);max-width:960px;padding-bottom:4px}
+.strip{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+.phone{width:320px;flex:none;max-width:100%}
+.cap{font-size:11.5px;color:var(--fg-2);margin:8px 0 0;line-height:1.55}
+.cap b{color:var(--fg)}
+.step{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:4px;padding:2px 7px;margin-bottom:7px;background:var(--accent);color:#fff}
+.frame{position:relative;height:500px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;box-shadow:0 2px 14px rgba(20,32,45,.10)}
+.frame.tall{height:560px}
+.topbar{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:48px;background:var(--bg-2);border-bottom:1px solid var(--line);flex:none}
+.title-group{flex:1;min-width:0;display:flex;flex-direction:column;text-align:center}
+.title-team{font-size:10px;line-height:1.3;color:var(--fg-3)}
+.title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;flex:0 0 78px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg span{flex:1;text-align:center;padding:12px 2px;font-size:13px;color:var(--fg-2)}
+.seg span.on{background:var(--accent);color:#fff;font-weight:600}
+.pt{flex:1;min-width:0;min-height:44px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-2);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:13px}
+.pt .big{font-size:22px}
+.pt.us{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.pt.them{background:var(--err-bg);border-color:var(--err);color:#a8392f}
+.pt.open{border-style:dashed}
+.pt.serving::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.colhead{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;padding:6px 10px 4px;font-size:8px;font-weight:700;text-transform:uppercase;color:var(--fg-3);text-align:center;background:var(--bg-3);border-bottom:1px solid var(--line);flex:none;align-items:center}
+.colhead span:first-child{text-align:left}
+.colhead .rot{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:8px;letter-spacing:.04em}
+.idle{opacity:.5}
+.rows{flex:1;overflow:hidden}
+.row{display:grid;grid-template-columns:96px repeat(4,1fr);gap:4px;height:38px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line)}
+.tall .row{height:46px}
+.row:nth-child(even){background:var(--bg-3)}
+.row.serving,.row.serving:nth-child(even){background:var(--info-bg);box-shadow:inset 4px 0 0 var(--accent)}
+.name{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:5px;overflow:hidden;white-space:nowrap}
+.name .chev{color:var(--fg-3);font-weight:400;font-size:14px;margin-left:auto;padding-right:6px}
+.cnt{position:relative;font-size:16px;font-weight:700;height:36px;border-radius:8px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center}
+.tall .cnt{height:44px}
+.cnt.in{background:var(--ok-bg);border-color:var(--ok);color:#237a5a}
+.cnt.out{background:var(--warn-bg);border-color:var(--warn);color:#a15b13}
+.cnt.red{border-color:var(--err)}
+.bottombar{display:grid;grid-template-columns:1fr 56px 1fr;gap:8px;padding:8px;background:var(--bg);flex:none}
+.bottombar.two{grid-template-columns:1fr 1fr}
+.bottombar.three{grid-template-columns:1fr 1fr 1fr}
+.btn{background:var(--bg-4);border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:12.5px;color:var(--fg);white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.undo{justify-content:flex-start;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11.5px}
+.btn.minusbtn{font-size:18px;font-weight:800}
+.btn.armed{background:var(--err);border-color:var(--err);color:#fff;font-weight:700}
+.btn.tiny{min-height:30px;padding:4px 10px;font-size:11.5px}
+.toast{position:absolute;left:10px;right:10px;bottom:68px;background:#16202b;color:#fff;border-radius:10px;padding:9px 12px;font-size:11.5px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:3}
+.toast .act{margin-left:auto;color:#9cc5ff;font-weight:700;white-space:nowrap}
+
+/* ---- the new bits, one block per option ---- */
+/* A: the held cell */
+.cnt.hold{box-shadow:0 0 0 3px var(--err);border-color:var(--err);background:var(--err-bg);color:#a8392f}
+.cnt .tag{position:absolute;top:-9px;right:-6px;background:var(--err);color:#fff;font-size:9px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.3}
+/* B: the split cell */
+.cnt.strip{flex-direction:column;gap:0;padding:0;overflow:hidden}
+.cnt.strip b{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
+.cnt.strip .sub{flex:none;width:100%;height:13px;line-height:12px;font-size:11px;font-weight:800;text-align:center;border-top:1px dashed currentColor;opacity:.75}
+.cnt.strip.pressed .sub{background:var(--err);color:#fff;opacity:1;border-top-color:var(--err)}
+/* C: the swiped row */
+.row.swiped{background:var(--err-bg)!important;box-shadow:inset 4px 0 0 var(--err)}
+.row.swiped .name{color:var(--fg-3);font-weight:500}
+.cnt.del{background:var(--err);border-color:var(--err);color:#fff;font-size:18px;font-weight:800;gap:3px}
+.cnt.del small{font-size:9px;font-weight:600;opacity:.8}
+/* D, E, J: sheets */
+.dim{position:absolute;inset:0;background:rgba(22,32,43,.42);z-index:4}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg-2);border-radius:14px 14px 0 0;padding:10px 12px 12px;z-index:5;box-shadow:0 -4px 20px rgba(0,0,0,.2)}
+.sheet .sh-h{display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:8px}
+.sheet .sh-h small{display:block;font-weight:400;color:var(--fg-3);font-size:11px}
+.stp{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;height:40px}
+.stp span{flex:1;text-align:center;font-weight:800;font-size:15px}
+.stp i{font-style:normal;flex:none;width:40px;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;background:var(--bg-4)}
+.stp i.m{color:var(--err)}
+.stp i.p{color:#237a5a}
+.stp.in{background:var(--ok-bg);border-color:var(--ok)}
+.stp.out{background:var(--warn-bg);border-color:var(--warn)}
+.stpgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stpgrid label{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--fg-3);display:block;margin-bottom:3px}
+/* E: the undo list */
+.hrow{display:flex;align-items:center;gap:8px;padding:9px 6px;border-top:1px solid var(--line);font-size:12.5px}
+.hrow:first-of-type{border-top:0}
+.hrow .who{font-weight:600}
+.hrow .what{color:var(--fg-2)}
+.hrow .pill{margin-left:auto;flex:none;font-size:10.5px;font-weight:700;border-radius:999px;padding:3px 9px;border:1px solid var(--line-2);background:var(--bg-4)}
+.hrow.top{background:var(--info-bg);border-radius:8px;border-top:0;margin-bottom:2px}
+.hrow.top .pill{background:var(--accent);border-color:var(--accent);color:#fff}
+.hrow .pill.m{color:var(--err);border-color:var(--err-border);background:var(--err-bg)}
+.hrow .set{font-size:10px;color:var(--fg-3);margin-left:4px}
+.hrow.ctx{color:var(--fg-3)}
+.hrow.ctx .who{color:var(--fg-3)}
+/* I: the banner and the badges */
+.banner{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;background:var(--err);color:#fff;font-weight:700;font-size:12.5px;flex:none;min-height:60px}
+.banner .btn{margin-left:auto;background:#fff;border-color:#fff;color:var(--err);font-weight:700}
+.cnt .mb{position:absolute;top:-6px;right:-5px;width:14px;height:14px;border-radius:50%;background:var(--err);color:#fff;font-size:10px;font-weight:800;line-height:14px;text-align:center}
+/* J: the whole-set sheet */
+.jrow{display:grid;grid-template-columns:62px repeat(4,1fr);gap:4px;align-items:center;padding:3px 0;border-top:1px solid var(--line)}
+.jrow .nm{font-size:11px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.jrow .stp{height:28px}
+.jrow .stp i{width:16px;font-size:12px}
+.jrow .stp span{font-size:12px}
+.jhead{display:grid;grid-template-columns:62px repeat(4,1fr);gap:4px;font-size:7.5px;font-weight:700;text-transform:uppercase;color:var(--fg-3);text-align:center;margin-bottom:2px}
+.jhead span:first-child{text-align:left}
+
+.note{max-width:960px;margin:14px 0 0;padding:11px 13px;border-radius:10px;background:var(--info-bg);border:1px solid #c3dbf8;font-size:12.5px;line-height:1.6;color:#1d4e8f}
+.note b{color:#143a6b}
+.reco{max-width:960px;margin:14px 0 4px;padding:12px 14px;border-radius:10px;background:var(--bg-2);border:2px solid var(--accent);font-size:13px;line-height:1.6}
+.reco ul{margin:6px 0 8px;padding-left:20px}
+.reco li{margin:2px 0}
+.reco .why{display:block;font-size:12px;color:var(--fg-2);border-top:1px solid var(--line);padding-top:8px}
+.today{max-width:960px;margin:10px 0 0;padding:11px 13px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line-2);font-size:12.5px;line-height:1.6}
+.today b{color:var(--fg)}
+table.cmp{border-collapse:collapse;font-size:12px;margin-top:14px;max-width:1100px;background:var(--bg-2)}
+table.cmp th,table.cmp td{border:1px solid var(--line-2);padding:6px 9px;text-align:left;vertical-align:top}
+table.cmp th{background:var(--bg-3);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-2)}
+table.cmp td.y{color:#237a5a;font-weight:700}
+table.cmp td.n{color:#a8392f;font-weight:700}
+table.cmp tr.reco-row td{background:var(--info-bg)}
+@media (max-width:420px){body{padding:16px}.phone{width:100%}}
+</style>
+</head>
+<body>
+<h1>Undo and minus — ten ways to take a tap back</h1>
+<p class="lede">Today the bottom bar has two controls that both "take something back", and nothing on screen says which to reach for. Every frame below is the same moment: set 1, we serve at 14–11, rotation 3, Hailey serving. The coach has just noticed that <b>Grace's Serve In reads 2 but should be 1</b>: a stray tap a few rallies ago. The <b>last</b> tap (Hailey, Serve In, which scored us a point) was right, so Undo alone can't fix it without also taking Hailey's tap away.</p>
+
+<div class="today"><b>What the two buttons do today.</b> <b>↶ Undo</b> reverses the <b>last thing recorded</b> in this game, in time order: a count tap and the rally letters it inferred, an Us/Them point, or a re-align. Up to 400 steps, and it works across every set of the game, so it can change a set you aren't looking at. <b>−</b> arms a one-shot mode: the <b>next count you tap</b> goes down by one, wherever it is, and the mode switches itself off. It leaves the rally log alone, except that a minus on the cell that opened the current rally cancels that rally. So the real split is <b>"my last tap was wrong"</b> (Undo) versus <b>"that cell is wrong"</b> (minus). The options below either fold the second job into the cell itself, fold both jobs into one button, or keep both and make the roles impossible to confuse.</div>
+
+<div class="reco"><b>Recommendation: A, hold a count to take one away. Runner-up: E, Undo opens a list.</b>
+<ul>
+<li><b>A</b> leaves one button in the bar with one meaning. Undo means "my last tap was wrong". Everything else is "that cell is wrong", fixed on the cell, which is where the coach is already looking.</li>
+<li>A hold can't fire by accident while tapping fast, unlike the split cell in B, and there is no mode to forget you are in, unlike F, I and today's −.</li>
+<li>The open-rally cancel rule carries over untouched: a hold on the cell that opened the rally is the same minus tap the app already handles.</li>
+<li>Its one cost is that a hold is invisible until you know it. A one-time toast the first time the record screen opens, plus a line in the ⋯ menu, covers that.</li>
+<li><b>E</b> is the strongest answer if you would rather have nothing hidden in a gesture: one button, and the coach sees exactly what each row will change before it changes. It also fixes the quiet surprise that Undo today can reach into another set.</li>
+</ul>
+<span class="why">Why not the others: <b>B</b> puts a subtract target under a fast-tapping thumb. <b>C</b> is a gesture too, and a bigger one, on a row that also has to scroll. <b>D</b> and <b>J</b> make every fix three taps through a sheet. <b>F</b> hides the minus inside the Undo button, so it is still two jobs on one control, just less visible. <b>G</b> makes Undo disappear after five seconds. <b>H</b> and <b>I</b> are the smallest changes but keep two buttons, and I adds a mode banner to a screen that is already full.</span>
+</div>
+
+<h3>Fold the subtract into the cell — the bar keeps only Undo and Export</h3>
+
+<h2>A &middot; Hold a count to take one away <span class="tag">Recommended</span><span class="sub">the − button goes; press and hold any cell</span></h2>
+<div class="strip" id="optA"></div>
+<p class="note">Tap adds one, as today. <b>Hold</b> a count for about half a second and it gets a red ring with a "−1" tag; let go and it drops by one. Move your finger and nothing happens. The first time the record screen opens, a toast explains the hold. Needs <code>-webkit-touch-callout:none</code> and <code>user-select:none</code> on the cells so iPhone doesn't show its own menu. A hold on the cell that opened the current rally cancels the rally, exactly as − does now.</p>
+
+<h2>B &middot; A slim "−" strip on every cell <span class="sub">the subtract target is always visible</span></h2>
+<div class="strip" id="optB"></div>
+<p class="note">Each count becomes two targets: the big top part adds, the thin band along the bottom takes one away. No gesture, no mode, nothing to learn. <b>Trade-off:</b> a thumb moving fast can hit the strip instead of the top, and when the 12-row density guard shrinks the rows there is no room for the strip, so it would hide and the coach would need another way on a full roster.</p>
+
+<h2>C &middot; Swipe a row to reveal four "−" buttons <span class="sub">mail style</span></h2>
+<div class="strip" id="optC"></div>
+<p class="note">Drag a player's row to the left and it slides over to show a red "−" under each of the four columns. Tap one to take one away; tap anywhere else to close. Keeps the cells single-purpose. <b>Trade-off:</b> a horizontal swipe has to be told apart from a vertical scroll on a list that scrolls, and the gesture is no easier to discover than a hold.</p>
+
+<h3>Fold the subtract into a sheet or a list — one button, nothing hidden in a gesture</h3>
+
+<h2>D &middot; Tap a player's name to fix their counts <span class="sub">a sheet with four steppers</span></h2>
+<div class="strip" id="optD"></div>
+<p class="note">Each name gets a small chevron. Tapping it opens a sheet for that player in this set with four steppers; − and + adjust, Done closes. Every fix is deliberate and visible. <b>Trade-off:</b> a one-tap correction becomes three taps (name, −, Done), and the sheet covers the score and the serving row while it is open.</p>
+
+<h2>E &middot; Undo opens a list of recent taps <span class="tag alt">Runner-up</span><span class="sub">one button, both jobs</span></h2>
+<div class="strip" id="optE"></div>
+<p class="note">The bar reads "↶ Undo ▾". Tapping it shows the last five things recorded, newest first. The top row is a true Undo: it reverses that entry and the rally letters it inferred, exactly as the button does today. Any lower <b>count</b> row takes one away from <b>that</b> cell, which is what − does today, so the letters already in the log stay; lower points and re-aligns are shown for context only. Entries from another set say which set, so Undo stops being a surprise. <b>Trade-off:</b> an ordinary undo is now two taps, and the list is a new piece of UI to maintain.</p>
+
+<h2>F &middot; One button: tap to undo, hold to arm minus <span class="sub">the literal merge</span></h2>
+<div class="strip" id="optF"></div>
+<p class="note">A tap on "↶ Undo" undoes the last entry. Hold it and it turns red, "− Tap a count"; the next count you tap goes down by one and the button returns to normal. The − button is gone and the bar has two cells. <b>Trade-off:</b> this is today's minus mode with a hidden way in. It still has two jobs on one control, and the coach still has to decide which job before pressing.</p>
+
+<h3>Keep both jobs, make the roles impossible to confuse</h3>
+
+<h2>G &middot; Undo moves into the toast; the bar keeps one Fix button <span class="sub">Gmail style</span></h2>
+<div class="strip" id="optG"></div>
+<p class="note">After every tap a toast above the bar says what was recorded, with an Undo link, and stays for five seconds. The bar has only "− Fix" and Export, so there is one button and it means "that cell is wrong". Older undos live in the ⋯ menu as "Undo last". <b>Trade-off:</b> the easiest undo is the one you have to catch within five seconds; after that it is a menu trip.</p>
+
+<h2>H &middot; Say what each button does <span class="sub">labels only, no behaviour change</span></h2>
+<div class="strip" id="optH"></div>
+<p class="note">Three equal columns: "↶ Undo last", "− Fix a count", "Export". The words carry the distinction that the icons don't. Nothing else changes, so this is the smallest possible change. <b>Trade-off:</b> still two buttons for two jobs, and the coach still has to answer "was it my last tap?" before choosing.</p>
+
+<h2>I &middot; Fix mode takes over the bar <span class="sub">the mode can't be mistaken for the normal screen</span></h2>
+<div class="strip" id="optI"></div>
+<p class="note">Tapping − swaps the whole bottom bar for a red banner, "Tap a count to take one away", with a Cancel button, and every count shows a small − badge. The red outlines today are easy to miss; this isn't. Undo is unchanged. <b>Trade-off:</b> still two buttons, and a mode is still a mode: the coach has to get in and out of it.</p>
+
+<h2>J &middot; A whole-set edit sheet <span class="sub">− becomes ✎ Fix</span></h2>
+<div class="strip" id="optJ"></div>
+<p class="note">"✎ Fix" opens a sheet with every ticked player and four steppers each, so several corrections can be made in one visit, then Done. Minus mode and its red outlines go away; Undo stays for the last tap. <b>Trade-off:</b> three taps for one fix, the steppers are small on a full roster, and the sheet hides the live score while it is open.</p>
+
+<h2>Side by side</h2>
+<table class="cmp">
+<tr><th>Option</th><th>Bar</th><th>How you take one away</th><th>Taps to fix Grace</th><th>Safe while tapping fast</th><th>Something to discover</th><th>Undo stays as today</th></tr>
+<tr class="reco-row"><td><b>A</b> Hold a count</td><td>Undo · Export</td><td>Hold the cell</td><td>1 hold</td><td class="y">Yes</td><td>The hold (one-time toast)</td><td class="y">Yes</td></tr>
+<tr><td><b>B</b> Strip on the cell</td><td>Undo · Export</td><td>Tap the strip</td><td>1</td><td class="n">Mis-taps possible</td><td>Nothing</td><td class="y">Yes</td></tr>
+<tr><td><b>C</b> Swipe the row</td><td>Undo · Export</td><td>Swipe, then tap −</td><td>2</td><td class="y">Yes</td><td>The swipe</td><td class="y">Yes</td></tr>
+<tr><td><b>D</b> Tap the name</td><td>Undo · Export</td><td>Name, −, Done</td><td>3</td><td class="y">Yes</td><td>The chevron shows it</td><td class="y">Yes</td></tr>
+<tr><td><b>E</b> Undo list</td><td>Undo ▾ · Export</td><td>Undo, then pick the row</td><td>2</td><td class="y">Yes</td><td>Nothing</td><td>Becomes 2 taps, shows what it will do</td></tr>
+<tr><td><b>F</b> Tap or hold Undo</td><td>Undo · Export</td><td>Hold Undo, tap the cell</td><td>2</td><td class="y">Yes</td><td>The hold</td><td class="y">Yes</td></tr>
+<tr><td><b>G</b> Toast undo</td><td>Fix · Export</td><td>Fix, tap the cell</td><td>2</td><td class="y">Yes</td><td>Nothing</td><td class="n">Only for 5 s, then the menu</td></tr>
+<tr><td><b>H</b> Labels</td><td>Undo last · Fix a count · Export</td><td>Fix, tap the cell</td><td>2</td><td class="y">Yes</td><td>Nothing</td><td class="y">Yes</td></tr>
+<tr><td><b>I</b> Banner mode</td><td>Undo · − · Export</td><td>−, tap the cell</td><td>2</td><td class="y">Yes</td><td>Nothing</td><td class="y">Yes</td></tr>
+<tr><td><b>J</b> Whole-set sheet</td><td>Undo · Fix · Export</td><td>Fix, −, Done</td><td>3</td><td class="y">Yes</td><td>Nothing</td><td class="y">Yes</td></tr>
+</table>
+
+<script>
+const players = ['Addison', 'Brooklyn', 'Brynn', 'Emily', 'Grace', 'Hailey', 'Lexi', 'Lily'];
+const base = { Addison: [2, 1, 1, 0], Brooklyn: [1, 0, 2, 0], Brynn: [1, 0, 3, 1], Emily: [0, 0, 1, 0], Grace: [2, 0, 2, 1], Hailey: [3, 0, 1, 0], Lexi: [0, 0, 0, 0], Lily: [0, 0, 0, 0] };
+const FIX = { p: 'Grace', col: 0 }; // the cell that is wrong in every frame
+
+function cell(p, i, o) {
+  const cls = ['cnt', i % 2 === 0 ? 'in' : 'out'];
+  if (i >= 2) cls.push('idle');
+  const isFix = p === FIX.p && i === FIX.col;
+  let val = base[p][i];
+  if (isFix && o.fixed) val -= 1;
+  const extras = [];
+  if (isFix && o.hold) { cls.push('hold'); extras.push('<span class="tag">−1</span>'); }
+  if (o.outline) cls.push('red');
+  if (o.badges) extras.push('<span class="mb">−</span>');
+  if (o.strips) return `<div class="${cls.join(' ')} strip${isFix && o.pressed ? ' pressed' : ''}"><b>${val}</b><span class="sub">−</span></div>`;
+  return `<div class="${cls.join(' ')}">${val}${extras.join('')}</div>`;
+}
+function row(p, o) {
+  if (o.swipe === p) {
+    return `<div class="row swiped"><div class="name">${p}</div>${[0, 1, 2, 3].map((i) => `<div class="cnt del">−<small>${base[p][i]}</small></div>`).join('')}</div>`;
+  }
+  const serving = o.server === p;
+  const chev = o.chev ? '<span class="chev">›</span>' : '';
+  return `<div class="row${serving ? ' serving' : ''}"><div class="name">${p}${chev}</div>${[0, 1, 2, 3].map((i) => cell(p, i, o)).join('')}</div>`;
+}
+const pills = '<span class="pt us serving open">Us <span class="big">14</span></span><span class="pt them open"><span class="big">11</span> Them</span>';
+const bars = {
+  today: '<div class="bottombar"><span class="btn undo">↶ Undo</span><span class="btn minusbtn">−</span><span class="btn primary">Export</span></div>',
+  todayOn: '<div class="bottombar"><span class="btn undo">↶ Undo</span><span class="btn minusbtn primary">−</span><span class="btn primary">Export</span></div>',
+  two: '<div class="bottombar two"><span class="btn undo">↶ Undo</span><span class="btn primary">Export</span></div>',
+  list: '<div class="bottombar two"><span class="btn undo">↶ Undo ▾</span><span class="btn primary">Export</span></div>',
+  armed: '<div class="bottombar two"><span class="btn undo armed">− Tap a count</span><span class="btn primary">Export</span></div>',
+  fixOnly: '<div class="bottombar two"><span class="btn undo">− Fix</span><span class="btn primary">Export</span></div>',
+  fixOnlyOn: '<div class="bottombar two"><span class="btn undo primary">− Fix</span><span class="btn primary">Export</span></div>',
+  labels: '<div class="bottombar three"><span class="btn undo">↶ Undo last</span><span class="btn undo">− Fix a count</span><span class="btn primary">Export</span></div>',
+  labelsOn: '<div class="bottombar three"><span class="btn undo">↶ Undo last</span><span class="btn undo primary">− Fix a count</span><span class="btn primary">Export</span></div>',
+  banner: '<div class="banner"><span>Tap a count to take one away</span><span class="btn tiny">Cancel</span></div>',
+  fixBtn: '<div class="bottombar three"><span class="btn undo">↶ Undo</span><span class="btn undo">✎ Fix</span><span class="btn primary">Export</span></div>',
+};
+function stepper(kind, n) {
+  return `<div class="stp ${kind}"><i class="m">−</i><span>${n}</span><i class="p">+</i></div>`;
+}
+const sheets = {
+  player: `<div class="dim"></div><div class="sheet"><div class="sh-h"><span>Grace<small>Set 1 · tap − or + to correct</small></span><span class="btn tiny primary">Done</span></div>
+    <div class="stpgrid">
+      <div><label>Serve In</label>${stepper('in', 1)}</div><div><label>Serve Out</label>${stepper('out', 0)}</div>
+      <div><label>Return In</label>${stepper('in', 2)}</div><div><label>Return Out</label>${stepper('out', 1)}</div>
+    </div></div>`,
+  undoList: `<div class="dim"></div><div class="sheet"><div class="sh-h"><span>Take back<small>Newest first. The top row undoes it, points and all. A −1 takes one from that count and leaves the points alone.</small></span></div>
+    <div class="hrow top"><span class="who">Hailey</span><span class="what">Serve In +1 · Us +1</span><span class="pill">↶ Undo</span></div>
+    <div class="hrow ctx"><span class="who">Them</span><span class="what">+1</span></div>
+    <div class="hrow"><span class="who">Brynn</span><span class="what">Return In +1</span><span class="pill m">−1</span></div>
+    <div class="hrow"><span class="who">Grace</span><span class="what">Serve In +1</span><span class="pill m">−1</span></div>
+    <div class="hrow"><span class="who">Brooklyn</span><span class="what">Return In +1</span><span class="pill m">−1</span></div>
+  </div>`,
+  wholeSet: `<div class="dim"></div><div class="sheet"><div class="sh-h"><span>Fix set 1<small>− and + on any count</small></span><span class="btn tiny primary">Done</span></div>
+    <div class="jhead"><span>Player</span><span>Serve In</span><span>Serve Out</span><span>Return In</span><span>Return Out</span></div>
+    ${players.map((p) => `<div class="jrow"><span class="nm">${p}</span>${base[p].map((n, i) => stepper(i % 2 === 0 ? 'in' : 'out', p === FIX.p && i === FIX.col ? n - 1 : n)).join('')}</div>`).join('')}
+  </div>`,
+};
+function frame(o) {
+  const toast = o.toast ? `<div class="toast">${o.toast}</div>` : '';
+  return `<div class="frame${o.tall ? ' tall' : ''}">
+    <div class="topbar"><span class="btn">Games ▾</span><span class="title-group"><span class="title-team">Sample</span><span class="title">vs Game 1 · 9 Oct</span></span><span class="btn">⋯</span></div>
+    <div class="setbar"><div class="seg"><span class="on">1</span><span>2</span><span>3</span></div>${pills}</div>
+    <div class="colhead"><span>Player<span class="rot">R3</span></span><span>Serve In</span><span>Serve Out</span><span class="idle">Return In</span><span class="idle">Return Out</span></div>
+    <div class="rows">${players.map((p) => row(p, o)).join('')}</div>
+    ${toast}
+    ${bars[o.bar || 'today']}
+    ${o.sheet ? sheets[o.sheet] : ''}
+  </div>`;
+}
+const phone = (step, cap, fr) => `<div class="phone"><span class="step">${step}</span>${fr}<p class="cap">${cap}</p></div>`;
+const S = { server: 'Hailey' };
+function fill(id, frames) { document.getElementById(id).innerHTML = frames.map((f) => phone(f[0], f[1], frame({ ...S, ...f[2] }))).join(''); }
+
+fill('optA', [
+  ['1 · first open', 'The bar is two buttons. A one-time toast says how to take one away.', { bar: 'two', toast: 'Hold a count to take one away' }],
+  ['2 · holding', 'The coach holds Grace\'s Serve In. After half a second it rings red and shows <b>−1</b>.', { bar: 'two', hold: true }],
+  ['3 · released', 'Let go and it reads 1. Undo would put the 2 back, since the minus is the last entry.', { bar: 'two', fixed: true, toast: 'Grace · Serve In −1' }],
+]);
+fill('optB', [
+  ['1 · idle', 'Every cell has a thin "−" band along the bottom. Rows are a touch taller to make room.', { bar: 'two', strips: true, tall: true }],
+  ['2 · tapped the strip', 'One tap on Grace\'s strip; the count reads 1. The band flashes red for a moment.', { bar: 'two', strips: true, tall: true, fixed: true, pressed: true, toast: 'Grace · Serve In −1' }],
+]);
+fill('optC', [
+  ['1 · idle', 'Nothing new to see. The rows accept a swipe to the left.', { bar: 'two' }],
+  ['2 · row swiped', 'Grace\'s row slid left; a red "−" sits under each column with the current count. Tap one to take one away.', { bar: 'two', swipe: 'Grace' }],
+]);
+fill('optD', [
+  ['1 · idle', 'A chevron after each name says it opens something.', { bar: 'two', chev: true }],
+  ['2 · sheet open', 'Grace\'s four counts as steppers. The coach tapped − on Serve In; Done closes it.', { bar: 'two', chev: true, sheet: 'player', fixed: true }],
+]);
+fill('optE', [
+  ['1 · idle', 'One button, "↶ Undo ▾". The − button is gone.', { bar: 'list' }],
+  ['2 · list open', 'Newest first. The top row is today\'s Undo. Tapping the <b>Grace · Serve In +1</b> row takes one from that cell.', { bar: 'list', sheet: 'undoList' }],
+]);
+fill('optF', [
+  ['1 · idle', 'A tap on Undo undoes the last entry, as today.', { bar: 'two' }],
+  ['2 · held', 'Hold Undo and it turns red: "− Tap a count". The cells outline in red as they do in minus mode today.', { bar: 'armed', outline: true }],
+  ['3 · tapped a count', 'Grace\'s Serve In drops to 1 and the button goes back to Undo.', { bar: 'two', fixed: true, toast: 'Grace · Serve In −1' }],
+]);
+fill('optG', [
+  ['1 · just tapped', 'After Hailey\'s tap a toast says what was recorded, with an Undo link, for five seconds.', { bar: 'fixOnly', toast: 'Hailey · Serve In +1 · Us point<span class="act">↶ Undo</span>' }],
+  ['2 · fixing Grace', 'Fix is the only button. Tap it, then the cell; it works as − does today.', { bar: 'fixOnlyOn', outline: true }],
+]);
+fill('optH', [
+  ['1 · idle', 'Three equal columns with words instead of icons.', { bar: 'labels' }],
+  ['2 · fix armed', '"− Fix a count" fills blue and the cells outline in red, as minus mode does today.', { bar: 'labelsOn', outline: true }],
+]);
+fill('optI', [
+  ['1 · idle', 'Today\'s bar, unchanged.', { bar: 'today' }],
+  ['2 · fix mode', 'The bar is a red banner with Cancel, and every count wears a − badge. Tap Grace\'s Serve In to take one away.', { bar: 'banner', outline: true, badges: true }],
+]);
+fill('optJ', [
+  ['1 · idle', 'The − button becomes "✎ Fix".', { bar: 'fixBtn' }],
+  ['2 · sheet open', 'Every ticked player with four small steppers. Grace\'s Serve In has been dropped to 1; Done closes it.', { bar: 'fixBtn', sheet: 'wholeSet', tall: true }],
+]);
+</script>
+</body>
+</html>
