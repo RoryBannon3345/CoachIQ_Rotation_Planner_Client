@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live video stat tracking — feasibility study</title>
+<style>
+:root{
+  --fg:#16202b; --fg-2:#5a6878; --fg-3:#8996a5; --line:#dde3ea; --line-2:#c6d0da;
+  --bg-2:#ffffff; --bg-3:#f7f9fb; --bg-4:#eef2f6;
+  --accent:#2f7de1; --ok:#3fae82; --ok-bg:#e7f6ef; --warn:#d8891f; --warn-bg:#fdf3e3;
+  --err:#cf4747; --err-bg:#fdecec; --info-bg:#e8f1fd;
+}
+@page{ size:A4; margin:16mm 16mm 18mm 16mm; }
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff;color:var(--fg);font:11pt/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media screen{ body{max-width:860px;margin:0 auto;padding:40px 24px} }
+h1{font-size:22pt;line-height:1.2;margin:0 0 4px}
+.sub{color:var(--fg-2);font-size:11pt;margin:0 0 18px}
+h2{font-size:15pt;margin:26px 0 8px;padding-bottom:4px;border-bottom:1.5px solid var(--line-2);page-break-after:avoid}
+h3{font-size:12pt;margin:18px 0 6px;page-break-after:avoid}
+p{margin:0 0 9px}
+ul,ol{margin:0 0 10px;padding-left:22px}
+li{margin:0 0 4px}
+code{background:var(--bg-4);border:1px solid var(--line);border-radius:3px;padding:0 4px;font:9.5pt ui-monospace,Consolas,"Cascadia Mono",monospace}
+table{border-collapse:collapse;width:100%;margin:8px 0 14px;font-size:9.8pt;page-break-inside:auto}
+tr{page-break-inside:avoid}
+th,td{border:1px solid var(--line-2);padding:5px 7px;vertical-align:top;text-align:left}
+th{background:var(--bg-4);font-weight:600}
+td.c,th.c{text-align:center}
+tr.hl td{background:var(--info-bg)}
+.box{border:1px solid var(--line-2);border-radius:8px;padding:10px 13px;margin:10px 0 14px;background:var(--bg-3);page-break-inside:avoid}
+.box.ok{background:var(--ok-bg);border-color:#bfe6d3}
+.box.warn{background:var(--warn-bg);border-color:#f0d7ad}
+.box.info{background:var(--info-bg);border-color:#c3dbf8}
+.box b.t{display:block;margin-bottom:3px}
+.opt{page-break-inside:avoid}
+.opt h3{display:flex;align-items:baseline;gap:10px}
+.tag{font-size:9pt;font-weight:600;color:#fff;background:var(--accent);border-radius:999px;padding:1px 9px;position:relative;top:-2px;white-space:nowrap}
+.tag.grey{background:var(--fg-3)}
+.tag.ok{background:var(--ok)}
+.tag.warn{background:var(--warn)}
+.tag.err{background:var(--err)}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:3px 12px;font-size:10.2pt;margin:6px 0 10px}
+.kv div:nth-child(odd){color:var(--fg-2);font-weight:600}
+.pb{page-break-before:always}
+.small{font-size:9.5pt;color:var(--fg-2)}
+.pill{display:inline-block;border:1.5px solid;border-radius:8px;padding:0 8px;font-weight:700;font-size:9.5pt;white-space:nowrap}
+.pill.g{color:#1f7a55;background:var(--ok-bg);border-color:#7fcfae}
+.pill.a{color:#8a5a0f;background:var(--warn-bg);border-color:#e9c27a}
+.pill.r{color:#a33a3a;background:var(--err-bg);border-color:#e49a9a}
+.court{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 12px}
+.court .f{border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;background:#fff;font-size:9.5pt;min-width:230px;flex:1}
+.court .f b{display:block;margin-bottom:4px}
+footer{margin-top:30px;padding-top:8px;border-top:1px solid var(--line);font-size:9pt;color:var(--fg-3)}
+</style>
+</head>
+<body>
+
+<h1>Live video stat tracking — feasibility study</h1>
+<p class="sub">Date: 2026-10-09 · Status: for decision · App: Rotation Planner Client 4.8.0 · Proposed as the next major change</p>
+
+<div class="box info"><b class="t">The question</b>
+Could the mobile app capture live video from the side of the court and, on its own, track and update the set and player stats the record screen takes by tap today: Serve In, Serve Out, Return In, Return Out, the set score, side-outs and substitutions? If yes, what would it take?</div>
+
+<h2>1. Short answer</h2>
+
+<p><b>Yes for part of it, with a coach still in the loop, and not from a single sideline phone for the hard calls.</b> Here is the answer in five lines.</p>
+
+<ul>
+<li><b>Rally boundaries, serves and dead balls</b> can be detected from one phone camera today. That alone removes most of the tapping, because the app already knows who is serving from the rotation.</li>
+<li><b>Who won each rally</b>, and so the <b>score and side-outs</b>, can be got right most of the time. The best signals are not the ball at all: the first referee's point signal and a visible scoreboard. Ball tracking is the fallback, not the primary source.</li>
+<li><b>In or out line calls</b> from one camera are only trustworthy for clear cases. Anything within about 30 cm of a line needs a confirmation tap. Hawk-Eye uses six to ten cameras in tennis, and more in volleyball, for a reason.</li>
+<li><b>Substitutions</b> can be noticed, but reading which player came in needs jersey numbers at a resolution a sideline phone rarely gets. Subs stay a coach-confirmed event, with the sheet pre-filled.</li>
+<li><b>The side of the court is the wrong first camera position</b> for line calls. An elevated end-line or corner view is what the commercial products insist on. The side view does have one real advantage: the referee's stand and the substitution zone are both in frame, one near the camera and the other across the court, which an end-line view cannot offer. The study recommends trialling both.</li>
+</ul>
+
+<div class="box ok"><b class="t">The cheapest first step costs almost nothing and de-risks everything else</b>
+Every tap the coach makes today is a time-stamped, labelled event. If the app records video while the coach taps as normal, every match produces a labelled training set for free. No model has to exist before that step starts. See Phase 0 in section 6.</div>
+
+<p>The recommended path is <b>assisted capture</b>: the phone watches the match, proposes each event with a confidence, and the coach confirms with one tap or lets high-confidence events through. The app's existing undo and take-back sheet become the correction tool. Fully hands-off tracking of every stat from one phone is not achievable with current technology and should not be the target.</p>
+
+<h2>2. What each stat needs from the camera</h2>
+
+<p>The record screen's seven outputs are not equally hard. The table splits each into the visual signal it needs, how reliable that is from one phone, and whether a better signal exists.</p>
+
+<table>
+<tr><th style="width:17%">Stat</th><th style="width:30%">What the camera has to see</th><th style="width:13%" class="c">From one phone</th><th>Better signal, and what the app already knows</th></tr>
+<tr><td><b>Serve happened</b></td><td>Ball at rest behind the end line, then launched over the net. A whistle a second or two earlier.</td><td class="c"><span class="pill g">Good</span></td><td>The app knows who is serving from the rotation and serve order, so no player identification is needed. Audio whistle detection is cheap and robust.</td></tr>
+<tr><td><b>Serve In / Out</b></td><td>Whether the serve cleared the net and landed inside the far court, or the rally continued.</td><td class="c"><span class="pill a">Mixed</span></td><td>"Rally continued" is easy (the ball comes back). "Landed out by 20 cm" is the hard case. Net faults are visible from the side. The referee's signal settles it when the serve fails.</td></tr>
+<tr><td><b>Return In / Out</b></td><td>Which of our players received, and whether the ball stayed in play.</td><td class="c"><span class="pill a">Mixed</span></td><td>"Stayed in play" is easy. <b>Who passed</b> is the problem: the app knows the six on court but not which one touched the ball. Player tracking plus receive-formation position gets a likely answer; a one-tap "who passed?" choice among the back row and libero closes the gap.</td></tr>
+<tr><td><b>Rally winner (point)</b></td><td>Which side the ball died on, or the referee's arm.</td><td class="c"><span class="pill g">Good with assist</span></td><td>The first referee extends an arm toward the side that won. A pose model on the referee's stand is far more reliable than tracking the ball to the floor. A visible scoreboard read by text recognition is a second check.</td></tr>
+<tr><td><b>Set score</b></td><td>Nothing extra once rally winners are right.</td><td class="c"><span class="pill g">Derived</span></td><td>The app already derives score from the rally log. Scoreboard reading can reconcile drift every few points.</td></tr>
+<tr><td><b>Side-out</b></td><td>Nothing extra.</td><td class="c"><span class="pill g">Derived</span></td><td>Already inferred from score and server (shipped in 4.3.0). Falls out for free.</td></tr>
+<tr><td><b>Substitution</b></td><td>A player entering the substitution zone, a player leaving, and both jersey numbers.</td><td class="c"><span class="pill r">Weak</span></td><td>Detecting <i>that</i> a sub happened is fine; the zone is on the scorer's sideline, near the camera if it stands on that side. Reading <i>which</i> players needs jersey text recognition, which fails on folds, occlusion and distance. Pre-fill the add-sub sheet and ask.</td></tr>
+</table>
+
+<h3>Why the ball is hard</h3>
+<p>A volleyball is about 21 cm across. Float serves travel at 40 to 50 km/h at any level; jump serves reach 55 to 105 km/h in youth play and 95 to 110 km/h or more for elite men. At 30 frames per second a 70 km/h ball moves roughly 65 cm between frames, three ball widths, with motion blur under gym lighting. Phone cameras can run at 60 fps, but a browser app does not always get that, and fluorescent flicker adds frame-to-frame brightness changes. Modern small-object trackers (the TrackNet family, which looks at three consecutive frames and predicts a heat map) handle this in tennis and badminton, but they were trained on broadcast footage with a fixed high camera. Expect a fine-tuning effort, not a download.</p>
+
+<h3>Why in and out is hard from the side</h3>
+<div class="court">
+<div class="f"><b>Side view (what was asked)</b>Sees net height and net touches clearly. The first referee's stand is at the net post on the side opposite the scorer's table, and the substitution zone is on the scorer's side, so a side camera is close to one and about ten metres from the other, with both in frame. The near sideline is good. The far sideline is hidden behind players and foreshortened. The end lines are seen at a shallow angle, so depth along the court is poorly resolved. Mapping the floor (homography) from four tapped corners works, but the far half is imprecise.</div>
+<div class="f"><b>Elevated end-line or corner view</b>Sees both sidelines and the far end line. The court is a clean trapezoid, so a four-corner tap gives a precise floor map. This is the position the commercial single-camera products require. It does not see the referee's arm as well, and the near end line is at the bottom edge of the frame.</div>
+</div>
+<p>A line call from one camera also needs the <i>moment</i> of ground contact, which is inferred from the ball's trajectory changing direction. With the ball partly hidden by a player at that moment, the estimate degrades fast. A reasonable target is: clear in or clear out right 90 to 95% of the time, within 30 cm of a line right 60 to 70% of the time, and those cases flagged for confirmation.</p>
+
+<h2>3. Where the app is today</h2>
+
+<p>The platform shapes the options more than the models do.</p>
+
+<div class="kv">
+<div>Platform</div><div>Plain HTML and JavaScript single-page app, no framework, no native wrapper (no Capacitor, Cordova, React Native). Installable to the home screen; no web manifest yet.</div>
+<div>Build</div><div>Everything is inlined into one obfuscated HTML file in <code>dist/</code> and published to GitHub Pages. A service worker (cache v17) serves it offline.</div>
+<div>Storage</div><div><code>localStorage</code> only. There is no server, no account, no API. Stats leave as a <code>CIQS…</code> payload through the clipboard or the share sheet.</div>
+<div>Camera, media, ML</div><div>None. The app has never asked for a permission. There is no video element, no Web Worker, no WebAssembly, no model.</div>
+<div>Event model</div><div>Every tap goes through <code>tap()</code> in <code>src/session.js</code>, which updates the count, infers the rally letter, records the server, realigns the serve order and pushes an undoable history entry. Points go through <code>tapPoint()</code>. Score, side-outs and rotation are derived from that log, not stored.</div>
+</div>
+
+<div class="box"><b class="t">Three consequences</b>
+<ol style="margin-bottom:0">
+<li><b>Automatic events must enter through the same functions as taps.</b> If the vision layer calls <code>tap()</code> and <code>tapPoint()</code> like a finger would, then undo, side-out inference, rotation tracking and the export payload keep working unchanged. The only new thing in the session model is a "source" and "confidence" on each history entry so the take-back sheet can show which events were automatic.</li>
+<li><b>Model weights cannot live inside the single inlined HTML.</b> A small detector is 5 to 25 MB. It has to be fetched as a separate file and cached by the service worker, which is a new class of asset for the build and deploy scripts.</li>
+<li><b>Any cloud processing is the first backend this product has ever had.</b> Upload, storage, accounts, cost and a privacy policy for video of players all arrive with it. That is the largest architectural decision in this study, larger than any model choice.</li>
+</ol></div>
+
+<h2>4. Architecture options</h2>
+
+<div class="opt"><h3>A. Everything on the phone, inside the web app <span class="tag grey">possible, limited</span></h3>
+<p>Use the browser camera (<code>getUserMedia</code>) and run small models in the page with TensorFlow.js or ONNX Runtime Web, accelerated by WebGPU (Safari 26 and iOS 26 onward, current Chrome) and WebGL elsewhere. A nano-class detector at 640 px runs at an estimated 10 to 25 fps on a recent iPhone or flagship Android in the browser (no published benchmark; to be measured in Phase 1), which is enough for rally segmentation, player boxes and referee pose, and marginal for ball tracking.</p>
+<ul>
+<li><b>For:</b> no backend, no video ever leaves the phone, fits the current product shape, offline.</li>
+<li><b>Against:</b> the browser tab must stay in the foreground the whole match. Thermal throttling after 15 to 20 minutes is common. Memory limits in iOS Safari are tight. 60 fps capture is not guaranteed. Camera access from an installed home-screen app works on current iOS but has had regressions in the past.</li>
+</ul></div>
+
+<div class="opt"><h3>B. Native wrapper with on-device models <span class="tag grey">possible, new pipeline</span></h3>
+<p>Wrap the app in Capacitor and run the models through Core ML (iOS) or TensorFlow Lite (Android) with the camera at 60 fps and the neural accelerator. Two to four times the throughput of A, proper background and thermal management, app-store distribution.</p>
+<ul>
+<li><b>For:</b> the best on-device accuracy; still no video leaves the phone.</li>
+<li><b>Against:</b> an Xcode and Android Studio build, store review, signing, two native plugins to maintain. The single-camera limits on line calls do not change.</li>
+</ul></div>
+
+<div class="opt"><h3>C. Record on the phone, process in the cloud <span class="tag grey">most accurate, most new</span></h3>
+<p>The phone records and uploads video in 10 to 30 second chunks. A GPU service runs the heavy models (a mid-size detector, a TrackNet-style ball tracker, pose on the referee, text recognition on the scoreboard and jerseys) and returns events. Latency is near-live, not live.</p>
+<ul>
+<li><b>For:</b> the models can be as big as they need to be; one codebase for the vision; improvements ship without an app update.</li>
+<li><b>Against:</b> a backend, accounts, upload on gym Wi-Fi or mobile data (1 to 2 GB per hour at 720p), per-match GPU cost, and a privacy regime for video of players, many of them minors.</li>
+</ul></div>
+
+<div class="opt"><h3>D. Assisted capture, hybrid <span class="tag ok">recommended</span></h3>
+<p>The phone does the light work locally: whistle detection, rally start and end, the referee's arm, and a coarse ball track. It proposes each event with a confidence. The coach confirms with one tap, or lets events above a threshold through automatically. The heavy work, if any, runs after the set or in the cloud for a post-match pass that proposes corrections.</p>
+<ul>
+<li><b>For:</b> the coach stays in control and the stats stay trustworthy from day one. Each step is shippable on its own. The existing take-back sheet is the correction tool. The cloud part can be deferred or skipped.</li>
+<li><b>Against:</b> it is not hands-off, and it needs a new capture screen designed for one-handed confirmation while watching the court.</li>
+</ul></div>
+
+<table>
+<tr><th>Criterion</th><th class="c">A. In-browser</th><th class="c">B. Native</th><th class="c">C. Cloud</th><th class="c">D. Hybrid</th></tr>
+<tr><td>Rally and serve detection</td><td class="c">Good</td><td class="c">Good</td><td class="c">Good</td><td class="c">Good</td></tr>
+<tr><td>Point winner</td><td class="c">Fair to good</td><td class="c">Good</td><td class="c">Good</td><td class="c">Good</td></tr>
+<tr><td>Line calls near the line</td><td class="c">Weak</td><td class="c">Weak</td><td class="c">Fair</td><td class="c">Weak, but asked</td></tr>
+<tr><td>Who passed</td><td class="c">Weak</td><td class="c">Fair</td><td class="c">Fair</td><td class="c">Asked</td></tr>
+<tr><td>Substitution identity</td><td class="c">Weak</td><td class="c">Weak</td><td class="c">Fair</td><td class="c">Asked</td></tr>
+<tr><td>New infrastructure</td><td class="c">None</td><td class="c">Native builds</td><td class="c">Backend + GPU</td><td class="c">Optional backend</td></tr>
+<tr><td>Video leaves the phone</td><td class="c">No</td><td class="c">No</td><td class="c">Yes</td><td class="c">Only if opted in</td></tr>
+<tr><td>Battery and heat over a match</td><td class="c">Poor</td><td class="c">Fair</td><td class="c">Fair (upload)</td><td class="c">Fair</td></tr>
+<tr class="hl"><td>Fit with the product today</td><td class="c">Good</td><td class="c">Poor</td><td class="c">Poor</td><td class="c">Good</td></tr>
+</table>
+
+<h2>5. What it would take</h2>
+
+<h3>5.1 Data and labelling</h3>
+<ul>
+<li><b>Video of your own matches</b>, from both candidate camera positions, across at least two gyms and lighting conditions. Twenty to forty sets is a workable first corpus.</li>
+<li><b>Labels from the app itself.</b> Serve, return, point and sub events with timestamps come from the coach's taps if the app records the clock alongside each history entry. That covers rally boundaries, winners and attribution with no manual labelling.</li>
+<li><b>Manual labels for the ball and the court</b>: ball position in a few thousand frames (interpolation tools such as CVAT or Label Studio bring this to 1 to 2 seconds per frame), four court corners per fixed camera position, and referee arm signals. Public volleyball ball datasets exist on Roboflow and GitHub (the open-source VolleyVision work, for example) and can seed early experiments, but check licences first: VolleyVision's data and code are non-commercial and copyleft, so a shipped product will need its own labelled data.</li>
+</ul>
+
+<h3>5.2 Models</h3>
+<table>
+<tr><th style="width:24%">Component</th><th>Approach</th><th style="width:22%">Notes</th></tr>
+<tr><td>Whistle detector</td><td>Audio classifier on the phone microphone (YAMNet-class embedding plus a tiny head).</td><td>Cheap, robust, runs anywhere.</td></tr>
+<tr><td>Rally segmenter</td><td>Ball motion plus whistle plus player spread. Rally starts at the serve toss, ends when the ball stops or the whistle sounds.</td><td>First model to build.</td></tr>
+<tr><td>Ball detector and tracker</td><td>Nano or small detector fine-tuned on volleyball, with a TrackNet-style three-frame tracker for the fast segments.</td><td>The most effort; the least needed early.</td></tr>
+<tr><td>Court map</td><td>Four tapped corners at setup, homography to floor coordinates. Re-tap if the phone moves.</td><td>No learning needed.</td></tr>
+<tr><td>Referee signal</td><td>Person detector locks on the referee's stand; a pose model reads the arm direction after each rally.</td><td>Best source of the winner.</td></tr>
+<tr><td>Scoreboard reader</td><td>Text recognition on a user-drawn box around the scoreboard, sampled every few seconds.</td><td>Only where a scoreboard is visible.</td></tr>
+<tr><td>Player tracker and jersey reader</td><td>Multi-object tracking of the six on court; jersey number recognition when visible.</td><td>Needed for "who passed" and subs. Last to build.</td></tr>
+</table>
+
+<h3>5.3 App work</h3>
+<ul>
+<li><b>Capture screen</b>: camera preview, court-corner calibration, a scoreboard box, a referee box, a big confirm and reject control usable one-handed, a confidence indicator.</li>
+<li><b>Event source and confidence</b> on history entries; the take-back sheet shows automatic events distinctly and can reject them in one tap.</li>
+<li><b>Clock on every history entry</b> and an optional video recording that keeps the match on the device. This is the Phase 0 change and is small.</li>
+<li><b>Model loading</b>: separate weight files fetched and cached by the service worker; a loading state; a fallback to manual tapping when the device cannot run the models.</li>
+<li><b>Battery, heat and storage</b> management: reduced resolution and frame rate when the device warms, a warning when storage is low, and a plain "video off, taps only" mode.</li>
+<li><b>Permissions and privacy</b>: a first-run explanation of camera and microphone use, where video is stored, how long it is kept, and how to delete it.</li>
+</ul>
+
+<h3>5.4 Infrastructure (only for options C and D with cloud)</h3>
+<ul>
+<li>Chunked upload, object storage, a GPU inference service (Replicate, Modal, RunPod or a cloud provider), a queue, and a results endpoint the app polls.</li>
+<li>Rough cost: on current GPU pricing, processing a one-hour match at reduced frame rate on a mid-range GPU is well under a few dollars. Storage of 1 to 2 GB per match dominates if video is retained.</li>
+<li>Accounts and authentication, which the app does not have, and a retention and deletion policy.</li>
+</ul>
+
+<h3>5.5 Privacy, consent and rules</h3>
+<ul>
+<li>Filming youth sport needs consent from parents or guardians and usually permission from the venue and the league. Some competitions forbid sideline filming or restrict where a camera may stand.</li>
+<li>Keep video on the device by default, process locally, and make cloud upload an explicit opt-in per team. Never store video with the stats payload.</li>
+<li>The opposing team, officials and spectators are in frame too. Face blurring in any retained footage is advisable.</li>
+</ul>
+
+<h3>5.6 People and time</h3>
+<p>Rough ranges for one to two people with some machine-learning experience, part-time alongside the current app. They are estimates for sizing the decision, not commitments.</p>
+<table>
+<tr><th style="width:14%">Phase</th><th>Outcome</th><th style="width:16%" class="c">Effort</th></tr>
+<tr><td><b>0</b></td><td>Record video and clock-stamped taps; build the first corpus from real matches.</td><td class="c">2 to 4 weeks</td></tr>
+<tr><td><b>1</b></td><td>Post-match pass: rally segmentation, whistle and referee signal; proposes corrections to a recorded set.</td><td class="c">2 to 4 months</td></tr>
+<tr><td><b>2</b></td><td>Near-live assist on the phone: serve detection, point proposals with one-tap confirm, auto score and side-out.</td><td class="c">3 to 5 months</td></tr>
+<tr><td><b>3</b></td><td>Ball tracking for line calls, player tracking for attribution, substitution pre-fill; auto-accept above a confidence threshold.</td><td class="c">6 months and open-ended</td></tr>
+</table>
+
+<h2>6. Phased roadmap</h2>
+
+<h3>Phase 0 — Record alongside the taps <span class="tag ok">start here</span></h3>
+<p>Add a clock to each history entry and an optional video recording on the record screen (the browser's MediaRecorder, saved to the device; Safari records MP4, Chrome records WebM, so the Phase 1 scripts must read both). The coach's workflow does not change. After a few match days there is a labelled corpus from both camera positions, and a clear view of what the phone camera actually sees in your gyms. This phase also answers the camera-position question with evidence rather than argument.</p>
+
+<h3>Phase 1 — Post-match analysis</h3>
+<p>A desktop or cloud script processes recorded sets: whistle detection, rally boundaries and the referee's signal. It produces a proposed rally log, compared against the coach's taps. The output is accuracy numbers per signal, which decide whether Phase 2 is worth building. If the referee signal alone reaches 90% on point winners, the live product is viable.</p>
+
+<h3>Phase 2 — Near-live assist</h3>
+<p>The models from Phase 1 that proved accurate move onto the phone. The capture screen proposes serve and point events in real time; the coach confirms or rejects. Score and side-out update automatically through the existing code path. Tapping remains available at all times.</p>
+
+<h3>Phase 3 — Toward hands-off</h3>
+<p>Ball tracking for clear line calls, player tracking for receive attribution, substitution pre-fill, and auto-accept for events above a confidence threshold the coach sets. Line calls near the line and substitution identity remain confirmed events, by design.</p>
+
+<h2>7. Risks and open questions</h2>
+<ul>
+<li><b>Browser camera on iOS.</b> Camera access in installed web apps has worked since iOS 13.4 but has regressed in some releases. If it becomes unreliable, option B (native wrapper) becomes the on-device path.</li>
+<li><b>Heat and battery.</b> Continuous camera and inference for a two-hour match will drain a phone and throttle it. A mount, a power bank and a reduced-frame-rate mode are part of the design, not optional extras.</li>
+<li><b>Gym conditions.</b> Fluorescent flicker, low light, cluttered backgrounds, spectators walking through the frame and a phone knocked off its mount will all happen. The system must fail safe to manual tapping.</li>
+<li><b>Referee variation.</b> Signals are standard, but stand position, lighting and partial occlusion vary by venue. Phase 1 measures this.</li>
+<li><b>Accuracy expectations.</b> A coach who trusts automatic stats that are 85% right will stop checking. The confidence display and the take-back sheet exist to keep the human in the loop.</li>
+<li><b>Buy rather than build.</b> Products such as Balltime (now part of Hudl) already produce volleyball stats from a single phone recording after the match. Licensing or integrating one may cover Phase 1 at lower cost, at the price of sending video to a third party and losing the live element.</li>
+<li><b>Scope creep.</b> Once video exists, requests for clips, highlights and attack stats follow. The study scopes only the seven stats the record screen takes today.</li>
+</ul>
+
+<h2>8. Decisions needed</h2>
+<ol>
+<li><b>Approve Phase 0.</b> It is small, changes nothing about how the coach works, and makes every later decision an evidence-based one.</li>
+<li><b>Camera position trial.</b> Film the same matches from the sideline and from an elevated end-line or corner, so Phase 1 can compare them.</li>
+<li><b>On-device only, or cloud allowed.</b> This sets the privacy posture and whether a backend is in scope. The recommendation is on-device first, cloud as a later opt-in.</li>
+<li><b>Target accuracy for auto-accept.</b> What confidence must an event reach before it goes in without a tap? This is a product decision the coach should own.</li>
+</ol>
+
+<div class="box warn"><b class="t">What this study does not promise</b>
+Fully automatic in-and-out calls near the line, automatic identification of which player passed, and automatic substitution identity are not achievable from one phone with acceptable reliability today. The roadmap keeps those as confirmed events and treats any later improvement as a bonus.</div>
+
+<footer>CoachIQ Rotation Planner Client · Live video stat tracking feasibility study · 2026-10-09 · Source: <code>docs/live-video-feasibility.html</code></footer>
+
+</body>
+</html>
